@@ -2,6 +2,7 @@ package com.paicli.cli;
 
 import com.paicli.harness.BetterHarnessRunner;
 import com.paicli.llm.LlmClient;
+import com.paicli.util.TerminalTable;
 import org.jline.reader.History;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
@@ -56,19 +57,40 @@ class MainInputNormalizationTest {
     }
 
     @Test
-    void startupBannerUsesOpenLayoutWithoutRightBorder() {
-        List<String> lines = Main.startupBannerLines();
+    void startupBannerUsesOpenLayoutWithoutRightBorder() throws Exception {
+        String oldColumns = System.getProperty("paicli.render.columns");
+        try {
+            System.setProperty("paicli.render.columns", "120");
+            List<String> lines = Main.startupBannerLines();
+            var version = Main.class.getDeclaredField("VERSION");
+            version.setAccessible(true);
+            String expectedVersion = "v" + version.get(null);
 
-        assertTrue(lines.stream().anyMatch(line -> line.contains("PaiCLI")));
-        assertTrue(lines.stream().anyMatch(line -> line.contains("π")));
-        assertTrue(lines.stream().anyMatch(line -> line.contains("v16.1.0")));
-        assertTrue(lines.stream().anyMatch(line -> line.contains("████████")));
-        assertTrue(lines.stream().anyMatch(line -> line.contains("Tips for getting started")));
-        assertTrue(lines.stream().anyMatch(line -> line.contains("@path")));
-        assertTrue(lines.stream().noneMatch(line -> line.contains("for shortcuts")));
-        assertTrue(lines.stream().noneMatch(line -> line.contains("────────────────")));
-        assertTrue(lines.stream().noneMatch(line -> line.endsWith("║")),
-                "banner should not depend on a padded right border");
+            assertTrue(lines.stream().anyMatch(line -> line.contains("Hao CLI")));
+            assertTrue(lines.stream().anyMatch(line -> line.contains("Build. Execute. Evolve.")));
+            assertTrue(lines.stream().anyMatch(line -> line.contains(expectedVersion)));
+            assertTrue(lines.stream().anyMatch(line -> line.contains("Model auto (model)")));
+            for (String capability : List.of("ReAct", "Plan", "MCP")) {
+                assertTrue(lines.stream().anyMatch(line -> line.contains(capability)), capability);
+            }
+            assertTrue(lines.stream().anyMatch(line -> line.contains("Tips for getting started")));
+            assertTrue(lines.stream().anyMatch(line -> line.contains("@path")));
+            assertTrue(lines.stream().noneMatch(line -> line.contains("for shortcuts")));
+            assertTrue(lines.stream().noneMatch(line -> line.contains("────────────────")));
+            assertTrue(lines.stream().noneMatch(line -> line.endsWith("║")),
+                    "banner should not depend on a padded right border");
+
+            System.setProperty("paicli.render.columns", "24");
+            List<String> narrowLines = Main.startupBannerLines();
+            assertTrue(narrowLines.size() > lines.size(), "narrow terminals should wrap banner lines");
+            assertTrue(narrowLines.stream().allMatch(line -> TerminalTable.width(line) <= 24));
+            assertTrue(narrowLines.stream().noneMatch(line -> line.endsWith("║")));
+            // 换行不能丢掉原来的文字；忽略颜色，只移除换行后比较。
+            assertEquals(org.jline.utils.AttributedString.fromAnsi(String.join("", lines)).toString(),
+                    org.jline.utils.AttributedString.fromAnsi(String.join("", narrowLines)).toString());
+        } finally {
+            restoreProperty("paicli.render.columns", oldColumns);
+        }
     }
 
     @Test

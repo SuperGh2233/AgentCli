@@ -17,6 +17,7 @@ import com.paicli.render.PlainRenderer;
 import com.paicli.render.Renderer;
 import com.paicli.render.StatusInfo;
 import com.paicli.runtime.CancellationContext;
+import com.paicli.runtime.input.TurnInputManager;
 import com.paicli.skill.SkillIndexFormatter;
 import com.paicli.skill.SkillRegistry;
 import com.paicli.util.AnsiStyle;
@@ -66,6 +67,9 @@ public class Agent {
     private Supplier<Boolean> hitlEnabledSupplier = () -> false;
     private Supplier<String> sessionModeSupplier = () -> null;
     private boolean returnFinalResponseWhenStreamed;
+    // Phase 3A: opt-in only for controlled integration tests. Main never installs
+    // this while native input/atomic-finalize gates are still outstanding.
+    private ReActSteeringSafePoint steeringSafePoint;
     private final PromptAssembler promptAssembler = PromptAssembler.createDefault();
 
     public Agent(LlmClient llmClient) {
@@ -112,6 +116,15 @@ public class Agent {
         this.autoCompactionManager.setLlmClient(llmClient);
         this.toolRegistry.setContextProfile(memoryManager.getContextProfile());
         this.toolRegistry.setCurrentModel(llmClient.getProviderName(), llmClient.getModelName());
+    }
+
+    /**
+     * Phase 3A opt-in: the caller owns turn lifecycle and has already put the
+     * manager into RUNNING. Package-private until Main/input integration is safe.
+     * No CLI feature switch or live input handler calls this yet.
+     */
+    void configureSteeringSafePoint(TurnInputManager manager, String turnId) {
+        this.steeringSafePoint = new ReActSteeringSafePoint(manager, turnId);
     }
 
     public void setExternalContextSupplier(Supplier<String> externalContextSupplier) {
@@ -240,12 +253,13 @@ public class Agent {
                 TurnToolPolicy.ToolExposure toolExposure = turnToolPolicy.expose(toolDefinitions);
                 logRequestContext("react iteration=" + iteration, toolExposure.definitions());
                 streamRenderer.beginThinking();
-                // 调用 LLM
-                LlmClient.ChatResponse response = llmClient.chat(
-                        conversationHistory,
-                        toolExposure.definitions(),
-                        streamRenderer
-                );
+                var requested = chatWithSteering(toolExposure.definitions(), streamRenderer);
+                if (requested.isEmpty()) {
+                    streamRenderer.finish();
+                    pushStatus(budget, startNanos, "idle");
+                    return "⏹️ 已取消当前任务。";
+                }
+                LlmClient.ChatResponse response = requested.orElseThrow();
                 LlmTraceLogger.logReasoning(log, "react iteration=" + iteration, llmClient, response.reasoningContent());
                 if (CancellationContext.isCancelled()) {
                     log.info("ReAct run cancelled after LLM response");
@@ -307,6 +321,21 @@ public class Agent {
                                 response.reasoningContent(),
                                 response.content()));
 
+                ReActSteeringSafePoint activeSteering = steeringSafePoint;
+                if (activeSteering != null) {
+                    ReActSteeringSafePoint.FinalizationDecision finalization =
+                            activeSteering.finalizeOrContinue();
+                    if (finalization == ReActSteeringSafePoint.FinalizationDecision.CANCELLED) {
+                        streamRenderer.finish();
+                        pushStatus(budget, startNanos, "idle");
+                        return "⏹️ 已取消当前任务。";
+                    }
+                    if (finalization == ReActSteeringSafePoint.FinalizationDecision.CONTINUE) {
+                        pushStatus(budget, startNanos, "running");
+                        continue;
+                    }
+                }
+
                 // 记录 token 使用
                 memoryManager.recordTokenUsage(budget.totalInputTokens(), budget.totalOutputTokens(), budget.totalCachedInputTokens());
                 reportAutomaticallySavedFacts(submittedUserInput);
@@ -326,10 +355,12 @@ public class Agent {
                     if (unexecutedToolCall) {
                         renderer().stream().println(AnsiStyle.subtle(UNEXECUTED_TOOL_CALL_NOTICE));
                     }
+                    if (activeSteering != null) activeSteering.completeTurn();
                     return returnFinalResponseWhenStreamed ? (response.content() == null ? "" : response.content().trim()) : "";
                 }
                 streamRenderer.clearThinkingPanel();
                 String answer = formatUserFacingResponse(reasoningTranscript.toString(), response.content());
+                if (activeSteering != null) activeSteering.completeTurn();
                 return unexecutedToolCall ? answer + "\n\n" + UNEXECUTED_TOOL_CALL_NOTICE : answer;
 
             } catch (IOException e) {
@@ -338,6 +369,36 @@ public class Agent {
                 return "❌ 调用 LLM 失败: " + e.getMessage();
             }
         }
+    }
+
+    /** 常规和预算收尾请求共用交付步骤；空结果表示安全点不允许继续请求。 */
+    private java.util.Optional<LlmClient.ChatResponse> chatWithSteering(
+            List<LlmClient.Tool> tools, StreamRenderer streamRenderer) throws IOException {
+        ReActSteeringSafePoint activeSteering = steeringSafePoint;
+        ReActSteeringSafePoint.Prepared prepared = activeSteering == null
+                ? null : activeSteering.reserve(conversationHistory);
+        if (prepared != null && !prepared.proceed()) return java.util.Optional.empty();
+        boolean hasDelivery = prepared != null && prepared.delivery() != null;
+        if (CancellationContext.isCancelled()) {
+            if (hasDelivery) activeSteering.requeue(prepared);
+            return java.util.Optional.empty();
+        }
+        LlmClient.ChatResponse response;
+        try {
+            // 新输入只进入本次请求快照；工具权限仍由原有 TurnToolPolicy 决定。
+            response = llmClient.chat(prepared == null ? conversationHistory : prepared.requestMessages(),
+                    tools, streamRenderer);
+        } catch (IOException | RuntimeException callError) {
+            if (hasDelivery) activeSteering.uncertain(prepared);
+            throw callError;
+        }
+        if (hasDelivery) {
+            activeSteering.commit(prepared);
+            for (LlmClient.Message message : activeSteering.additions(prepared)) {
+                appendConversationMessage(message, "runtime_steer_included");
+            }
+        }
+        return java.util.Optional.of(response);
     }
 
     /**
@@ -362,10 +423,13 @@ public class Agent {
 
         try {
             streamRenderer.beginThinking();
-            LlmClient.ChatResponse response = llmClient.chat(
-                    conversationHistory,
-                    List.of(),
-                    streamRenderer);
+            var requested = chatWithSteering(List.of(), streamRenderer);
+            if (requested.isEmpty()) {
+                streamRenderer.finish();
+                pushStatus(budget, startNanos, "idle");
+                return "⏹️ 已取消当前任务。";
+            }
+            LlmClient.ChatResponse response = requested.orElseThrow();
             budget.recordTokens(response.inputTokens(), response.outputTokens(), response.cachedInputTokens());
             appendReasoning(reasoningTranscript, response.reasoningContent());
 

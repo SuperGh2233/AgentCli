@@ -193,6 +193,19 @@ public final class TurnInputManager {
         return Optional.of(reserved);
     }
 
+    /** proceed=false 表示当前任务不能继续请求；delivery=null 表示没有待交付消息。 */
+    public record RequestReservation(boolean proceed, Delivery delivery) { }
+
+    /** 检查任务状态与预留共用同一把锁，取消先到时不抛状态异常，也不允许继续请求。 */
+    public synchronized RequestReservation reserveIfRunning(String expectedTurnId) {
+        requireEnabled();
+        requireText(expectedTurnId, "expectedTurnId");
+        if (!Objects.equals(turnId, expectedTurnId) || state != TurnState.RUNNING) {
+            return new RequestReservation(false, null);
+        }
+        return new RequestReservation(true, reserveForRequest(expectedTurnId).orElse(null));
+    }
+
     /**
      * 调用方确认请求已提交后调用。中断请求不会抹掉已经提交的事实。
      * INCLUDED_IN_REQUEST 不表示模型已经执行；发送结果不明时不得 requeue 来重发。

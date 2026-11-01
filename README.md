@@ -1,8 +1,20 @@
-# PaiCLI
+# Hao CLI
 
-一个成熟的 Java Agent CLI 产品，对标 Claude Code，作者是沉默王二。从第一期的 `ReAct` 单代理循环逐步演进到第十六期的 `TUI 产品化`。
+Build. Execute. Evolve.
 
-当前进度：已完成第 16.1 期 inline 流式 TUI 形态修正、第 17 期 `LSP 诊断注入` MVP、第 18 期 `Git Side-History 快照与回滚` MVP、第 19 期 `Prompt 分层架构` MVP、第 20 期 `异步后台任务 + Runtime API` MVP、第 21 期 `图片复制粘贴输入` MVP、第 23 期 `微信 iLink 通道` 文本 MVP。
+Hao CLI 是一个由 GitHub 账号 **SuperGh2233** 独立开发和维护的 Java Agent CLI 项目，重点探索 Agent Harness、任务规划、工具执行、上下文管理、记忆机制和终端交互。
+
+项目设计过程中参考了开发者社区中关于 Agent CLI 的实践思路，包括[沉默王二的 PaiCLI 项目与教程](https://javabetter.cn/sidebar/itwanger/paicli/)。这里仅作为设计思路的参考与致谢；Hao CLI 的代码实现、功能取舍和后续演进由本项目独立维护。项目不以 PaiCLI 作为代码来源，也不将其功能清单直接视为 Hao CLI 的实现说明。
+
+## 项目特点
+
+Hao CLI 围绕一个目标展开：把模型推理、任务规划、工具调用、记忆和运行时控制组织成一个可观察、可扩展的终端 Agent。项目从 ReAct 单 Agent 循环逐步扩展到 Plan-and-Execute、Multi-Agent、MCP、代码检索、记忆管理和终端界面。
+
+## 当前开发方向
+
+本项目持续推进执行中输入控制和终端交互可靠性；未完成的接线和验证不作为已交付能力。现有 Maven 构建名称、`com.paicli` 包名、`~/.paicli`、`PAICLI_*` 和 `PAI.md` 等历史兼容标识暂时保留，后续再评估是否迁移。启动时显示的 `v16.1.0` 是现有代码中的历史版本常量，不代表 Hao CLI 已发布对应的语义版本。
+
+执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；真实前台 Ctrl+C、中文输入法组合态和旧输入路径迁移仍待验收。Phase3A 的 ReAct 安全点已通过离线 FakeLLM 定向测试（5/5），但尚未接入 `Main`，不能视为已启用功能。`paicli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
 
 ## 测试策略
 

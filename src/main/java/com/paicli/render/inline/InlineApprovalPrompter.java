@@ -1,6 +1,8 @@
 package com.paicli.render.inline;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.paicli.cli.InputCoordinator;
+import com.paicli.cli.TerminalInputGateway;
 import com.paicli.hitl.ApprovalPolicy;
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
@@ -13,12 +15,17 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Objects;
+
+import static com.paicli.cli.TerminalInputGateway.Kind.*;
 
 /**
  * Inline 形态的 HITL 审批提示。
  *
  * <p>主菜单选项 {@code y / a / n / s / m} 通过 raw mode 单字符读取（不需要回车），
  * 后续输入（拒绝原因、新参数 JSON）回退到 {@code BufferedReader.readLine}。
+ * 显式注入输入请求桥时，全部输入都由 UI 所有者读取，失败则拒绝审批；旧路径保持不变。
  *
  * <p>有意保持和 {@link com.paicli.render.PlainRenderer#promptApproval} 一致的语义；
  * 只是首选项交互更紧凑。
@@ -31,6 +38,8 @@ public final class InlineApprovalPrompter {
     private final PrintStream out;
     private final Terminal terminal;
     private final BufferedReader stdinReader;
+    private final TerminalInputGateway gateway;
+    private final Duration inputTimeout;
 
     public InlineApprovalPrompter(PrintStream out, Terminal terminal) {
         this(out, terminal, new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)));
@@ -40,9 +49,31 @@ public final class InlineApprovalPrompter {
         this.out = out;
         this.terminal = terminal;
         this.stdinReader = stdinReader;
+        this.gateway = null;
+        this.inputTimeout = null;
+    }
+
+    /** 显式注入的新路径：worker 不创建或读取 stdin/terminal；Main 尚未使用此入口。 */
+    public InlineApprovalPrompter(PrintStream out, TerminalInputGateway gateway, Duration inputTimeout) {
+        this.out = Objects.requireNonNull(out, "out");
+        this.gateway = Objects.requireNonNull(gateway, "gateway");
+        this.inputTimeout = Objects.requireNonNull(inputTimeout, "inputTimeout");
+        if (inputTimeout.isNegative() || inputTimeout.isZero()) throw new IllegalArgumentException("超时必须为正数");
+        inputTimeout.toNanos();
+        this.terminal = null;
+        this.stdinReader = null;
     }
 
     public ApprovalResult prompt(ApprovalRequest request) {
+        if (gateway == null) return prompt(request, null);
+        try (var session = gateway.openInteraction(InputCoordinator.Mode.APPROVAL_INPUT)) {
+            return prompt(request, session);
+        } catch (TerminalInputGateway.InputUnavailableException e) {
+            return ApprovalResult.reject(e.getMessage());
+        }
+    }
+
+    private ApprovalResult prompt(ApprovalRequest request, TerminalInputGateway.Session session) {
         boolean sensitive = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
         out.println();
         out.println(AnsiStyle.heading("⚠️  HITL 审批"));
@@ -58,7 +89,7 @@ public final class InlineApprovalPrompter {
             out.print("> " + optionsLine + " ");
             out.flush();
 
-            int key = readSingleKey();
+            int key = readSingleKey(session);
             if (key < 0) {
                 out.println();
                 return ApprovalResult.reject("无法读取按键");
@@ -77,16 +108,16 @@ public final class InlineApprovalPrompter {
                         out.println(AnsiStyle.subtle("  敏感操作不支持全部放行，请选 y/n/s/m"));
                         continue;
                     }
-                    return promptApproveAllScope(request);
+                    return promptApproveAllScope(request, session);
                 }
                 case 'n' -> {
-                    return ApprovalResult.reject(promptForReason());
+                    return ApprovalResult.reject(promptForReason(session));
                 }
                 case 's' -> {
                     return ApprovalResult.skip();
                 }
                 case 'm' -> {
-                    ApprovalResult modified = promptForModifiedArgs(request);
+                    ApprovalResult modified = promptForModifiedArgs(request, session);
                     if (modified != null) {
                         return modified;
                     }
@@ -98,7 +129,12 @@ public final class InlineApprovalPrompter {
         return ApprovalResult.reject("连续多次无效输入");
     }
 
-    private int readSingleKey() {
+    private int readSingleKey(TerminalInputGateway.Session session) {
+        if (session != null) {
+            String line = session.read(APPROVAL_CHOICE, "审批选项 y/a/n/s/m", inputTimeout);
+            // 普通句子即使以 y 开头也不能被截成批准；所有输入都留在审批模式。
+            return line.isEmpty() ? '\n' : line.length() == 1 ? line.charAt(0) : '?';
+        }
         Attributes original;
         try {
             original = terminal.enterRawMode();
@@ -118,18 +154,18 @@ public final class InlineApprovalPrompter {
         }
     }
 
-    private String promptForReason() {
+    private String promptForReason(TerminalInputGateway.Session session) {
         out.print("  拒绝原因（可直接回车跳过）: ");
         out.flush();
         try {
-            String line = stdinReader.readLine();
+            String line = readLine(session, REJECTION_REASON, "拒绝原因（可直接回车跳过）");
             return line == null ? "" : line.trim();
         } catch (IOException e) {
             return "";
         }
     }
 
-    private ApprovalResult promptApproveAllScope(ApprovalRequest request) {
+    private ApprovalResult promptApproveAllScope(ApprovalRequest request, TerminalInputGateway.Session session) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
         if (mcpServer == null || mcpServer.isBlank()) {
             out.println(AnsiStyle.subtle("  已批准，后续 " + request.toolName() + " 自动通过"));
@@ -140,7 +176,7 @@ public final class InlineApprovalPrompter {
         out.flush();
         String scope;
         try {
-            scope = stdinReader.readLine();
+            scope = readLine(session, APPROVAL_SCOPE, "全部放行范围 tool/server");
         } catch (IOException e) {
             scope = "";
         }
@@ -153,13 +189,13 @@ public final class InlineApprovalPrompter {
         return ApprovalResult.approveAll();
     }
 
-    private ApprovalResult promptForModifiedArgs(ApprovalRequest request) {
+    private ApprovalResult promptForModifiedArgs(ApprovalRequest request, TerminalInputGateway.Session session) {
         out.println("  当前参数: " + request.arguments());
         out.print("  修改后的 JSON（空行 = 保留原参数）: ");
         out.flush();
         String modified;
         try {
-            modified = stdinReader.readLine();
+            modified = readLine(session, MODIFIED_ARGUMENTS, "修改后的 JSON（空行保留原参数）");
         } catch (IOException e) {
             return null;
         }
@@ -175,5 +211,10 @@ public final class InlineApprovalPrompter {
             return null;
         }
         return ApprovalResult.modify(trimmed);
+    }
+
+    private String readLine(TerminalInputGateway.Session session, TerminalInputGateway.Kind kind, String prompt)
+            throws IOException {
+        return session == null ? stdinReader.readLine() : session.read(kind, prompt, inputTimeout);
     }
 }

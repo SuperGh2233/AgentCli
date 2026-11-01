@@ -85,8 +85,11 @@ final class ProjectMemoryInitializer {
         List<String> pitfalls = new ArrayList<>();
         List<String> donts = new ArrayList<>();
 
-        if (combined.contains("paicli")) {
-            description = "PaiCLI 是面向商业使用的 Java Agent CLI 产品，对标 Claude Code；主路径是 ReAct、Plan-and-Execute、Multi-Agent 三套执行模式。";
+        boolean haoCli = name.equalsIgnoreCase("Hao CLI");
+        if (haoCli || combined.contains("paicli")) {
+            description = haoCli
+                    ? "Hao CLI 是独立开发的 Java Agent CLI，设计时参考了社区的 Agent CLI 实践思路；主路径是 ReAct、Plan-and-Execute、Multi-Agent 三套执行模式。"
+                    : "PaiCLI 是面向商业使用的 Java Agent CLI 产品，对标 Claude Code；主路径是 ReAct、Plan-and-Execute、Multi-Agent 三套执行模式。";
             commands = List.of(
                     "构建：`mvn clean package` 默认跳过测试，优先产出可手工验收 jar。",
                     "常规回归：`mvn test -Pquick`；TUI 相关跑 `mvn test -Pphase16-smoke`。",

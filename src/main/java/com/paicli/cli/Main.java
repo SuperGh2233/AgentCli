@@ -93,6 +93,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -3216,11 +3217,11 @@ public class Main {
         String capabilities = "ReAct · Plan · MCP · Browser · Image · Tools · Memory · RAG";
         String state = mcp + " · " + skills + " · ReAct";
         List<String> lines = new ArrayList<>(List.of(
-                "   " + AnsiStyle.section("██████████") + "    " + AnsiStyle.emphasis("PaiCLI") + " " + AnsiStyle.section("π") + "  " + AnsiStyle.subtle("v" + VERSION),
-                "   " + AnsiStyle.section("  ██  ██") + "    " + AnsiStyle.subtle(ready),
-                "   " + AnsiStyle.section("  ██  ██") + "    " + AnsiStyle.subtle(state),
-                "   " + AnsiStyle.section("  ██  ██") + "    " + AnsiStyle.subtle(capabilities),
-                "   " + AnsiStyle.section("  ██  ██"),
+                AnsiStyle.emphasis("Hao CLI") + "  " + AnsiStyle.subtle("v" + VERSION),
+                AnsiStyle.subtle("Build. Execute. Evolve."),
+                AnsiStyle.subtle(ready),
+                AnsiStyle.subtle(state),
+                AnsiStyle.subtle(capabilities),
                 "",
                 "Tips for getting started:",
                 "1. Type " + AnsiStyle.emphasis("/") + " for commands and Tab completion",
@@ -3233,7 +3234,9 @@ public class Main {
                 lines.add(AnsiStyle.subtle(line));
             }
         }
-        return lines;
+        return lines.stream()
+                .flatMap(line -> Arrays.stream(TerminalTable.wrap(line, terminalColumns()).split("\n", -1)))
+                .toList();
     }
 
     static McpConfigBootstrapResult ensureDefaultMcpConfig(Path userHome) throws IOException {
