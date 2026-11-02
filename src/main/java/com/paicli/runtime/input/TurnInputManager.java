@@ -38,6 +38,8 @@ public final class TurnInputManager {
 
     public enum Finalization { CONTINUE, FINALIZE }
 
+    public enum ToolStartClaim { ALLOWED, DISABLED, INVALID_ID, NOT_RUNNING, DUPLICATE }
+
     public record Snapshot(String turnId, TurnState state, int pendingCount,
                            int reservedCount, int queuedCount, boolean queuePaused) {
     }
@@ -67,6 +69,7 @@ public final class TurnInputManager {
     private final ArrayDeque<RuntimeInput> queued = new ArrayDeque<>();
     private final Map<String, InputView> messages = new HashMap<>();
     private final Set<String> usedTurnIds = new HashSet<>();
+    private final Set<String> claimedToolIds = new HashSet<>();
     private String turnId;
     private TurnState state = TurnState.IDLE;
     private long sequence;
@@ -88,6 +91,16 @@ public final class TurnInputManager {
     }
 
     public boolean enabled() { return enabled; }
+
+    /** 与 accept(INTERRUPT) 共用锁。领取成功就是启动边界；不持锁执行工具或等待审批。 */
+    public synchronized ToolStartClaim claimToolStart(String expectedTurnId, String invocationId) {
+        if (!enabled) return ToolStartClaim.DISABLED;
+        if (blank(expectedTurnId) || blank(invocationId)) return ToolStartClaim.INVALID_ID;
+        if (!Objects.equals(turnId, expectedTurnId) || state != TurnState.RUNNING) {
+            return ToolStartClaim.NOT_RUNNING;
+        }
+        return claimedToolIds.add(invocationId) ? ToolStartClaim.ALLOWED : ToolStartClaim.DUPLICATE;
+    }
 
     public synchronized Snapshot snapshot() {
         return new Snapshot(turnId, state, pending.size(),
@@ -290,6 +303,7 @@ public final class TurnInputManager {
 
     private void begin(String newTurnId) {
         usedTurnIds.add(newTurnId);
+        claimedToolIds.clear();
         turnId = newTurnId;
         acceptedSteers = 0;
         state = TurnState.STARTING;

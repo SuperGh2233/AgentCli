@@ -14,7 +14,7 @@ Hao CLI 围绕一个目标展开：把模型推理、任务规划、工具调用
 
 本项目持续推进执行中输入控制和终端交互可靠性；未完成的接线和验证不作为已交付能力。现有 Maven 构建名称、`com.paicli` 包名、`~/.paicli`、`PAICLI_*` 和 `PAI.md` 等历史兼容标识暂时保留，后续再评估是否迁移。启动时显示的 `v16.1.0` 是现有代码中的历史版本常量，不代表 Hao CLI 已发布对应的语义版本。
 
-执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；真实前台 Ctrl+C、中文输入法组合态和旧输入路径迁移仍待验收。Phase3A 的 ReAct 安全点已通过离线 FakeLLM 定向测试（5/5），但尚未接入 `Main`，不能视为已启用功能。`paicli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
+执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；用户也已在普通 macOS Terminal 验证 Ctrl+C / Ctrl+D 的 JLine 原生异常。Phase3A ReAct 安全点和 Phase3B-3A 的 Main 接线已实现，但只有在 `paicli.steering.enabled=true`、交互式 inline ReAct 路径启用；Plain/Lanterna 和非交互路径不启用新输入循环，Plan/Team 仍保留原审批流程。Phase3B-3A 隔离离线回归已通过（12 suites / 94 tests，0 failures / 0 errors）；真实 Main + WakeableLineReader 终端组合、中文输入法候选窗和审批/Steer 输入归属仍待人工验收。Steer/Queue 输入会清除编辑态回显并写入可见的对话记录；`/queue` 目前只保存并显示数量，不会自动启动下一任务。`paicli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
 
 ## 测试策略
 

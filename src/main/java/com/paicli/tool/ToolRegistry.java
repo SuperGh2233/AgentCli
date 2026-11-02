@@ -85,6 +85,24 @@ public class ToolRegistry {
     private static final Set<String> AUDIT_TOOLS = Set.of(
             "write_file", "edit_file", "execute_command", "create_project", "revert_turn", "save_skill_reference");
     private final Map<String, Tool> tools = new ConcurrentHashMap<>();
+    // 实例级、非继承的线程上下文：只包住一次派发，finally 清理，不跨 Turn 注册回调。
+    private final ThreadLocal<PendingToolStart> pendingToolStart = new ThreadLocal<>();
+
+    /** null 表示允许；非 null 是未启动原因。只在审批后、执行器入口调用一次。 */
+    @FunctionalInterface
+    public interface ToolStartGate {
+        String rejectionReason(ToolInvocation invocation);
+    }
+
+    private record PendingToolStart(ToolInvocation invocation, ToolStartGate gate) { }
+
+    private String claimPendingToolStart() {
+        PendingToolStart pending = pendingToolStart.get();
+        if (pending == null) return null;
+        // 内置 web 工具可能委托给 MCP：同一 invocation 只领取一次。
+        pendingToolStart.remove();
+        return pending.gate().rejectionReason(pending.invocation());
+    }
     private final Map<String, McpRegisteredTool> mcpTools = new ConcurrentHashMap<>();
     private final long commandTimeoutSeconds;
     private final long toolBatchTimeoutSeconds;
@@ -1450,6 +1468,8 @@ public class ToolRegistry {
                 if (browserCheck.blocked()) {
                     throw new PolicyException(browserCheck.reason());
                 }
+                String rejection = claimPendingToolStart();
+                if (rejection != null) return ToolOutput.failure(rejection);
                 ToolOutput output = mcpTool.invoker().apply(argumentsJson);
                 if (output == null) {
                     output = ToolOutput.text("");
@@ -1478,6 +1498,8 @@ public class ToolRegistry {
             Map<String, String> argMap = new HashMap<>();
             checked.arguments().fields().forEachRemaining(entry ->
                     argMap.put(entry.getKey(), entry.getValue().asText()));
+            String rejection = claimPendingToolStart();
+            if (rejection != null) return ToolOutput.failure(rejection);
             ToolOutput output;
             if ("web_search".equals(name)) {
                 output = webSearchOutput(argMap.get("query"), parseInt(argMap.get("top_k"), 5));
@@ -1601,6 +1623,11 @@ public class ToolRegistry {
      * 含浏览器工具的批次整体串行，避免同一浏览器会话内的页面状态互相覆盖。
      */
     public List<ToolExecutionResult> executeTools(List<ToolInvocation> invocations) {
+        return executeTools(invocations, null);
+    }
+
+    /** 可选的逐调用启动检查；HITL 仍通过 executeToolOutput 的动态派发先完成审批。 */
+    public List<ToolExecutionResult> executeTools(List<ToolInvocation> invocations, ToolStartGate startGate) {
         if (invocations == null || invocations.isEmpty()) {
             return List.of();
         }
@@ -1611,10 +1638,10 @@ public class ToolRegistry {
         }
         if (invocations.size() == 1
                 || invocations.stream().anyMatch(invocation -> TurnToolPolicy.isBrowserToolName(invocation.name()))) {
-            return executeSerially(invocations);
+            return executeSerially(invocations, startGate);
         }
         if (invocations.stream().allMatch(invocation -> isParallelSafeTool(invocation.name()))) {
-            return executeInParallel(invocations);
+            return executeInParallel(invocations, startGate);
         }
 
         List<ToolExecutionResult> results = new ArrayList<>(invocations.size());
@@ -1624,10 +1651,10 @@ public class ToolRegistry {
                 readOnlyRun.add(invocation);
                 continue;
             }
-            results.addAll(flushReadOnlyRun(readOnlyRun));
-            results.addAll(executeSerially(List.of(invocation)));
+            results.addAll(flushReadOnlyRun(readOnlyRun, startGate));
+            results.addAll(executeSerially(List.of(invocation), startGate));
         }
-        results.addAll(flushReadOnlyRun(readOnlyRun));
+        results.addAll(flushReadOnlyRun(readOnlyRun, startGate));
         return results;
     }
 
@@ -1640,16 +1667,28 @@ public class ToolRegistry {
         return toolName != null && PARALLEL_SAFE_TOOLS.contains(toolName);
     }
 
-    private List<ToolExecutionResult> flushReadOnlyRun(List<ToolInvocation> readOnlyRun) {
+    private List<ToolExecutionResult> flushReadOnlyRun(List<ToolInvocation> readOnlyRun, ToolStartGate startGate) {
         if (readOnlyRun.isEmpty()) {
             return List.of();
         }
         List<ToolInvocation> run = List.copyOf(readOnlyRun);
         readOnlyRun.clear();
-        return run.size() == 1 ? executeSerially(run) : executeInParallel(run);
+        return run.size() == 1 ? executeSerially(run, startGate) : executeInParallel(run, startGate);
     }
 
-    private List<ToolExecutionResult> executeSerially(List<ToolInvocation> invocations) {
+    private ToolOutput executeInvocation(ToolInvocation invocation, ToolStartGate startGate) {
+        if (startGate == null) return executeToolOutput(invocation.name(), invocation.argumentsJson());
+        PendingToolStart previous = pendingToolStart.get();
+        pendingToolStart.set(new PendingToolStart(invocation, startGate));
+        try {
+            return executeToolOutput(invocation.name(), invocation.argumentsJson());
+        } finally {
+            if (previous == null) pendingToolStart.remove();
+            else pendingToolStart.set(previous);
+        }
+    }
+
+    private List<ToolExecutionResult> executeSerially(List<ToolInvocation> invocations, ToolStartGate startGate) {
         List<ToolExecutionResult> results = new ArrayList<>(invocations.size());
         for (ToolInvocation invocation : invocations) {
             if (CancellationContext.isCancelled()) {
@@ -1657,13 +1696,13 @@ public class ToolRegistry {
                 continue;
             }
             long startedAt = System.nanoTime();
-            ToolOutput output = executeToolOutput(invocation.name(), invocation.argumentsJson());
+            ToolOutput output = executeInvocation(invocation, startGate);
             results.add(ToolExecutionResult.completed(invocation, output, elapsedMillis(startedAt)));
         }
         return results;
     }
 
-    private List<ToolExecutionResult> executeInParallel(List<ToolInvocation> invocations) {
+    private List<ToolExecutionResult> executeInParallel(List<ToolInvocation> invocations, ToolStartGate startGate) {
         int parallelism = Math.min(invocations.size(), MAX_PARALLEL_TOOLS);
         ExecutorService executor = Executors.newFixedThreadPool(parallelism, r -> {
             Thread thread = new Thread(r, "paicli-tool-executor");
@@ -1678,7 +1717,7 @@ public class ToolRegistry {
                             return ToolExecutionResult.failed(invocation, "用户取消了此次工具调用");
                         }
                         long startedAt = System.nanoTime();
-                        ToolOutput output = executeToolOutput(invocation.name(), invocation.argumentsJson());
+                        ToolOutput output = executeInvocation(invocation, startGate);
                         return ToolExecutionResult.completed(invocation, output, elapsedMillis(startedAt));
                     })
                     .toList();

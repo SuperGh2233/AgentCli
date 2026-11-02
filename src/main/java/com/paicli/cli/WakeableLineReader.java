@@ -2,6 +2,8 @@ package com.paicli.cli;
 
 import org.jline.keymap.KeyMap;
 import org.jline.reader.Buffer;
+import org.jline.reader.LineReader;
+import org.jline.reader.Widget;
 import org.jline.reader.impl.LineReaderImpl;
 import org.jline.terminal.Terminal;
 import org.jline.utils.NonBlockingReader;
@@ -14,7 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 单一终端读取者使用的 JLine 唤醒组件。worker 只能 requestWake()；
  * 唤醒、缓冲快照及恢复均由创建本对象的 UI 线程执行。
  *
- * 尚未接入 Main / Agent：不能绕过实际终端与审批交互的集成验收。
+ * 仅在 paicli.steering.enabled=true 且交互式 inline ReAct 路径使用；其它模式继续使用原读取路径。
  */
 public final class WakeableLineReader extends LineReaderImpl {
     public record Draft(String text, int cursor) {
@@ -42,11 +44,23 @@ public final class WakeableLineReader extends LineReaderImpl {
     public WakeableLineReader(Terminal terminal, String appName) throws IOException {
         super(Objects.requireNonNull(terminal, "terminal"),
                 Objects.requireNonNull(appName, "appName"));
+        Widget previousInit = getWidgets().get(LineReader.CALLBACK_INIT);
+        getWidgets().put(LineReader.CALLBACK_INIT, () -> {
+            boolean accepted = previousInit == null || previousInit.apply();
+            applyRestoredCursor();
+            return accepted;
+        });
     }
 
     /** worker 线程安全；严禁在这里访问 JLine/Terminal 的任何方法。 */
     public void requestWake() {
         wakeRequested.set(true);
+    }
+
+    /** 清理由 UI 已处理的唤醒标志，避免完成事件泄漏到下一次空闲提示。 */
+    public boolean consumeWakeRequest() {
+        requireUiOwner();
+        return wakeRequested.getAndSet(false);
     }
 
     /** 调用方捕获 Wakeup 后，由 UI 线程取出并清除这次保留的草稿。 */

@@ -67,8 +67,8 @@ public class Agent {
     private Supplier<Boolean> hitlEnabledSupplier = () -> false;
     private Supplier<String> sessionModeSupplier = () -> null;
     private boolean returnFinalResponseWhenStreamed;
-    // Phase 3A: opt-in only for controlled integration tests. Main never installs
-    // this while native input/atomic-finalize gates are still outstanding.
+    // Phase 3A: opt-in only for the gated interactive inline ReAct path; Main
+    // installs one safe point per Turn and clears it only after the worker stops.
     private ReActSteeringSafePoint steeringSafePoint;
     private final PromptAssembler promptAssembler = PromptAssembler.createDefault();
 
@@ -119,12 +119,16 @@ public class Agent {
     }
 
     /**
-     * Phase 3A opt-in: the caller owns turn lifecycle and has already put the
-     * manager into RUNNING. Package-private until Main/input integration is safe.
-     * No CLI feature switch or live input handler calls this yet.
+     * Phase 3 opt-in: the CLI owns the turn lifecycle and enables this only for an
+     * interactive inline ReAct run after the unified terminal input path is ready.
      */
-    void configureSteeringSafePoint(TurnInputManager manager, String turnId) {
+    public void configureSteeringSafePoint(TurnInputManager manager, String turnId) {
         this.steeringSafePoint = new ReActSteeringSafePoint(manager, turnId);
+    }
+
+    /** Clear the per-turn hook so a later legacy/Plan/Team run cannot reuse it. */
+    public void clearSteeringSafePoint() {
+        this.steeringSafePoint = null;
     }
 
     public void setExternalContextSupplier(Supplier<String> externalContextSupplier) {
@@ -331,6 +335,8 @@ public class Agent {
                         return "⏹️ 已取消当前任务。";
                     }
                     if (finalization == ReActSteeringSafePoint.FinalizationDecision.CONTINUE) {
+                        // 这条助手回复已写入历史；先收尾并重置流式渲染状态，再开始下一次请求。
+                        streamRenderer.resetBetweenIterations();
                         pushStatus(budget, startNanos, "running");
                         continue;
                     }
@@ -422,37 +428,58 @@ public class Agent {
         renderer().stream().println(AnsiStyle.section("⚠️ 执行预算已触发，正在整理部分结果"));
 
         try {
-            streamRenderer.beginThinking();
-            var requested = chatWithSteering(List.of(), streamRenderer);
-            if (requested.isEmpty()) {
-                streamRenderer.finish();
+            while (true) {
+                streamRenderer.beginThinking();
+                var requested = chatWithSteering(List.of(), streamRenderer);
+                if (requested.isEmpty()) {
+                    streamRenderer.finish();
+                    pushStatus(budget, startNanos, "idle");
+                    return "⏹️ 已取消当前任务。";
+                }
+                LlmClient.ChatResponse response = requested.orElseThrow();
+                budget.recordTokens(response.inputTokens(), response.outputTokens(), response.cachedInputTokens());
+                appendReasoning(reasoningTranscript, response.reasoningContent());
+                String responseContent = response.content() == null ? "" : response.content().trim();
+
+                ReActSteeringSafePoint activeSteering = steeringSafePoint;
+                if (activeSteering != null) {
+                    ReActSteeringSafePoint.FinalizationDecision decision = activeSteering.finalizeOrContinue();
+                    if (decision == ReActSteeringSafePoint.FinalizationDecision.CANCELLED) {
+                        streamRenderer.finish();
+                        pushStatus(budget, startNanos, "idle");
+                        return "⏹️ 已取消当前任务。";
+                    }
+                    if (decision == ReActSteeringSafePoint.FinalizationDecision.CONTINUE) {
+                        // 收尾请求期间又收到补充要求：保留上一条助手收尾结果，
+                        // 下一次无工具请求才能基于刚才的输出继续整理。
+                        appendConversationMessage(
+                                LlmClient.Message.assistant(responseContent),
+                                "budget_finalization_intermediate_response");
+                        streamRenderer.resetBetweenIterations();
+                        continue;
+                    }
+                    activeSteering.completeTurn();
+                }
+                String partialResult = formatPartialResult(description, responseContent);
+                conversationHistory.add(LlmClient.Message.assistant(partialResult));
+                conversationLedger.appendMessage(
+                        "react",
+                        "agent",
+                        "budget_finalization_response",
+                        LlmClient.Message.assistant(response.reasoningContent(), partialResult));
+                memoryManager.recordTokenUsage(
+                        budget.totalInputTokens(),
+                        budget.totalOutputTokens(),
+                        budget.totalCachedInputTokens());
                 pushStatus(budget, startNanos, "idle");
-                return "⏹️ 已取消当前任务。";
-            }
-            LlmClient.ChatResponse response = requested.orElseThrow();
-            budget.recordTokens(response.inputTokens(), response.outputTokens(), response.cachedInputTokens());
-            appendReasoning(reasoningTranscript, response.reasoningContent());
 
-            String responseContent = response.content() == null ? "" : response.content().trim();
-            String partialResult = formatPartialResult(description, responseContent);
-            conversationHistory.add(LlmClient.Message.assistant(partialResult));
-            conversationLedger.appendMessage(
-                    "react",
-                    "agent",
-                    "budget_finalization_response",
-                    LlmClient.Message.assistant(response.reasoningContent(), partialResult));
-            memoryManager.recordTokenUsage(
-                    budget.totalInputTokens(),
-                    budget.totalOutputTokens(),
-                    budget.totalCachedInputTokens());
-            pushStatus(budget, startNanos, "idle");
-
-            if (streamRenderer.hasStreamedOutput()) {
-                streamRenderer.finish();
-                return returnFinalResponseWhenStreamed ? partialResult : "";
+                if (streamRenderer.hasStreamedOutput()) {
+                    streamRenderer.finish();
+                    return returnFinalResponseWhenStreamed ? partialResult : "";
+                }
+                streamRenderer.clearThinkingPanel();
+                return formatUserFacingResponse(reasoningTranscript.toString(), partialResult);
             }
-            streamRenderer.clearThinkingPanel();
-            return formatUserFacingResponse(reasoningTranscript.toString(), partialResult);
         } catch (IOException e) {
             log.error("LLM finalization call failed after ReAct budget exhaustion", e);
             streamRenderer.finish();
@@ -1012,7 +1039,10 @@ public class Agent {
         if (invocations.size() > 1) {
             log.info("Executing {} tool calls; read-only calls run in parallel (iteration={})", invocations.size(), iteration);
         }
-        List<ToolExecutionResult> results = turnToolPolicy.execute(toolRegistry, invocations, toolExposure);
+        ReActSteeringSafePoint activeSteering = steeringSafePoint;
+        List<ToolExecutionResult> results = activeSteering == null
+                ? turnToolPolicy.execute(toolRegistry, invocations, toolExposure)
+                : turnToolPolicy.execute(toolRegistry, invocations, toolExposure, activeSteering::toolStartRejection);
         for (ToolExecutionResult result : results) {
             log.debug("Tool result preview [{}]: {}", result.name(), preview(result.result(), 300));
             emitToolResultSummary(result);

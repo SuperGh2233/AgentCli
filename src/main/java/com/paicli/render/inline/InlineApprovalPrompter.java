@@ -23,9 +23,9 @@ import static com.paicli.cli.TerminalInputGateway.Kind.*;
 /**
  * Inline 形态的 HITL 审批提示。
  *
- * <p>主菜单选项 {@code y / a / n / s / m} 通过 raw mode 单字符读取（不需要回车），
- * 后续输入（拒绝原因、新参数 JSON）回退到 {@code BufferedReader.readLine}。
- * 显式注入输入请求桥时，全部输入都由 UI 所有者读取，失败则拒绝审批；旧路径保持不变。
+ * <p>旧路径的主菜单选项 {@code y / a / n / s / m} 通过 raw mode 单字符读取，
+ * 后续输入回退到 {@code BufferedReader.readLine}。显式注入输入请求桥时，所有选项和子提示
+ * 都改由 UI 所有者通过同一个 JLine Reader 按行读取；失败则拒绝审批。
  *
  * <p>有意保持和 {@link com.paicli.render.PlainRenderer#promptApproval} 一致的语义；
  * 只是首选项交互更紧凑。
@@ -53,7 +53,7 @@ public final class InlineApprovalPrompter {
         this.inputTimeout = null;
     }
 
-    /** 显式注入的新路径：worker 不创建或读取 stdin/terminal；Main 尚未使用此入口。 */
+    /** 显式注入的新路径：worker 不创建或读取 stdin/terminal；仅由 opt-in 的 inline ReAct 运行期绑定。 */
     public InlineApprovalPrompter(PrintStream out, TerminalInputGateway gateway, Duration inputTimeout) {
         this.out = Objects.requireNonNull(out, "out");
         this.gateway = Objects.requireNonNull(gateway, "gateway");
@@ -83,11 +83,21 @@ public final class InlineApprovalPrompter {
         out.println(request.toDisplayText());
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            String optionsLine = sensitive
-                    ? AnsiStyle.subtle("[y] approve  [n] reject  [s] skip  [m] modify")
-                    : AnsiStyle.subtle("[y] approve  [a] all  [n] reject  [s] skip  [m] modify");
-            out.print("> " + optionsLine + " ");
-            out.flush();
+            String options = sensitive
+                    ? "[y] approve  [n] reject  [s] skip  [m] modify"
+                    : "[y] approve  [a] all  [n] reject  [s] skip  [m] modify";
+            if (session != null) {
+                options += "（输入选项后按 Enter；空 Enter 也会批准）";
+            }
+            String optionsLine = AnsiStyle.subtle(options);
+            if (session == null) {
+                out.print("> " + optionsLine + " ");
+                out.flush();
+            } else {
+                // 新路径的输入提示由 JLine 唯一 Reader 显示，避免与原始 PrintStream 提示重复。
+                out.println(optionsLine);
+                out.flush();
+            }
 
             int key = readSingleKey(session);
             if (key < 0) {
@@ -131,7 +141,7 @@ public final class InlineApprovalPrompter {
 
     private int readSingleKey(TerminalInputGateway.Session session) {
         if (session != null) {
-            String line = session.read(APPROVAL_CHOICE, "审批选项 y/a/n/s/m", inputTimeout);
+            String line = session.read(APPROVAL_CHOICE, "审批选项 y/a/n/s/m（按 Enter 提交）", inputTimeout);
             // 普通句子即使以 y 开头也不能被截成批准；所有输入都留在审批模式。
             return line.isEmpty() ? '\n' : line.length() == 1 ? line.charAt(0) : '?';
         }
@@ -155,8 +165,10 @@ public final class InlineApprovalPrompter {
     }
 
     private String promptForReason(TerminalInputGateway.Session session) {
-        out.print("  拒绝原因（可直接回车跳过）: ");
-        out.flush();
+        if (session == null) {
+            out.print("  拒绝原因（可直接回车跳过）: ");
+            out.flush();
+        }
         try {
             String line = readLine(session, REJECTION_REASON, "拒绝原因（可直接回车跳过）");
             return line == null ? "" : line.trim();
@@ -172,8 +184,10 @@ public final class InlineApprovalPrompter {
             return ApprovalResult.approveAll();
         }
         out.println("  全部放行范围 [tool/Enter] 仅本工具  [server] 整个 MCP server " + mcpServer);
-        out.print("> ");
-        out.flush();
+        if (session == null) {
+            out.print("> ");
+            out.flush();
+        }
         String scope;
         try {
             scope = readLine(session, APPROVAL_SCOPE, "全部放行范围 tool/server");
@@ -191,8 +205,10 @@ public final class InlineApprovalPrompter {
 
     private ApprovalResult promptForModifiedArgs(ApprovalRequest request, TerminalInputGateway.Session session) {
         out.println("  当前参数: " + request.arguments());
-        out.print("  修改后的 JSON（空行 = 保留原参数）: ");
-        out.flush();
+        if (session == null) {
+            out.print("  修改后的 JSON（空行 = 保留原参数）: ");
+            out.flush();
+        }
         String modified;
         try {
             modified = readLine(session, MODIFIED_ARGUMENTS, "修改后的 JSON（空行保留原参数）");

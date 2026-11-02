@@ -12,7 +12,7 @@ import java.util.UUID;
 /**
  * Phase 3A: an opt-in, in-memory handoff from accepted Steering inputs to the
  * NEXT ReAct model request. Does not read a terminal, start a turn, or grant tools.
- * Main does not install this yet.
+ * Main installs it only for the gated interactive inline ReAct path.
  */
 final class ReActSteeringSafePoint {
     enum FinalizationDecision { CONTINUE, FINALIZE, CANCELLED }
@@ -83,6 +83,12 @@ final class ReActSteeringSafePoint {
 
     void completeTurn() {
         manager.completeTurn(turnId);
+    }
+
+    String toolStartRejection(com.paicli.tool.ToolRegistry.ToolInvocation invocation) {
+        var claim = manager.claimToolStart(turnId, invocation.id());
+        return claim == TurnInputManager.ToolStartClaim.ALLOWED ? null
+                : "工具未启动：" + claim;
     }
 
     List<LlmClient.Message> additions(Prepared prepared) {

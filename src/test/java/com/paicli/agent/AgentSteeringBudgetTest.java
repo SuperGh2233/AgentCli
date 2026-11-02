@@ -5,6 +5,7 @@ import com.paicli.runtime.input.DeliveryMode;
 import com.paicli.runtime.input.InputStatus;
 import com.paicli.runtime.input.TurnInputManager;
 import com.paicli.tool.ToolRegistry;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -100,9 +101,105 @@ class AgentSteeringBudgetTest {
             assertEquals(1, manager.snapshot().queuedCount());
             assertEquals(0, manager.snapshot().pendingCount());
             assertEquals(0, manager.snapshot().reservedCount());
-            assertTrue(manager.reserveForRequest("turn").isEmpty(), "不能自动重发");
+            if (outcome == Outcome.SUCCESS) {
+                assertEquals(com.paicli.runtime.input.TurnState.COMPLETED, manager.snapshot().state());
+            } else {
+                assertEquals(com.paicli.runtime.input.TurnState.RUNNING, manager.snapshot().state());
+                assertTrue(manager.reserveForRequest("turn").isEmpty(), "不能自动重发");
+            }
         } finally {
             releaseTool.countDown();
+            worker.shutdownNow();
+            assertTrue(worker.awaitTermination(3, TimeUnit.SECONDS));
+            if (previous == null) System.clearProperty(property);
+            else System.setProperty(property, previous);
+        }
+    }
+
+    @Test
+    void steerArrivingDuringBudgetFinalizationRetainsTheIntermediateAssistantResponse(@TempDir Path projectDir)
+            throws Exception {
+        String property = "paicli.react.hard.max.iterations";
+        String previous = System.getProperty(property);
+        var manager = new TurnInputManager("session", true, TurnInputManager.Limits.defaults());
+        manager.startTurn("turn");
+        manager.markRunning("turn");
+        var finalizationStarted = new CountDownLatch(1);
+        var releaseFinalization = new CountDownLatch(1);
+        var client = new LlmClient() {
+            private final List<List<Message>> requests = new ArrayList<>();
+            private final List<List<Tool>> requestTools = new ArrayList<>();
+
+            @Override
+            public ChatResponse chat(List<Message> messages, List<Tool> tools) throws IOException {
+                return chat(messages, tools, StreamListener.NO_OP);
+            }
+
+            @Override
+            public ChatResponse chat(List<Message> messages, List<Tool> tools, StreamListener listener)
+                    throws IOException {
+                requests.add(List.copyOf(messages));
+                requestTools.add(tools == null ? List.of() : List.copyOf(tools));
+                if (requests.size() == 1) {
+                    return new ChatResponse("assistant", "", List.of(new ToolCall("budget-tool",
+                            new ToolCall.Function("list_dir", "{\"path\":\".\"}"))), 4, 2);
+                }
+                if (requests.size() == 2) {
+                    finalizationStarted.countDown();
+                    try {
+                        assertTrue(releaseFinalization.await(3, TimeUnit.SECONDS));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("finalization interrupted", e);
+                    }
+                    return new ChatResponse("assistant", "中间收尾结果", null, 4, 2);
+                }
+                assertEquals(3, requests.size(), "收尾期间的新 Steer 只允许再触发一次无工具请求");
+                return new ChatResponse("assistant", "最终整理结果", null, 4, 2);
+            }
+
+            @Override public String getModelName() { return "fake"; }
+            @Override public String getProviderName() { return "fake"; }
+
+            List<List<Message>> requests() { return requests; }
+            List<List<Tool>> requestTools() { return requestTools; }
+        };
+        var registry = new ToolRegistry() {
+            @Override
+            public String executeTool(String name, String argumentsJson) {
+                return "fake directory result";
+            }
+        };
+        registry.setProjectPath(projectDir.toString());
+        var agent = new Agent(client, registry);
+        agent.configureSteeringSafePoint(manager, "turn");
+        var worker = Executors.newSingleThreadExecutor();
+        try {
+            System.setProperty(property, "1");
+            var result = worker.submit(() -> agent.run("列出当前目录内容"));
+            assertTrue(finalizationStarted.await(3, TimeUnit.SECONDS));
+            assertTrue(manager.accept("session", "turn", "late-steer", "cli",
+                    "补充收尾要求", DeliveryMode.STEER).accepted());
+            releaseFinalization.countDown();
+
+            String answer = result.get(5, TimeUnit.SECONDS);
+            assertTrue(answer.contains("最终整理结果"), answer);
+            assertEquals(3, client.requests().size());
+            assertEquals(List.of(), client.requestTools().get(1));
+            assertEquals(List.of(), client.requestTools().get(2));
+            assertEquals(0, count(client.requests().get(1), "补充收尾要求"));
+            assertEquals(1, count(client.requests().get(2), "补充收尾要求"));
+            int intermediateIndex = client.requests().get(2).indexOf(
+                    LlmClient.Message.assistant("中间收尾结果"));
+            int steerIndex = client.requests().get(2).indexOf(
+                    LlmClient.Message.user("补充收尾要求"));
+            assertTrue(intermediateIndex >= 0, "下一次收尾请求必须保留上一条助手收尾结果");
+            assertTrue(steerIndex > intermediateIndex);
+            assertEquals(InputStatus.INCLUDED_IN_REQUEST,
+                    manager.input("late-steer").orElseThrow().status());
+            assertEquals(com.paicli.runtime.input.TurnState.COMPLETED, manager.snapshot().state());
+        } finally {
+            releaseFinalization.countDown();
             worker.shutdownNow();
             assertTrue(worker.awaitTermination(3, TimeUnit.SECONDS));
             if (previous == null) System.clearProperty(property);

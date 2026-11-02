@@ -145,8 +145,23 @@ class InputCoordinatorTest {
         manager.startTurn("next");
         manager.markRunning("next");
         var result = coordinator.submit(ticket, "late");
-        assertEquals(REJECTED, result.route());
+        assertEquals(RETRY, result.route());
+        assertEquals("late", result.text());
+        assertTrue(result.notice().contains("保留为草稿"));
         assertEquals(InputAcceptance.Code.STALE_TURN, result.acceptance().code());
+        assertEquals(0, manager.snapshot().pendingCount());
+    }
+
+    @Test
+    void preservesLineEnteredAfterAtomicFinalizationAsNextPromptDraft() {
+        start();
+        var ticket = coordinator.capture();
+        assertEquals(TurnInputManager.Finalization.FINALIZE, manager.finalizeOrContinue("turn"));
+        var result = coordinator.submit(ticket, "刚好结束时输入的内容");
+        assertEquals(RETRY, result.route());
+        assertEquals("刚好结束时输入的内容", result.text());
+        assertEquals(InputAcceptance.Code.STALE_TURN, result.acceptance().code());
+        assertTrue(result.notice().contains("保留为草稿"));
         assertEquals(0, manager.snapshot().pendingCount());
     }
 

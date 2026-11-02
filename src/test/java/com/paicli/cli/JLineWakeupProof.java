@@ -88,19 +88,20 @@ public final class JLineWakeupProof {
                 mark("DRAFT_READY");
             });
 
+            var wakePublished = new CountDownLatch(1);
             var reply = new AtomicReference<String>();
             var failure = new AtomicReference<Throwable>();
             try (var gateway = new TerminalInputGateway(coordinator, request -> {
                 mark("APPROVAL_UI");
                 return adapter.read(request);
-            })) {
+            }, reader::requestWake)) {
                 var worker = new Thread(() -> {
                     try {
                         check(checkpoint.await(3, TimeUnit.SECONDS), "no draft checkpoint");
                         try (var session = gateway.openInteraction(InputCoordinator.Mode.APPROVAL_INPUT)) {
                             mark("APPROVAL_PENDING");
-                            reader.requestWake();
                             mark("WAKE_FLAG_SET");
+                            wakePublished.countDown();
                             reply.set(session.read(TerminalInputGateway.Kind.APPROVAL_CHOICE,
                                     "approve> ", Duration.ofSeconds(5)));
                         }
@@ -122,15 +123,22 @@ public final class JLineWakeupProof {
                             "wake lost draft");
                     check(suspended.cursor() == 2, "wake lost cursor");
                     check(manager.snapshot().pendingCount() == 0, "approval became Steer");
+                    check(wakePublished.await(3, TimeUnit.SECONDS), "wake marker not published");
                     mark("WAKE_WITHOUT_ENTER");
-                    // The worker may publish its wake flag just before it opens
-                    // the actual sub-request. Waiting here never reads a byte.
+                    // Open may wake before the first subprompt is published.
+                    // Wait without terminal input and remain in approval mode.
                     TerminalInputGateway.Dispatch delivery;
                     long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
                     do {
+                        gateway.awaitInteraction(Duration.ofMillis(100));
                         delivery = gateway.serviceNext();
-                        if (delivery.status() == TerminalInputGateway.DispatchStatus.IDLE) Thread.yield();
-                    } while (delivery.status() == TerminalInputGateway.DispatchStatus.IDLE
+                        if (delivery.status() == TerminalInputGateway.DispatchStatus.RETRY) {
+                            var draft = reader.takeSuspendedDraft();
+                            check(draft != null && draft.text().isEmpty(),
+                                    "approval draft needs explicit review");
+                        }
+                    } while ((delivery.status() == TerminalInputGateway.DispatchStatus.IDLE
+                            || delivery.status() == TerminalInputGateway.DispatchStatus.RETRY)
                             && System.nanoTime() < until);
                     check(delivery.status() == TerminalInputGateway.DispatchStatus.DELIVERED,
                             "approval not delivered");
@@ -138,8 +146,7 @@ public final class JLineWakeupProof {
                     check(!worker.isAlive() && failure.get() == null && "y".equals(reply.get()),
                             "worker did not receive its own approval");
                     check(manager.snapshot().pendingCount() == 0, "approval leaked to Steer");
-                    reader.restoreCursorOnNextInit(suspended.cursor());
-                    String command = adapter.readLine("> ", suspended.text());
+                    String command = readRestored(adapter, reader, "> ", suspended);
                     check("草稿续中文🚀".equals(command), "draft or cursor not restored: " + command);
                     mark("DRAFT_RESTORED");
                 } finally {
@@ -158,34 +165,102 @@ public final class JLineWakeupProof {
                 emptyReady.countDown();
                 return true;
             });
-            var emptyWorker = new Thread(() -> {
+            var emptyObserved = new CountDownLatch(1);
+            var emptyPublished = new CountDownLatch(1);
+            try (var emptyGateway = new TerminalInputGateway(coordinator, adapter, reader::requestWake)) {
+                var emptyWorker = new Thread(() -> {
+                    try {
+                        check(emptyReady.await(3, TimeUnit.SECONDS), "empty prompt not initialized");
+                        Thread.sleep(150); // ensure the UI entered its idle input wait
+                        try (var session = emptyGateway.openInteraction(InputCoordinator.Mode.APPROVAL_INPUT)) {
+                            mark("EMPTY_WAKE_FLAG_SET");
+                            emptyPublished.countDown();
+                            check(emptyObserved.await(3, TimeUnit.SECONDS), "empty wake not observed");
+                        }
+                    } catch (Throwable e) {
+                        emptyFailure.set(e);
+                        mark("EMPTY_WORKER_FAILED");
+                    }
+                }, "proof-empty-draft-wake-worker");
+                emptyWorker.setDaemon(true);
+                emptyWorker.start();
                 try {
-                    check(emptyReady.await(3, TimeUnit.SECONDS), "empty prompt not initialized");
-                    Thread.sleep(150); // ensure the UI entered its idle input wait
-                    reader.requestWake();
-                    mark("EMPTY_WAKE_FLAG_SET");
-                } catch (Throwable e) {
-                    emptyFailure.set(e);
-                    mark("EMPTY_WORKER_FAILED");
+                    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+                    boolean observed = false;
+                    while (!observed && System.nanoTime() < until) {
+                        try {
+                            adapter.readLine("empty> ", null);
+                            throw new AssertionError("empty command line was not awakened");
+                        } catch (WakeableLineReader.Wakeup expected) {
+                            WakeableLineReader.Draft empty = reader.takeSuspendedDraft();
+                            check(empty != null && empty.text().isEmpty() && empty.cursor() == 0,
+                                    "empty wake changed the draft or cursor");
+                            // Closing the previous gateway may leave a coalesced
+                            // lifecycle wake. It is not this open event.
+                            if (emptyGateway.awaitInteraction(Duration.ZERO).state()
+                                    == TerminalInputGateway.InteractionState.NONE) continue;
+                            check(emptyPublished.await(3, TimeUnit.SECONDS), "empty wake marker missing");
+                            check(emptyGateway.awaitInteraction(Duration.ZERO).state()
+                                            == TerminalInputGateway.InteractionState.BETWEEN_SUBPROMPTS,
+                                    "open interaction disappeared before first subprompt");
+                            mark("EMPTY_WAKE_WITHOUT_ENTER");
+                            observed = true;
+                        }
+                    }
+                    check(observed, "empty interaction wake not observed");
+                } finally {
+                    emptyObserved.countDown();
+                    emptyWorker.join(1000);
                 }
-            }, "proof-empty-draft-wake-worker");
-            emptyWorker.setDaemon(true);
-            emptyWorker.start();
-            try {
-                try {
-                    adapter.readLine("empty> ", null);
-                    throw new AssertionError("empty command line was not awakened");
-                } catch (WakeableLineReader.Wakeup expected) {
-                    WakeableLineReader.Draft empty = reader.takeSuspendedDraft();
-                    check(empty != null && empty.text().isEmpty() && empty.cursor() == 0,
-                            "empty wake changed the draft or cursor");
-                    mark("EMPTY_WAKE_WITHOUT_ENTER");
-                }
-            } finally {
-                emptyWorker.join(1000);
+                check(!emptyWorker.isAlive() && emptyFailure.get() == null,
+                        "empty wake worker failed");
             }
-            check(!emptyWorker.isAlive() && emptyFailure.get() == null,
-                    "empty wake worker failed");
+
+            // No new driver input or protocol step: approval must leave a
+            // completely idle read through the timeout lifecycle callback.
+            var timeoutOpened = new CountDownLatch(1);
+            var timeoutFailure = new AtomicReference<Throwable>();
+            try (var timeoutGateway = new TerminalInputGateway(coordinator, adapter, reader::requestWake)) {
+                var timeoutWorker = new Thread(() -> {
+                    try (var session = timeoutGateway.openInteraction(InputCoordinator.Mode.APPROVAL_INPUT)) {
+                        timeoutOpened.countDown();
+                        try {
+                            session.read(TerminalInputGateway.Kind.APPROVAL_CHOICE,
+                                    "timeout> ", Duration.ofMillis(350));
+                            throw new AssertionError("timeout unexpectedly received approval");
+                        } catch (TerminalInputGateway.InputUnavailableException expected) {
+                            check(expected.failure() == TerminalInputGateway.Failure.TIMEOUT,
+                                    "wrong timeout failure");
+                        }
+                    } catch (Throwable e) { timeoutFailure.set(e); }
+                }, "proof-timeout-worker");
+                timeoutWorker.setDaemon(true);
+                timeoutWorker.start();
+                try {
+                    check(timeoutOpened.await(2, TimeUnit.SECONDS), "timeout interaction not opened");
+                    check(timeoutGateway.awaitInteraction(Duration.ofSeconds(1)).state()
+                                    == TerminalInputGateway.InteractionState.PENDING,
+                            "timeout subprompt not published");
+                    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+                    int wakes = 0;
+                    while (timeoutGateway.awaitInteraction(Duration.ZERO).state()
+                            != TerminalInputGateway.InteractionState.NONE && System.nanoTime() < until) {
+                        var dispatch = timeoutGateway.serviceNext();
+                        check(dispatch.status() == TerminalInputGateway.DispatchStatus.RETRY,
+                                "timeout did not wake approval read");
+                        var draft = reader.takeSuspendedDraft();
+                        check(draft != null && draft.text().isEmpty(), "timeout lost empty draft");
+                        wakes++;
+                    }
+                    timeoutWorker.join(1000);
+                    check(wakes > 0 && !timeoutWorker.isAlive() && timeoutFailure.get() == null,
+                            "timeout worker did not finish");
+                    mark("TIMEOUT_WAKE_WITHOUT_ENTER");
+                } finally {
+                    timeoutGateway.close();
+                    timeoutWorker.join(1000);
+                }
+            }
 
             var restored = terminal.getAttributes();
             check(original.getInputFlags().equals(restored.getInputFlags())
@@ -235,6 +310,21 @@ public final class JLineWakeupProof {
                     });
             Files.writeString(Path.of(ack + ".threads"), threads.toString());
         }
+    }
+
+    private static String readRestored(JLineInputAdapter adapter, WakeableLineReader reader,
+                                       String prompt, WakeableLineReader.Draft draft) {
+        long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (System.nanoTime() < until) {
+            reader.restoreCursorOnNextInit(draft.cursor());
+            try {
+                return adapter.readLine(prompt, draft.text());
+            } catch (WakeableLineReader.Wakeup expected) {
+                draft = reader.takeSuspendedDraft();
+                check(draft != null, "lifecycle wake lost restored draft");
+            }
+        }
+        throw new AssertionError("lifecycle wakes did not settle");
     }
 
     private static void bind(LineReader reader, String name, String sequence, Runnable action) {

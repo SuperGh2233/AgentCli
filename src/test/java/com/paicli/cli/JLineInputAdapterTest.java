@@ -23,11 +23,23 @@ class JLineInputAdapterTest {
     }
 
     @Test
+    void afterReadHookRunsSynchronouslyBeforeInputIsReturnedToGateway() {
+        String[] observed = {null};
+        var adapter = new JLineInputAdapter(reader(() -> "n"), (request, line) -> {
+            assertSame(REQUEST, request);
+            observed[0] = line;
+        });
+        assertEquals("n", adapter.read(REQUEST));
+        assertEquals("n", observed[0]);
+    }
+
+    @Test
     void eofIsNullAndControlCIsNeverEmptyEnter() {
         var eof = new JLineInputAdapter(reader(() -> { throw new EndOfFileException(); }));
         assertNull(eof.read(REQUEST));
         var cancel = new JLineInputAdapter(reader(() -> { throw new UserInterruptException("草稿"); }));
-        assertEquals("草稿", assertThrows(UserInterruptException.class, () -> cancel.read(REQUEST)).getPartialLine());
+        assertEquals("草稿", assertThrows(JLineInputAdapter.InputCancelledException.class,
+                () -> cancel.read(REQUEST)).partialLine());
     }
 
     @Test

@@ -301,6 +301,13 @@ public final class TurnToolPolicy {
     public List<ToolExecutionResult> execute(ToolRegistry registry,
                                              List<ToolInvocation> invocations,
                                              ToolExposure exposure) {
+        return execute(registry, invocations, exposure, null);
+    }
+
+    public List<ToolExecutionResult> execute(ToolRegistry registry,
+                                             List<ToolInvocation> invocations,
+                                             ToolExposure exposure,
+                                             ToolRegistry.ToolStartGate startGate) {
         Objects.requireNonNull(registry, "registry");
         if (invocations == null || invocations.isEmpty()) {
             return List.of();
@@ -332,7 +339,8 @@ public final class TurnToolPolicy {
             if (allowed.stream().anyMatch(invocation -> isBrowserTool(invocation.name()))) {
                 acquireBrowserLease();
             }
-            List<ToolExecutionResult> executed = registry.executeTools(allowed);
+            List<ToolExecutionResult> executed = startGate == null
+                    ? registry.executeTools(allowed) : registry.executeTools(allowed, startGate);
             int resultCount = executed == null ? 0 : executed.size();
             for (int i = 0; i < allowed.size(); i++) {
                 ToolExecutionResult result = i < resultCount

@@ -45,6 +45,7 @@ import com.paicli.rag.CodeRelation;
 import com.paicli.rag.SearchResultFormatter;
 import com.paicli.runtime.CancellationContext;
 import com.paicli.runtime.CancellationToken;
+import com.paicli.runtime.input.TurnInputManager;
 import com.paicli.runtime.api.RuntimeApiServer;
 import com.paicli.runtime.api.RuntimeThreadStore;
 import com.paicli.runtime.task.DurableTaskManager;
@@ -97,6 +98,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
@@ -278,13 +280,31 @@ public class Main {
                 }
             });
 
-            LineReader lineReader = LineReaderBuilder.builder()
-                    .terminal(terminal)
-                    .history(new PaiCliHistory())
-                    .completer(new PaiCliCompleter(mcpServerManager::resourceCandidates,
-                            () -> skillRegistryRef.get() == null ? List.of() : skillRegistryRef.get().allSkills(), () -> config))
-                    .highlighter(new PaiCliHighlighter())
-                    .build();
+            PaiCliHistory inputHistory = new PaiCliHistory();
+            PaiCliCompleter inputCompleter = new PaiCliCompleter(mcpServerManager::resourceCandidates,
+                    () -> skillRegistryRef.get() == null ? List.of() : skillRegistryRef.get().allSkills(), () -> config);
+            PaiCliHighlighter inputHighlighter = new PaiCliHighlighter();
+            Renderer renderer = RendererFactory.create(RendererFactory.resolveMode(), terminal);
+            boolean wakeableInputRequested = Boolean.parseBoolean(
+                    System.getProperty(TurnInputManager.ENABLED_PROPERTY, "false"));
+            boolean wakeableTerminal = wakeableInputRequested && renderer instanceof InlineRenderer
+                    && terminal != null && System.console() != null && terminal.getType() != null
+                    && !"dumb".equalsIgnoreCase(terminal.getType());
+            LineReader lineReader;
+            if (wakeableTerminal) {
+                WakeableLineReader wakeable = new WakeableLineReader(terminal, "paicli");
+                wakeable.setHistory(inputHistory);
+                wakeable.setCompleter(inputCompleter);
+                wakeable.setHighlighter(inputHighlighter);
+                lineReader = wakeable;
+            } else {
+                lineReader = LineReaderBuilder.builder()
+                        .terminal(terminal)
+                        .history(inputHistory)
+                        .completer(inputCompleter)
+                        .highlighter(inputHighlighter)
+                        .build();
+            }
             lineReader.option(LineReader.Option.BRACKETED_PASTE, true);
             lineReader.option(LineReader.Option.AUTO_LIST, true);
             lineReader.option(LineReader.Option.AUTO_MENU, true);
@@ -294,7 +314,17 @@ public class Main {
 
             // JLine-first：启动输出、命令输出、Agent 流式内容都走同一条 Renderer.stream() 通道。
             // inline 首屏要挂到 LineReader 首次初始化回调里，避免在 readLine 接管屏幕前用裸输出抢光标。
-            Renderer renderer = RendererFactory.create(RendererFactory.resolveMode(), terminal);
+            String steeringSessionId = UUID.randomUUID().toString();
+            TurnInputManager steeringManager = new TurnInputManager(steeringSessionId);
+            boolean steeringInteractive = renderer instanceof InlineRenderer
+                    && lineReader instanceof WakeableLineReader
+                    && terminal != null && System.console() != null;
+            InputCoordinator steeringCoordinator = new InputCoordinator(
+                    steeringSessionId, steeringManager, steeringInteractive);
+            boolean steeringEnabled = steeringCoordinator.enabled();
+            if (wakeableInputRequested && !steeringEnabled) {
+                renderer.stream().println("⚠️ Steering 未启用：需要交互式 inline 终端；当前会话继续使用原输入路径。");
+            }
             RendererHitlHandler rendererHitl = new RendererHitlHandler(renderer, hitlHandler.isEnabled());
             hitlHandler.setDelegate(rendererHitl);
             if (renderer instanceof InlineRenderer inline) {
@@ -376,6 +406,8 @@ public class Main {
             }
             boolean nextTaskUsePlanMode = false;
             boolean nextTaskUseTeamMode = false;
+            String nextPromptSeed = null;
+            int nextPromptCursor = 0;
 
             // === TUI / CLI 分支判断 ===
             // 旧 PAICLI_TUI=true 路径仍走 Lanterna 全屏 TUI（Day 5 后由 LanternaRenderer 接管）。
@@ -425,7 +457,10 @@ public class Main {
                 PromptInput promptInput;
                 try {
                     promptInput = readPromptInput(terminal, lineReader, renderer,
-                            nextTaskUsePlanMode || nextTaskUseTeamMode, spaciousPrompt);
+                            nextTaskUsePlanMode || nextTaskUseTeamMode, spaciousPrompt,
+                            nextPromptSeed, nextPromptCursor);
+                    nextPromptSeed = null;
+                    nextPromptCursor = 0;
                 } catch (UserInterruptException e) {
                     continue;  // Ctrl+C 跳过
                 } catch (EndOfFileException e) {
@@ -1020,9 +1055,36 @@ public class Main {
                 }
                 SnapshotService snapshotService = reactAgent.getToolRegistry().getSnapshotService();
                 renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, snapshotMode));
-                String response = runWithCancelSupport(terminal,
-                        ui,
-                        () -> snapshotService.runTurn(snapshotMode, taskInput, runTask::call));
+                String response;
+                if (steeringEnabled && "react".equals(snapshotMode)
+                        && renderer instanceof InlineRenderer inline
+                        && lineReader instanceof WakeableLineReader wakeable) {
+                    String turnId = UUID.randomUUID().toString();
+                    reactAgent.configureSteeringSafePoint(steeringManager, turnId);
+                    SteeringRunLoop.RunResult steeringResult;
+                    boolean steeringWorkerStopped = false;
+                    try {
+                        steeringResult = SteeringRunLoop.run(
+                                wakeable, inline, steeringManager, steeringCoordinator, turnId,
+                                () -> snapshotService.runTurn(snapshotMode, taskInput, runTask::call));
+                        steeringWorkerStopped = steeringResult.workerStopped();
+                    } finally {
+                        if (steeringWorkerStopped) {
+                            reactAgent.clearSteeringSafePoint();
+                        }
+                    }
+                    response = steeringResult.response();
+                    nextPromptSeed = steeringResult.promptSeed();
+                    nextPromptCursor = steeringResult.promptCursor();
+                    if (!steeringWorkerStopped) {
+                        ui.println("❌ 后台执行线程未确认停止，为避免并发修改 Agent 状态，本会话将退出，不再启动下一任务。");
+                        break;
+                    }
+                } else {
+                    response = runWithCancelSupport(terminal,
+                            ui,
+                            () -> snapshotService.runTurn(snapshotMode, taskInput, runTask::call));
+                }
                 if (!"react".equals(snapshotMode)) {
                     renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
                 }
@@ -1446,7 +1508,9 @@ public class Main {
                                                LineReader lineReader,
                                                Renderer renderer,
                                                boolean allowEscCancel,
-                                               boolean spaciousPrompt)
+                                               boolean spaciousPrompt,
+                                               String seed,
+                                               int seedCursor)
             throws UserInterruptException, EndOfFileException {
         if (spaciousPrompt) {
             renderer.stream().println();
@@ -1456,7 +1520,11 @@ public class Main {
             String prompt = renderer.inputPrompt();
             String rightPrompt = renderer.inputRightPrompt();
             if (!allowEscCancel) {
-                return PromptInput.submitted(lineReader.readLine(prompt, rightPrompt, (MaskingCallback) null, null));
+                if (seed != null && lineReader instanceof WakeableLineReader wakeable) {
+                    wakeable.restoreCursorOnNextInit(seedCursor);
+                }
+                return PromptInput.submitted(lineReader.readLine(
+                        prompt, rightPrompt, (MaskingCallback) null, seed));
             }
 
             if (terminal != null && terminal.writer() != null) {

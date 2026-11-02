@@ -1,5 +1,6 @@
 package com.paicli.render.inline;
 
+import com.paicli.cli.TerminalInputGateway;
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
 import com.paicli.llm.LlmClient;
@@ -16,9 +17,11 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -41,6 +44,8 @@ public final class InlineRenderer implements Renderer {
     private final List<TranscriptEntry> transcript = new ArrayList<>();
     private final AtomicBoolean startupScreenPrinted = new AtomicBoolean(true);
     private volatile LineReader lineReader;
+    private volatile TerminalInputGateway approvalGateway;
+    private volatile Duration approvalInputTimeout = Duration.ofMinutes(2);
     private int renderedRows;
     private boolean redrawing;
     private volatile boolean started;
@@ -227,6 +232,24 @@ public final class InlineRenderer implements Renderer {
     }
 
     /**
+     * 仅在 opt-in 的 ReAct 运行期绑定统一输入桥。worker 审批不再直接读取 Terminal；
+     * 解绑后立即恢复原来的兼容路径，Plan/Team 和非交互模式不受影响。
+     */
+    public void bindApprovalGateway(TerminalInputGateway gateway, Duration timeout) {
+        if (gateway == null) {
+            approvalGateway = null;
+            return;
+        }
+        Duration safeTimeout = Objects.requireNonNull(timeout, "timeout");
+        if (safeTimeout.isNegative() || safeTimeout.isZero()) {
+            throw new IllegalArgumentException("审批输入超时必须为正数");
+        }
+        safeTimeout.toNanos();
+        approvalInputTimeout = safeTimeout;
+        approvalGateway = gateway;
+    }
+
+    /**
      * 在 LineReader 第一次进入 readLine 时打印首屏。
      *
      * <p>首屏不能在 readLine 之前用普通 stdout 打印：底部 Status 初始化后，LineReader
@@ -258,10 +281,15 @@ public final class InlineRenderer implements Renderer {
      * {@code * prompt}，避免同一条输入在屏幕上出现两次。
      */
     public void clearAcceptedInput(String input) {
+        clearAcceptedInput(input, inputPrompt());
+    }
+
+    /** 清除自定义 JLine 子提示的输入行，按实际 prompt 宽度计算换行行数。 */
+    public void clearAcceptedInput(String input, String prompt) {
         if (terminal == null || closed) {
             return;
         }
-        int rows = acceptedInputRows(input);
+        int rows = acceptedInputRows(input, prompt);
         synchronized (out) {
             PrintWriter writer = terminal.writer();
             if (writer != null) {
@@ -323,7 +351,11 @@ public final class InlineRenderer implements Renderer {
         if (terminal == null) {
             return fallback.promptApproval(request);
         }
-        // 审批在任务线程里读终端，期间主线程的 ESC 监听必须让出输入，否则按键会被抢走
+        TerminalInputGateway gateway = approvalGateway;
+        if (gateway != null) {
+            return new InlineApprovalPrompter(out, gateway, approvalInputTimeout).prompt(request);
+        }
+        // 默认关闭时保留原行为；统一输入路径下只有 UI 所有者可以读取终端。
         return TerminalInputLock.exclusive(() -> new InlineApprovalPrompter(out, terminal).prompt(request));
     }
 
@@ -543,13 +575,13 @@ public final class InlineRenderer implements Renderer {
         return block.endsWith("\n") ? block : block + "\n";
     }
 
-    private int acceptedInputRows(String input) {
+    private int acceptedInputRows(String input, String prompt) {
         int cols = Math.max(1, TerminalCapabilities.safeSize(terminal).getColumns());
         String text = input == null ? "" : input;
         String[] parts = text.split("\\R", -1);
         int rows = 0;
         for (int i = 0; i < parts.length; i++) {
-            int cells = displayWidth(parts[i]) + (i == 0 ? displayWidth(inputPrompt()) : 0);
+            int cells = displayWidth(parts[i]) + (i == 0 ? displayWidth(prompt) : 0);
             rows += Math.max(1, (cells + cols - 1) / cols);
         }
         return Math.max(1, rows);
