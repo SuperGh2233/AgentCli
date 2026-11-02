@@ -14,6 +14,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
+import java.util.function.Consumer;
+import java.io.BufferedReader;
+import java.io.StringReader;
+import java.io.PrintStream;
+import java.io.ByteArrayOutputStream;
+import com.paicli.tool.ToolOutput;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -208,6 +214,43 @@ class HitlToolRegistryTest {
         String result = registry.executeTool("list_dir", "{\"path\":\".\"}");
         assertFalse(result.startsWith("[HITL]"));
         assertEquals(0, stub.requestCount());
+    }
+
+    @Test
+    void mcpToolsetChangesRevokeServerAndExactToolGrants() {
+        McpToolDescriptor next = new McpToolDescriptor("alpha", "next", "mcp__alpha__next",
+                "test tool", JsonNodeFactory.instance.objectNode());
+        List<Consumer<HitlToolRegistry>> changes = List.of(
+                registry -> registry.registerMcpTool(next, args -> "new"),
+                registry -> registry.registerMcpToolOutput(next, args -> ToolOutput.text("new")),
+                registry -> registry.replaceMcpToolsForServer("alpha", List.of(next), tool -> args -> "new"),
+                registry -> registry.replaceMcpToolOutputsForServer("alpha", List.of(next),
+                        tool -> args -> ToolOutput.text("new")),
+                registry -> registry.replaceMcpToolsForServer("alpha", List.of(), tool -> args -> "new"),
+                registry -> registry.unregisterMcpTool("mcp__alpha__old"));
+        for (Consumer<HitlToolRegistry> change : changes) {
+            TerminalHitlHandler handler = new TerminalHitlHandler(true,
+                    new BufferedReader(new StringReader("a\ntool\na\nserver\na\ntool\na\nserver\nn\n")),
+                    new PrintStream(new ByteArrayOutputStream()));
+            HitlToolRegistry registry = new HitlToolRegistry(handler);
+            for (String server : List.of("alpha", "alpha-other")) {
+                registerMcpTool(registry, server, "old", args -> "old");
+                registerMcpTool(registry, server, "another", args -> "another");
+            }
+            for (String server : List.of("alpha", "alpha-other")) {
+                handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__old", "{}", "test"));
+                handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__another", "{}", "test"));
+                assertTrue(handler.isApprovedAllByTool("mcp__" + server + "__old"));
+                assertTrue(handler.isApprovedAllByServer(server));
+            }
+            change.accept(registry);
+            assertFalse(handler.isApprovedAllByTool("mcp__alpha__old"));
+            assertFalse(handler.isApprovedAllByServer("alpha"));
+            assertTrue(handler.isApprovedAllByTool("mcp__alpha-other__old"));
+            assertTrue(handler.isApprovedAllByServer("alpha-other"));
+            assertEquals(ApprovalResult.Decision.REJECTED, handler.requestApproval(
+                    ApprovalRequest.of("mcp__alpha__old", "{}", "test")).decision());
+        }
     }
 
     /** 可预设决策结果的 HitlHandler stub。 */

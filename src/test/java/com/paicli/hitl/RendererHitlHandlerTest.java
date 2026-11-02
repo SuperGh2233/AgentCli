@@ -107,6 +107,28 @@ class RendererHitlHandlerTest {
         assertEquals(ApprovalResult.Decision.REJECTED, result.decision());
     }
 
+    @Test
+    void clearServerRevokesServerAndToolGrantsOnlyForThatServer() {
+        StubRenderer stub = new StubRenderer();
+        RendererHitlHandler handler = new RendererHitlHandler(stub, true);
+        for (String server : List.of("alpha", "alpha-other")) {
+            stub.nextResult = ApprovalResult.approveAll();
+            handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__old", "{}", "test"));
+            stub.nextResult = ApprovalResult.approveAllByServer();
+            handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__another", "{}", "test"));
+        }
+        handler.clearApprovedAllForServer(null);
+        handler.clearApprovedAllForServer("alpha");
+        assertFalse(handler.isApprovedAllByServer("alpha"));
+        assertFalse(handler.isApprovedAllByTool("mcp__alpha__old"));
+        assertTrue(handler.isApprovedAllByServer("alpha-other"));
+        assertTrue(handler.isApprovedAllByTool("mcp__alpha-other__old"));
+        stub.nextResult = ApprovalResult.reject("must reapprove");
+        assertEquals(ApprovalResult.Decision.REJECTED, handler.requestApproval(
+                ApprovalRequest.of("mcp__alpha__old", "{}", "test")).decision());
+        assertEquals(5, stub.promptCount);
+    }
+
     private static final class StubRenderer implements Renderer {
         private final PrintStream out = new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8);
         ApprovalResult nextResult;

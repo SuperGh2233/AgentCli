@@ -103,6 +103,7 @@ public interface HitlHandler {
     default void clearApprovedAll() {
     }
 
+    /** 清除指定 MCP server 的整体授权及其各个工具的会话授权。 */
     default void clearApprovedAllForServer(String serverName) {
     }
 }

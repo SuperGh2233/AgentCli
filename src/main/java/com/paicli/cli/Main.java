@@ -397,7 +397,6 @@ public class Main {
             Runtime.getRuntime().addShutdownHook(new Thread(taskManager::close, "paicli-task-shutdown"));
             WechatRuntimeController wechatRuntime = new WechatRuntimeController(renderer);
             Runtime.getRuntime().addShutdownHook(new Thread(wechatRuntime::stop, "paicli-wechat-shutdown"));
-            renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
             StartupScreenInfo startupScreenInfo = startupScreenInfo(llmClient, mcpServerManager, skillRegistry, startupNote);
             if (renderer instanceof InlineRenderer inline) {
                 inline.installStartupScreen(startupScreenLines(startupScreenInfo));
@@ -426,6 +425,7 @@ public class Main {
             reactAgent.setRenderer(renderer);
             reactAgent.setHitlEnabledSupplier(hitlHandler::isConfirmationActive);
             reactAgent.setSessionModeSupplier(() -> sessionModes.current().statusLabel());
+            renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
             bindSessionModeCycle(lineReader, () -> {
                 SessionMode mode = sessionModes.cycle();
                 renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistryRef.get(), "idle"));

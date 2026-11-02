@@ -2,10 +2,13 @@ package com.paicli.hitl;
 
 import com.paicli.browser.BrowserCheckResult;
 import com.paicli.policy.AuditLog;
+import com.paicli.mcp.protocol.McpToolDescriptor;
 import com.paicli.tool.ToolOutput;
 import com.paicli.tool.ToolRegistry;
 
 import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.function.Function;
 
 /**
  * HITL 工具注册表 - 在危险工具调用前插入人工审批
@@ -30,6 +33,26 @@ public class HitlToolRegistry extends ToolRegistry {
     public HitlToolRegistry(HitlHandler hitlHandler) {
         super();
         this.hitlHandler = hitlHandler;
+    }
+
+    // MCP 工具集变化前，撤销该 server 及其各个工具的旧会话授权。
+    @Override
+    public synchronized void registerMcpToolOutput(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {
+        hitlHandler.clearApprovedAllForServer(descriptor.serverName());
+        super.registerMcpToolOutput(descriptor, invoker);
+    }
+
+    @Override
+    public synchronized void unregisterMcpTool(String toolName) {
+        hitlHandler.clearApprovedAllForServer(ApprovalPolicy.mcpServerName(toolName));
+        super.unregisterMcpTool(toolName);
+    }
+
+    @Override
+    public synchronized void replaceMcpToolOutputsForServer(String serverName, List<McpToolDescriptor> newTools,
+            Function<McpToolDescriptor, Function<String, ToolOutput>> invokerFactory) {
+        hitlHandler.clearApprovedAllForServer(serverName);
+        super.replaceMcpToolOutputsForServer(serverName, newTools, invokerFactory);
     }
 
     /** auto 模式下审查 execute_command 的分类器；未设置时这些调用一律拦回给模型。 */
