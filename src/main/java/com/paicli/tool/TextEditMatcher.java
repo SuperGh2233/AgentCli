@@ -28,8 +28,19 @@ final class TextEditMatcher {
     record Result(String content, int replacements, boolean fuzzy, boolean lineNumbersStripped) {}
 
     static final class EditException extends IllegalArgumentException {
+        private final ToolOutput.FailureCode failureCode;
+
         EditException(String message) {
+            this(message, ToolOutput.FailureCode.NONE);
+        }
+
+        EditException(String message, ToolOutput.FailureCode failureCode) {
             super(message);
+            this.failureCode = failureCode;
+        }
+
+        ToolOutput.FailureCode failureCode() {
+            return failureCode;
         }
     }
 
@@ -43,7 +54,7 @@ final class TextEditMatcher {
         try {
             return applyOnce(content, oldText, newText, replaceAll, path, false);
         } catch (EditException notFound) {
-            if (!notFound.getMessage().startsWith("old_text 在文件中不存在")) {
+            if (notFound.failureCode() != ToolOutput.FailureCode.EDIT_SOURCE_NOT_FOUND) {
                 throw notFound;
             }
             String strippedOld = stripLineNumberPrefixes(oldText);
@@ -166,7 +177,8 @@ final class TextEditMatcher {
 
     private static EditException notFound(String path) {
         return new EditException("old_text 在文件中不存在: " + path
-                + "。片段必须和文件内容一致（含缩进）；如果片段来自记忆或较早的读取，先用 read_file 重新读取再试");
+                + "。片段必须和文件内容一致（含缩进）；如果片段来自记忆或较早的读取，先用 read_file 重新读取再试",
+                ToolOutput.FailureCode.EDIT_SOURCE_NOT_FOUND);
     }
 
     private static EditException duplicate(String content, List<Integer> starts, String path) {

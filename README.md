@@ -20,6 +20,7 @@ Hao CLI 围绕一个目标展开：把模型推理、任务规划、工具调用
 
 Day2-C 已将文件重复失败观察器接入 ReAct、Plan 单任务和 Team worker。
 用 `java -Dpaicli.stagnation.resource.observer.enabled=true -jar target/paicli-1.0-SNAPSHOT.jar` 显式启用，默认关闭。
+Day2-D 使用工具实现传递的明确失败码识别 old_text 未找到，不再匹配错误文案；原错误显示不变。
 每次运行或独立任务分别计数；只在特定编辑失败连续出现时记录一次固定日志事件，不含用户文本、路径或文件内容。
 不向模型添加消息，不改变现有提醒、预算、工具顺序或执行策略。
 范围和验证记录见[说明](docs/plans/active/PLAN-20261103-resource-failure-observation.md)。

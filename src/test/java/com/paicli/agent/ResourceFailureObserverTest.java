@@ -20,7 +20,7 @@ class ResourceFailureObserverTest {
     private ToolExecutionResult failure(String path, int variant) throws Exception {
         return new ToolExecutionResult("id", "edit_file", mapper.writeValueAsString(Map.of(
                 "path", path, "old_text", "missing", "new_text", "replacement " + variant)),
-                "工具执行失败: old_text 在文件中不存在: " + path, 1, false, List.of(), false, List.of());
+                "工具执行失败: old_text 在文件中不存在: " + path, 1, false, List.of(), false, List.of(), com.paicli.tool.ToolOutput.FailureCode.EDIT_SOURCE_NOT_FOUND);
     }
 
     @Test void varyingReplacementAndNormalizedKnownPathProduceOneObservation() throws Exception {
@@ -63,7 +63,8 @@ class ResourceFailureObserverTest {
         var f = failure("a", 0);
         for (String text : List.of("[AUTO] refused", "[HITL] approved", "用户取消了此次工具调用",
                 "工具执行失败: 用户取消了此次工具调用", "工具执行失败: 工具执行被中断", "unknown")) {
-            assertBreak(f, copy(f, "edit_file", f.argumentsJson(), text, false, false));
+            assertBreak(f, new ToolExecutionResult(f.id(), f.name(), f.argumentsJson(), text,
+                    1, false, List.of(), false, List.of()));
         }
         assertBreak(f, copy(f, "edit_file", f.argumentsJson(), f.result(), true, false));
         assertBreak(f, copy(f, "edit_file", f.argumentsJson(), f.result(), false, true));
@@ -135,12 +136,26 @@ class ResourceFailureObserverTest {
             var results = registry.executeTools(List.of(new ToolRegistry.ToolInvocation("id" + i,
                     "edit_file", failure("a", i).argumentsJson())));
             assertFalse(results.get(0).successful());
-            assertEquals(i == 2, observer.observe(results).isPresent());
+            var actual = results.get(0);
+            assertEquals(com.paicli.tool.ToolOutput.FailureCode.EDIT_SOURCE_NOT_FOUND, actual.failureCode());
+            assertTrue(actual.result().startsWith("工具执行失败: old_text 在文件中不存在: a"));
+            var reworded = copy(actual, actual.name(), actual.argumentsJson(), "wording changed", false, false);
+            assertEquals(i == 2, observer.observe(List.of(reworded)).isPresent());
         }
+    }
+
+    @Test void samePrefixWithoutTypedCodeNeverCounts() throws Exception {
+        Files.writeString(root.resolve("a"), "source");
+        var f = failure("a", 0);
+        var fake = new ToolExecutionResult(f.id(), f.name(), f.argumentsJson(), f.result(),
+                1, false, List.of(), false, List.of());
+        assertBreak(f, fake);
+        var observer = new ResourceFailureObserver(root, true);
+        for (int i = 0; i < 4; i++) assertTrue(observer.observe(List.of(fake)).isEmpty());
     }
 
     private ToolExecutionResult copy(ToolExecutionResult f, String tool, String args, String text,
                                      boolean success, boolean timeout) {
-        return new ToolExecutionResult(f.id(), tool, args, text, 1, timeout, List.of(), success, List.of());
+        return new ToolExecutionResult(f.id(), tool, args, text, 1, timeout, List.of(), success, List.of(), f.failureCode());
     }
 }

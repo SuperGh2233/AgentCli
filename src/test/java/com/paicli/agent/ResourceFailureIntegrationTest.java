@@ -118,6 +118,11 @@ class ResourceFailureIntegrationTest {
                 assertEquals(expected, runner(mode, on, registry()).get());
                 assertEquals(off.requests, on.requests, mode);
                 assertEquals(List.of(EVENT), capture.events(), mode);
+                for (String event : capture.events()) {
+                    assertFalse(event.contains(root.toString()));
+                    assertFalse(event.contains("private"));
+                    assertFalse(event.contains("private missing source"));
+                }
                 capture.appender.list.clear();
             }
         }

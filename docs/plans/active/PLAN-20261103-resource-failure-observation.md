@@ -67,3 +67,47 @@ git diff --check 通过；无真实模型、网络、Docker 或 Git 写操作。
 范围限制：仍只观察能够安全解析的已有普通文件和固定错误前缀；不增加
 通用失败分类，不向模型提醒，不拦工具、不切策略。日志事件正文是固定枚举值，
 没有额外任务、worker、路径或内容字段。没有需要跨会话继续的未完成工作。
+
+## Day2-D 类型化识别（completed）
+
+只给 TextEditMatcher 的源片段未找到异常增加明确失败码，经过 ToolOutput、
+ToolExecutionResult、正文清洗、Skill 改写和大结果转存保留，观察器按码识别。
+保留旧构造器、错误文案、successful/timedOut、默认关闭、三步一次观察及全部执行顺序。
+不改运行循环、RunawayGuard、AgentBudget、外部接口或其他错误分类。
+验收包含真实编辑失败、改变文案、伪造前缀、成功/超时/审批/取消/混合批次、
+日志隐私和转换元数据回归。复用隔离运行器，产物放 /tmp，Maven -o；不写 target。
+回退仅撤销本节列出的局部类型字段及观察器条件。
+
+Day2-D 已完成：FailureCode 是失败原因枚举，包含 NONE（未分类）和
+EDIT_SOURCE_NOT_FOUND（源片段未找到）。只有 edit_file 捕获明确标记的
+TextEditMatcher 异常才设置后者；空片段、多处匹配、其他失败和旧构造器保持未分类。
+匹配器剥行号重试也使用失败码，原错误文案不变。
+保留 ToolOutput 原四参/两参、ToolExecutionResult 原九参/七参构造器。
+成功和超时计算、URL 来源处理不变。浏览器正文清洗、批次完成、大结果转存、
+Skill 正文改写均保留失败码。本节取代前面阶段依赖固定错误前缀的限制；
+路径检查、三步一次观察、默认关闭属性、日志和运行循环不变。
+
+2026-11-03 离线验证：在调用进程内复用 tools/run-phase3b3-tests.py，
+沿用隔离 POM、JDK 21、白名单环境、Maven -o -DskipTests=false；
+只替换运行目录、临时 POM 路径和测试名单，脚本未修改。所有新产物放在
+/private/tmp，未写仓库 target。
+- 21 个测试组 / 179 项，零失败、零错误、零跳过。包含原 Phase3B 12 组，
+  ResourceFailureObserverTest、ResourceFailureIntegrationTest、ToolFailureCodeTest、
+  TextEditMatcherTest、ToolResultOffloaderTest、RunawayGuardTest、AgentBudgetTest、
+  ToolArgumentValidationTest、CommandExecutionObservationTest。
+  报告：/private/tmp/paicli-day2d-1793668208704158000/summary.json
+- ToolRegistryTest 中工具顺序、串行编辑、读写顺序、浏览器批次和超时取消：
+  1 组 / 5 项，零失败、零错误、零跳过。
+  报告：/private/tmp/paicli-day2d-order-1793668225174934000/summary.json
+各目录另有 maven.log 和 Surefire XML 报告。
+
+首次 Maven 在编译前因本地缓存锁只读失败，仅授权写 ~/.m2/repository/.locks。
+首次测试有两项测试问题：隐私断言把固定日志 Resource 中的 source 当成泄露；
+macOS 的 /tmp 指向 /private/tmp，让原路径测试中的绝对路径不同。
+修正断言为检查实际私有源文本，并在运行前解析隔离目录的真实路径后全部通过；
+没有改生产路径检查。
+
+限制：未跑全量测试或真实模型；隐私断言针对固定观察日志，不改变已有工具错误
+正文和审计行为。旧构造器不会推断失败码，因此不触发本观察器。
+没有网络、凭据、Docker、Git 写操作或其他阶段工作。git diff --check 通过。
+本阶段结束，无需跨会话交接。

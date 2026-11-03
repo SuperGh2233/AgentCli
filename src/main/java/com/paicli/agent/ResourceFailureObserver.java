@@ -55,8 +55,8 @@ public final class ResourceFailureObserver {
 
     private String key(ToolExecutionResult result) {
         if (result == null || result.successful() || result.timedOut()
-                || !"edit_file".equals(result.name()) || result.result() == null
-                || !result.result().startsWith("工具执行失败: old_text 在文件中不存在: ")) return null;
+                || !"edit_file".equals(result.name())
+                || result.failureCode() != com.paicli.tool.ToolOutput.FailureCode.EDIT_SOURCE_NOT_FOUND) return null;
         try {
             JsonNode parsed = MAPPER.readTree(result.argumentsJson());
             if (!(parsed instanceof ObjectNode args) || !args.path("path").isTextual()

@@ -1486,7 +1486,7 @@ public class ToolRegistry {
                                 safeText,
                                 output.imageParts(),
                                 output.successful(),
-                                output.discoveredUrls());
+                                output.discoveredUrls(), output.failureCode());
                     }
                 }
                 if (shouldAudit) {
@@ -1523,7 +1523,9 @@ public class ToolRegistry {
                 auditLog.record(AuditLog.AuditEntry.error(
                         name, argumentsJson, e.getMessage(), elapsedMillis(start), auditMetadata));
             }
-            return ToolOutput.failure("工具执行失败: " + e.getMessage());
+            return new ToolOutput("工具执行失败: " + e.getMessage(), List.of(), false, List.of(),
+                    "edit_file".equals(name) && e instanceof TextEditMatcher.EditException edit
+                            ? edit.failureCode() : ToolOutput.FailureCode.NONE);
         }
     }
 
@@ -1556,7 +1558,8 @@ public class ToolRegistry {
         if (!output.successful() || !looksLikeFailureText(output.text())) {
             return output;
         }
-        return ToolOutput.failure(output.text(), output.imageParts());
+        return new ToolOutput(output.text(), output.imageParts(), false,
+                List.of(), output.failureCode());
     }
 
     private static boolean looksLikeFailureText(String text) {
@@ -1774,7 +1777,7 @@ public class ToolRegistry {
         }
         return new ToolExecutionResult(result.id(), result.name(), result.argumentsJson(), text,
                 result.elapsedMillis(), result.timedOut(), result.imageParts(), result.successful(),
-                result.discoveredUrls());
+                result.discoveredUrls(), result.failureCode());
     }
 
     private long elapsedMillis(long startedAtNanos) {
@@ -2022,11 +2025,21 @@ public class ToolRegistry {
                                       String result, long elapsedMillis, boolean timedOut,
                                       List<com.paicli.llm.LlmClient.ContentPart> imageParts,
                                       boolean successful,
-                                      List<String> discoveredUrls) {
+                                      List<String> discoveredUrls,
+                                      ToolOutput.FailureCode failureCode) {
         public ToolExecutionResult {
+            failureCode = failureCode == null ? ToolOutput.FailureCode.NONE : failureCode;
             imageParts = imageParts == null ? List.of() : List.copyOf(imageParts);
             discoveredUrls = discoveredUrls == null ? List.of() : List.copyOf(discoveredUrls);
             successful = successful && !timedOut;
+        }
+
+        public ToolExecutionResult(String id, String name, String argumentsJson,
+                                   String result, long elapsedMillis, boolean timedOut,
+                                   List<com.paicli.llm.LlmClient.ContentPart> imageParts,
+                                   boolean successful, List<String> discoveredUrls) {
+            this(id, name, argumentsJson, result, elapsedMillis, timedOut, imageParts,
+                    successful, discoveredUrls, ToolOutput.FailureCode.NONE);
         }
 
         /** Backward-compatible constructor for existing registries and tests. */
@@ -2047,7 +2060,8 @@ public class ToolRegistry {
                     false,
                     output == null ? List.of() : output.imageParts(),
                     output != null && output.successful(),
-                    output == null ? List.of() : output.discoveredUrls());
+                    output == null ? List.of() : output.discoveredUrls(),
+                    output == null ? ToolOutput.FailureCode.NONE : output.failureCode());
         }
 
         private static ToolExecutionResult completed(ToolInvocation invocation, String result, long elapsedMillis) {

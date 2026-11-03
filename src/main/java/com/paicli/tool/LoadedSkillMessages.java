@@ -209,6 +209,6 @@ public final class LoadedSkillMessages {
     private static ToolRegistry.ToolExecutionResult withResult(ToolRegistry.ToolExecutionResult result,
                                                                String text, boolean successful) {
         return new ToolRegistry.ToolExecutionResult(result.id(), result.name(), result.argumentsJson(), text,
-                result.elapsedMillis(), result.timedOut(), result.imageParts(), successful, result.discoveredUrls());
+                result.elapsedMillis(), result.timedOut(), result.imageParts(), successful, result.discoveredUrls(), result.failureCode());
     }
 }

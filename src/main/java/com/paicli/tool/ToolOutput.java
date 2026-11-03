@@ -17,8 +17,12 @@ import java.util.Objects;
 public record ToolOutput(String text,
                          List<LlmClient.ContentPart> imageParts,
                          boolean successful,
-                         List<String> discoveredUrls) {
+                         List<String> discoveredUrls,
+                         FailureCode failureCode) {
+    public enum FailureCode { NONE, EDIT_SOURCE_NOT_FOUND }
+
     public ToolOutput {
+        failureCode = failureCode == null ? FailureCode.NONE : failureCode;
         text = text == null ? "" : text;
         imageParts = imageParts == null ? List.of() : List.copyOf(imageParts);
         discoveredUrls = discoveredUrls == null
@@ -29,6 +33,11 @@ public record ToolOutput(String text,
                 .filter(url -> !url.isEmpty())
                 .distinct()
                 .toList();
+    }
+
+    public ToolOutput(String text, List<LlmClient.ContentPart> imageParts,
+                      boolean successful, List<String> discoveredUrls) {
+        this(text, imageParts, successful, discoveredUrls, FailureCode.NONE);
     }
 
     /** Backward-compatible constructor for successful text/image tools. */
