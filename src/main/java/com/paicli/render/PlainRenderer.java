@@ -6,6 +6,9 @@ import com.paicli.hitl.ApprovalPolicy;
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
 import com.paicli.llm.LlmClient;
+import com.paicli.mcp.elicitation.ElicitationPrompter;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
 import com.paicli.util.AnsiStyle;
 
 import java.io.BufferedReader;
@@ -170,6 +173,20 @@ public final class PlainRenderer implements Renderer {
         }
         out.println("  [HITL] 连续多次无效输入，保守处理为拒绝");
         return ApprovalResult.reject("连续多次无效输入");
+    }
+
+    @Override
+    public java.util.Set<String> supportedElicitationModes() {
+        return java.util.Set.of("form", "url");
+    }
+
+    @Override
+    public synchronized ElicitationResponse promptElicitation(ElicitationRequest request) {
+        return ElicitationPrompter.prompt(request, out, prompt -> {
+            out.print(prompt);
+            out.flush();
+            return in.readLine();
+        }, ElicitationPrompter.desktopBrowser());
     }
 
     @Override

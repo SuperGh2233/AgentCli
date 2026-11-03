@@ -1,6 +1,8 @@
 package com.paicli.hitl;
 
 import com.paicli.render.Renderer;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
 
 import java.util.Objects;
 import java.util.Set;
@@ -44,6 +46,14 @@ public final class RendererHitlHandler implements HitlHandler {
     @Override
     public void onAutoApproved(String toolName, String reason) {
         renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ✓ auto 已放行 " + toolName + "：" + reason));
+    }
+
+    @Override
+    public java.util.Set<String> supportedModes() { return renderer.supportedElicitationModes(); }
+
+    @Override
+    public synchronized ElicitationResponse requestElicitation(ElicitationRequest request) {
+        return renderer.promptElicitation(request);
     }
 
     @Override

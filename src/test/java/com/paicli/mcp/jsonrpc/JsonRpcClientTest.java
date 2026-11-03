@@ -106,6 +106,46 @@ class JsonRpcClientTest {
         assertTrue(client.request("ping", MAPPER.createObjectNode(), 1).path("ok").asBoolean());
     }
 
+    @Test
+    void modernDropsServerRequestsEvenWithCollidingIdAndNoLegacyReply() throws Exception {
+        ManualTransport transport = new ManualTransport();
+        try (var client = new JsonRpcClient(transport, com.paicli.mcp.protocol.McpProtocolVersion.MODERN)) {
+            var call = CompletableFuture.supplyAsync(() -> {
+                try { return client.request("tools/list", MAPPER.createObjectNode(), 3); }
+                catch (IOException e) { throw new RuntimeException(e); }
+            });
+            var ours = transport.awaitSent(m -> m.has("method"));
+            transport.deliver("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}");
+            transport.deliver("{\"jsonrpc\":\"2.0\",\"id\":\"s1\",\"method\":\"sampling/createMessage\"}");
+            assertFalse(call.isDone());
+            transport.deliver("{\"jsonrpc\":\"2.0\",\"id\":" + ours.path("id").asLong()
+                    + ",\"result\":{\"resultType\":\"complete\",\"tools\":[]}}");
+            assertTrue(call.get(2, TimeUnit.SECONDS).path("tools").isArray());
+            assertTrue(transport.sent.isEmpty());
+        }
+    }
+
+    @Test
+    void modernNotificationsDecorateCopyAndPreserveUnrelatedMetadata() throws Exception {
+        var transport = new ManualTransport();
+        try (var client = new JsonRpcClient(transport, com.paicli.mcp.protocol.McpProtocolVersion.MODERN)) {
+            var params = MAPPER.createObjectNode().put("value", 7);
+            params.putObject("_meta").put("custom", "kept");
+            client.sendNotification("notifications/test", params);
+            var sent = transport.awaitSent(m -> true);
+            assertFalse(sent.has("id"));
+            assertEquals(7, sent.path("params").path("value").asInt());
+            var meta = sent.path("params").path("_meta");
+            assertEquals("kept", meta.path("custom").asText());
+            assertEquals("2026-07-28", meta.path("io.modelcontextprotocol/protocolVersion").asText());
+            assertTrue(meta.path("io.modelcontextprotocol/clientCapabilities").isObject());
+            assertEquals("paicli", meta.path("io.modelcontextprotocol/clientInfo").path("name").asText());
+            assertFalse(params.path("_meta").has("io.modelcontextprotocol/protocolVersion"));
+            client.sendNotification("notifications/test", null);
+            assertTrue(transport.awaitSent(m -> true).path("params").has("_meta"));
+        }
+    }
+
     private static final class ManualTransport implements McpTransport {
         private final List<JsonNode> sent = new CopyOnWriteArrayList<>();
         private Consumer<JsonNode> listener;

@@ -33,6 +33,8 @@ final class CliCommandParser {
         AUDIT_TAIL,
         SNAPSHOT,
         RESTORE_SNAPSHOT,
+        MCP_LOGIN,
+        MCP_LOGOUT,
         MCP_LIST,
         MCP_RESTART,
         MCP_LOGS,
@@ -335,6 +337,12 @@ final class CliCommandParser {
                     trimmed.substring(16).trim());
         }
 
+        for (String action : java.util.List.of("login", "logout")) {
+            String prefix = "/mcp " + action;
+            if (trimmed.equalsIgnoreCase(prefix) || trimmed.regionMatches(true, 0, prefix + " ", 0, prefix.length() + 1))
+                return new ParsedCommand(action.equals("login") ? CommandType.MCP_LOGIN : CommandType.MCP_LOGOUT,
+                        trimmed.substring(prefix.length()).trim());
+        }
         if (trimmed.equalsIgnoreCase("/mcp")) {
             return new ParsedCommand(CommandType.MCP_LIST, null);
         }

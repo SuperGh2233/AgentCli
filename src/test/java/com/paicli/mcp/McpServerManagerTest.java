@@ -328,6 +328,76 @@ class McpServerManagerTest {
                 + "\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}";
     }
 
+    @Test
+    void modernConfigReachesClientAndHttpTransport() throws Exception {
+        webServer.enqueue(new MockResponse().setHeader("Mcp-Session-Id", "ignored").setBody(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedProtocolVersions\":[\"2026-07-28\"],\"capabilities\":{}}}"));
+        webServer.enqueue(new MockResponse().setBody(
+                "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"tools\":[]}}"));
+        var config = httpConfig(webServer); config.setProtocolVersion("2026-07-28");
+        loadServersFromMap(Map.of("modern", config)); manager.startAll();
+        assertEquals(McpServerStatus.READY, manager.server("modern").status(), manager.server("modern").errorMessage());
+        assertTrue(manager.server("modern").client().isModern());
+        for (String method : List.of("server/discover", "tools/list")) {
+            var request = webServer.takeRequest();
+            assertEquals(method, request.getHeader("Mcp-Method"));
+            assertEquals("2026-07-28", request.getHeader("MCP-Protocol-Version"));
+            assertNull(request.getHeader("Mcp-Session-Id"));
+        }
+        manager.close(); assertEquals(2, webServer.getRequestCount());
+    }
+
+    @Test
+    void managerSkipsModernStdioHeartbeatEntirely() throws Exception {
+        var config = new McpServerConfig(); config.setCommand("unused"); config.setProtocolVersion("2026-07-28");
+        loadServersFromMap(Map.of("modern", config));
+        var transport = new InMemoryTransport() { @Override public String transportName() { return "stdio"; } };
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var client = new McpClient("modern", transport, com.paicli.mcp.protocol.McpProtocolVersion.MODERN) {
+            @Override public void ping(long timeout) { calls.incrementAndGet(); }
+        };
+        var server = manager.server("modern"); server.client(client); server.status(McpServerStatus.READY);
+        manager.pingAll(); manager.pingAll();
+        assertEquals(0, calls.get()); assertTrue(transport.sentMessages().isEmpty());
+        assertEquals(McpServerStatus.READY, server.status());
+    }
+
+    @Test
+    void managerPassesLiveHandlerToNewAndExistingClients() throws Exception {
+        var ui = new com.paicli.hitl.SwitchableHitlHandler(
+                new com.paicli.hitl.RendererHitlHandler(new com.paicli.render.PlainRenderer(), false));
+        manager.setElicitationHandler(ui);
+        webServer.enqueue(new MockResponse().setBody(
+                "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"resultType\":\"complete\",\"supportedProtocolVersions\":[\"2026-07-28\"],\"capabilities\":{}}}"));
+        webServer.enqueue(new MockResponse().setBody(
+                "{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"resultType\":\"complete\",\"tools\":[]}}"));
+        var config = httpConfig(webServer); config.setProtocolVersion("2026-07-28");
+        loadServersFromMap(Map.of("modern", config)); manager.startAll();
+        var server = manager.server("modern");
+        assertEquals(McpServerStatus.READY, server.status(), server.errorMessage());
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        for (int i = 0; i < 2; i++) {
+            var recorded = webServer.takeRequest(3, TimeUnit.SECONDS);
+            assertNotNull(recorded, "expected a local MCP request");
+            var request = mapper.readTree(recorded.getBody().readUtf8());
+            assertTrue(request.path("params").path("_meta").path("io.modelcontextprotocol/clientCapabilities").isEmpty());
+        }
+        for (int i = 0; i < 4; i++) {
+            if (i == 1) ui.setDelegate(new com.paicli.hitl.TerminalHitlHandler(false));
+            if (i == 2) manager.setElicitationHandler(new com.paicli.hitl.RendererHitlHandler(new com.paicli.render.PlainRenderer(), false));
+            if (i == 3) manager.setElicitationHandler(null);
+            webServer.enqueue(new MockResponse().setBody("{\"jsonrpc\":\"2.0\",\"id\":" + (3+i)
+                    + ",\"result\":{\"resultType\":\"complete\",\"content\":[]}}"));
+            server.client().callTool("echo", "{}");
+            var recorded = webServer.takeRequest(3, TimeUnit.SECONDS);
+            assertNotNull(recorded, "expected a local MCP request");
+            var request = mapper.readTree(recorded.getBody().readUtf8());
+            var caps = request.path("params").path("_meta").path("io.modelcontextprotocol/clientCapabilities");
+            if (i % 2 == 0) assertEquals(mapper.readTree("{\"elicitation\":{\"form\":{},\"url\":{}}}"), caps);
+            else assertTrue(caps.isEmpty());
+        }
+    }
+
     private static McpServerConfig httpConfig(MockWebServer webServer) {
         McpServerConfig config = new McpServerConfig();
         config.setUrl(webServer.url("/mcp").toString());

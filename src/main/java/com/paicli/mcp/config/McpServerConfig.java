@@ -10,12 +10,23 @@ import java.util.Map;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class McpServerConfig {
+    private String protocolVersion;
+    public String getProtocolVersion() { return protocolVersion; }
+    public void setProtocolVersion(String version) { protocolVersion = version; }
+    public com.paicli.mcp.protocol.McpProtocolVersion protocolVersion() {
+        return com.paicli.mcp.protocol.McpProtocolVersion.fromConfig(protocolVersion);
+    }
+
     private String command;
     private List<String> args = new ArrayList<>();
     private Map<String, String> env = new LinkedHashMap<>();
     private String url;
     private Map<String, String> headers = new LinkedHashMap<>();
     private boolean disabled;
+    private McpOAuthConfig oauth;
+
+    public McpOAuthConfig getOauth() { return oauth; }
+    public void setOauth(McpOAuthConfig oauth) { this.oauth = oauth; }
     // 来源只能由 McpConfigLoader 标记；不用 getter/setter 命名，避免配置文件里写同名字段把自己伪装成用户级
     private Path projectConfigFile;
     private String projectFingerprint;

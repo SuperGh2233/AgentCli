@@ -3,6 +3,8 @@ package com.paicli.render;
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
 import com.paicli.llm.LlmClient;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
 
 import java.io.PrintStream;
 import java.util.List;
@@ -160,6 +162,13 @@ public interface Renderer extends AutoCloseable {
      * 内部用 CountDownLatch 把 GUI 线程结果回写主线程。
      */
     ApprovalResult promptApproval(ApprovalRequest request);
+
+    default java.util.Set<String> supportedElicitationModes() { return java.util.Set.of(); }
+
+    /** MCP elicitation is user input, not approval; unsupported renderers fail closed. */
+    default ElicitationResponse promptElicitation(ElicitationRequest request) {
+        return ElicitationResponse.cancel();
+    }
 
     /**
      * 显示一个临时浮起的选择列表，等待用户选定一项或取消。

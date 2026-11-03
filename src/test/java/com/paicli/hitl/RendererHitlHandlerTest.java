@@ -1,6 +1,10 @@
 package com.paicli.hitl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.paicli.llm.LlmClient;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
 import com.paicli.render.Renderer;
 import com.paicli.render.StatusInfo;
 import org.junit.jupiter.api.Test;
@@ -16,6 +20,28 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RendererHitlHandlerTest {
+
+    @Test
+    void elicitationIsIndependentFromApprovalGrantsAndHitlToggle() {
+        StubRenderer stub = new StubRenderer();
+        stub.nextResult = ApprovalResult.approveAll();
+        ObjectMapper mapper = new ObjectMapper();
+        stub.nextElicitation = new ElicitationResponse(ElicitationResponse.Action.ACCEPT,
+                mapper.createObjectNode().put("name", "alice"));
+        RendererHitlHandler handler = new RendererHitlHandler(stub, false);
+        handler.requestApproval(ApprovalRequest.of("mcp__demo__write", "{}", "test"));
+        assertTrue(handler.isApprovedAllByTool("mcp__demo__write"));
+
+        ObjectNode schema = mapper.createObjectNode().put("type", "object");
+        ObjectNode properties = mapper.createObjectNode();
+        properties.set("name", mapper.createObjectNode().put("type", "string"));
+        schema.set("properties", properties);
+        var request = new ElicitationRequest("demo", "identity", ElicitationRequest.Mode.FORM,
+                "Provide your name", schema, null);
+        assertEquals(ElicitationResponse.Action.ACCEPT, handler.requestElicitation(request).action());
+        assertEquals(1, stub.elicitationCount);
+        assertEquals(1, stub.promptCount);
+    }
 
     @Test
     void delegatesPromptToRenderer() {
@@ -133,6 +159,8 @@ class RendererHitlHandlerTest {
         private final PrintStream out = new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8);
         ApprovalResult nextResult;
         int promptCount;
+        int elicitationCount;
+        ElicitationResponse nextElicitation = ElicitationResponse.cancel();
 
         @Override public void start() {}
         @Override public void close() {}
@@ -143,6 +171,10 @@ class RendererHitlHandlerTest {
         @Override public ApprovalResult promptApproval(ApprovalRequest request) {
             promptCount++;
             return nextResult;
+        }
+        @Override public ElicitationResponse promptElicitation(ElicitationRequest request) {
+            elicitationCount++;
+            return nextElicitation;
         }
         @Override public int openPalette(String title, List<String> items) { return -1; }
     }

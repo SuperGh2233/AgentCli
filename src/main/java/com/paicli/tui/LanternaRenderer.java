@@ -38,6 +38,7 @@ public final class LanternaRenderer implements Renderer {
     private final WindowBasedTextGUI gui;
     private final PrintStream stream;
     private volatile boolean closed;
+    private final LanternaElicitation elicitation;
 
     public LanternaRenderer(LanternaWindow window) {
         this.window = Objects.requireNonNull(window);
@@ -45,6 +46,35 @@ public final class LanternaRenderer implements Renderer {
         this.statusPane = window.getRootPane().getStatusPane();
         this.gui = window.getGui();
         this.stream = new PrintStream(new CenterPaneSink(), true, StandardCharsets.UTF_8);
+        this.elicitation = new LanternaElicitation(new LanternaElicitation.Dialogs() {
+            public boolean available() { return !closed && gui != null && window.isGuiRunning(); }
+            public boolean isGuiThread() { return window.isGuiThread(); }
+            public void dispatch(Runnable task) { window.runOnGuiThread(task); }
+            public Runnable show(String text, LanternaElicitation.Step step, java.util.function.Consumer<String> answer) {
+                ElicitationDialog dialog = new ElicitationDialog(text, step, window.getScreen().getTerminalSize(), answer);
+                gui.addWindow(dialog);
+                return dialog::close;
+            }
+        }, com.paicli.mcp.elicitation.ElicitationPrompter.desktopBrowser(), java.time.Duration.ofMinutes(5));
+    }
+
+    // Deterministic dialog bridge for tests; no terminal is constructed.
+    LanternaRenderer(LanternaElicitation elicitation) {
+        this.window = null;
+        this.centerPane = null;
+        this.statusPane = null;
+        this.gui = null;
+        this.stream = new PrintStream(OutputStream.nullOutputStream());
+        this.elicitation = elicitation;
+    }
+
+    @Override public java.util.Set<String> supportedElicitationModes() {
+        return closed ? java.util.Set.of() : elicitation.supportedModes();
+    }
+
+    @Override public com.paicli.mcp.elicitation.ElicitationResponse promptElicitation(
+            com.paicli.mcp.elicitation.ElicitationRequest request) {
+        return closed ? com.paicli.mcp.elicitation.ElicitationResponse.cancel() : elicitation.prompt(request);
     }
 
     @Override

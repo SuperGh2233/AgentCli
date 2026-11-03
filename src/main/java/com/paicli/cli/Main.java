@@ -122,7 +122,7 @@ import java.util.regex.Pattern;
  * HITL 增强：路径围栏（PathGuard）、命令快速拒绝（CommandGuard）、操作审计链（AuditLog）—— 见 com.paicli.policy
  */
 public class Main {
-    private static final String VERSION = "16.1.0";
+    public static final String VERSION = "16.1.0";
     private static final String ENV_FILE = ".env";
     private static final String LOG_DIR_PROPERTY = "paicli.log.dir";
     private static final String LOG_LEVEL_PROPERTY = "paicli.log.level";
@@ -144,6 +144,14 @@ public class Main {
     private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
             "(?i)((?:api[_-]?key|authorization|password|passwd|secret|token)\\s*[=:]\\s*)(\\S+)");
     private static final int CTRL_O = 15;
+    static String handleMcpOAuthCommand(CliCommandParser.ParsedCommand command,
+                                       McpServerManager manager, java.util.function.Consumer<String> output) {
+        if (command.payload() == null || command.payload().isBlank() || command.payload().matches(".*\\s.*"))
+            return "❌ 用法：/mcp login <name> 或 /mcp logout <name>";
+        return command.type() == CliCommandParser.CommandType.MCP_LOGIN
+                ? manager.login(command.payload(), output) : manager.logout(command.payload());
+    }
+
     private static final String DEFAULT_CHROME_DEVTOOLS_MCP_JSON = """
             {
               "mcpServers": {
@@ -275,6 +283,8 @@ public class Main {
             BrowserConnectivityCheck browserConnectivityCheck = new BrowserConnectivityCheck();
             hitlToolRegistry.setBrowserGuard(new BrowserGuard(browserSession, new SensitivePagePolicy()));
             McpServerManager mcpServerManager = new McpServerManager(hitlToolRegistry, Path.of("."));
+            // MCP elicitation 走独立的用户输入通道；切换 Plain/Inline/Lanterna renderer 时自动跟随 delegate。
+            if (System.console() != null) mcpServerManager.setElicitationHandler(hitlHandler);
             AtomicReference<SkillRegistry> skillRegistryRef = new AtomicReference<>();
             hitlToolRegistry.setBrowserConnector(new com.paicli.browser.BrowserConnector() {
                 @Override
@@ -298,7 +308,8 @@ public class Main {
 
             PaiCliHistory inputHistory = new PaiCliHistory();
             PaiCliCompleter inputCompleter = new PaiCliCompleter(mcpServerManager::resourceCandidates,
-                    () -> skillRegistryRef.get() == null ? List.of() : skillRegistryRef.get().allSkills(), () -> config);
+                    () -> skillRegistryRef.get() == null ? List.of() : skillRegistryRef.get().allSkills(), () -> config,
+                    () -> mcpServerManager.servers().stream().map(com.paicli.mcp.McpServer::name).toList());
             PaiCliHighlighter inputHighlighter = new PaiCliHighlighter();
             Renderer renderer = RendererFactory.create(RendererFactory.resolveMode(), terminal);
             boolean wakeableInputRequested = Boolean.parseBoolean(
@@ -442,7 +453,8 @@ public class Main {
                     com.paicli.tui.TuiBootstrap.launch(config, llmClient, reactAgent, hitlHandler);
                     return;  // TUI 启动成功，不进入 CLI 循环
                 } catch (Exception e) {
-                    hitlHandler.setDelegate(terminalHitlHandler);
+                    // TUI 启动失败后仍回到当前 CLI renderer；保留它的审批和 MCP elicitation 界面。
+                    hitlHandler.setDelegate(rendererHitl);
                     System.err.println("❌ TUI 启动失败，降级到 CLI: " + e.getMessage());
                     e.printStackTrace();
                     // 降级到 CLI 继续执行
@@ -790,6 +802,11 @@ public class Main {
                     }
                     case RESTORE_SNAPSHOT -> {
                         printRestoreCommand(ui, reactAgent.getToolRegistry().getSnapshotService(), command.payload());
+                        continue;
+                    }
+                    case MCP_LOGIN, MCP_LOGOUT -> {
+                        printMcpCommandResult(ui, handleMcpOAuthCommand(command, mcpServerManager, ui::println));
+                        renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
                         continue;
                     }
                     case MCP_LIST -> {
@@ -1934,6 +1951,8 @@ public class Main {
                 new SlashCommandHint("/task add ", "/task add <任务内容>", "提交后台任务"),
                 new SlashCommandHint("/task cancel ", "/task cancel <task_id>", "取消后台任务"),
                 new SlashCommandHint("/task log ", "/task log <task_id>", "查看后台任务结果"),
+                new SlashCommandHint("/mcp login ", "/mcp login <name>", "登录 HTTP MCP OAuth"),
+                new SlashCommandHint("/mcp logout ", "/mcp logout <name>", "注销并停用 HTTP MCP"),
                 new SlashCommandHint("/mcp", "/mcp", "查看 MCP server 状态"),
                 new SlashCommandHint("/mcp restart ", "/mcp restart <name>", "重启 MCP server"),
                 new SlashCommandHint("/mcp logs ", "/mcp logs <name>", "查看 MCP server 日志"),

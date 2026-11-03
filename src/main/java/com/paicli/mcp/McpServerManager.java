@@ -1,7 +1,10 @@
 package com.paicli.mcp;
 
 import com.paicli.mcp.config.McpConfigLoader;
+import com.paicli.mcp.oauth.*;
+import java.util.function.Consumer;
 import com.paicli.mcp.config.McpServerConfig;
+import com.paicli.mcp.elicitation.McpElicitationHandler;
 import com.paicli.mcp.config.McpTrustStore;
 import com.paicli.mcp.notifications.NotificationRouter;
 import com.paicli.mcp.protocol.McpToolDescriptor;
@@ -68,6 +71,14 @@ public class McpServerManager implements AutoCloseable {
     private boolean heartbeatStarted;
     private final Map<String, McpServer> servers = new ConcurrentHashMap<>();
     private final McpResourceCache resourceCache = new McpResourceCache();
+    private volatile McpElicitationHandler elicitationHandler = McpElicitationHandler.CANCEL;
+
+    public void setElicitationHandler(McpElicitationHandler handler) {
+        this.elicitationHandler = handler == null ? McpElicitationHandler.CANCEL : handler;
+        servers.values().forEach(server -> {
+            if (server.client() != null) server.client().setElicitationHandler(this.elicitationHandler);
+        });
+    }
 
     public McpServerManager(ToolRegistry toolRegistry, Path projectDir) {
         this(toolRegistry, projectDir, new McpConfigLoader(projectDir));
@@ -244,6 +255,59 @@ public class McpServerManager implements AutoCloseable {
 
     public McpServer server(String name) {
         return servers.get(name);
+    }
+
+    /** 用户主动登录才会打开浏览器；启动和 401 路径不会打开。 */
+    public synchronized String login(String name, Consumer<String> output) {
+        McpServer server = servers.get(name);
+        if (server == null) return "未找到 MCP server: " + name;
+        if (!isTrusted(server)) return untrustedMessage(server);
+        try {
+            configLoader.prepare(server.config());
+            if (!server.config().isHttp() || server.config().getOauth() == null)
+                return "❌ /mcp login 仅支持配置了 oauth.clientId 的 HTTP server";
+            OAuthTokenStore store = oauthTokenStore();
+            var config = server.config();
+            oauthFlow(store).login(config.getUrl(), config.getOauth().getClientId(), config.getOauth().getScopes(), output, config.protocolVersion());
+            return "✅ MCP OAuth 登录成功。\n" + restart(name);
+        } catch (Exception e) {
+            return "❌ MCP OAuth 登录失败：" + safeOAuthError(e);
+        }
+    }
+
+    public synchronized String logout(String name) {
+        McpServer server = servers.get(name);
+        if (server == null) return "未找到 MCP server: " + name;
+        if (!isTrusted(server)) return untrustedMessage(server);
+        try {
+            configLoader.prepare(server.config());
+            if (!server.config().isHttp() || server.config().getOauth() == null)
+                return "❌ /mcp logout 仅支持配置了 oauth.clientId 的 HTTP server";
+            OAuthTokenProvider provider = oauthProviders.get(name);
+            disable(name);
+            if (provider != null) provider.revoke();
+            oauthProviders.remove(name);
+            var config = server.config();
+            oauthTokenStore().deleteAllIssuers(new OAuthDiscovery().canonicalResource(config.getUrl()), config.getOauth().getClientId());
+            return "✅ MCP OAuth 已注销，当前连接已停用：" + name + "（再次使用请 /mcp login " + name + "）";
+        } catch (Exception e) {
+            return "❌ MCP OAuth 注销失败：" + safeOAuthError(e);
+        }
+    }
+
+    private final Map<String, OAuthTokenProvider> oauthProviders = new ConcurrentHashMap<>();
+    protected OAuthTokenStore oauthTokenStore() throws IOException {
+        OAuthTokenStore store = OAuthTokenStore.defaultStore();
+        store.requireOutsideProject(projectDir);
+        return store;
+    }
+    protected OAuthFlow oauthFlow(OAuthTokenStore store) { return new OAuthFlow(store); }
+    protected OAuthDiscovery oauthDiscovery() { return new OAuthDiscovery(); }
+    private static String safeOAuthError(Exception e) {
+        String message = e.getMessage();
+        return message != null && (message.startsWith("OAuth ") || message.startsWith("oauth.")
+                || message.startsWith("授权服务器") || message.startsWith("找不到") || message.startsWith("资源元数据"))
+                ? message : "请检查 HTTP OAuth 配置、服务元数据与用户目录权限";
     }
 
     public synchronized String disable(String name) {
@@ -562,8 +626,10 @@ public class McpServerManager implements AutoCloseable {
             // 在单 server 启动路径里展开 ${VAR} 与校验 transport，
             // 单个失败仅标 ERROR，不会阻塞其他 server。
             configLoader.prepare(server.config());
-            McpTransport transport = createTransport(server.config());
-            McpClient client = new McpClient(server.name(), transport);
+            McpTransport transport = createTransport(server);
+            McpClient client = new McpClient(server.name(), transport, server.config().protocolVersion());
+            client.setElicitationHandler(elicitationHandler);
+            server.client(client);
             client.initialize();
             registerNotificationHandlers(server, client);
             List<McpToolDescriptor> tools = buildToolList(server, client);
@@ -605,6 +671,7 @@ public class McpServerManager implements AutoCloseable {
     }
 
     private void registerNotificationHandlers(McpServer server, McpClient client) {
+        if (client.isModern()) return;
         NotificationRouter router = new NotificationRouter();
         router.on("notifications/tools/list_changed", ignored -> {
             try {
@@ -648,9 +715,14 @@ public class McpServerManager implements AutoCloseable {
         }
     }
 
-    private McpTransport createTransport(McpServerConfig config) throws IOException {
+    private McpTransport createTransport(McpServer server) throws IOException {
+        McpServerConfig config = server.config();
         if (config.isHttp()) {
-            return new StreamableHttpTransport(config.getUrl(), config.getHeaders());
+            if (config.getOauth() == null) return new StreamableHttpTransport(config.getUrl(), config.getHeaders(), null, config.protocolVersion());
+            var metadata = oauthDiscovery().discover(config.getUrl(), config.protocolVersion());
+            var provider = new OAuthTokenProvider(oauthTokenStore(), metadata.resource(), metadata.issuer(), config.getOauth().getClientId());
+            oauthProviders.put(server.name(), provider);
+            return new StreamableHttpTransport(config.getUrl(), config.getHeaders(), provider, config.protocolVersion());
         }
         return new StdioTransport(config.getCommand(), config.getArgs(), config.getEnv(), projectDir, pidFile);
     }
@@ -712,7 +784,7 @@ public class McpServerManager implements AutoCloseable {
         for (McpServer server : servers.values()) {
             McpClient client = server.client();
             if (server.status() != McpServerStatus.READY || client == null
-                    || !"stdio".equals(client.transportName()) || client.hasPendingRequests()) {
+                    || client.isModern() || !"stdio".equals(client.transportName()) || client.hasPendingRequests()) {
                 continue;
             }
             try {

@@ -3,6 +3,9 @@ package com.paicli.render;
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
 import com.paicli.llm.LlmClient;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.io.BufferedReader;
@@ -144,6 +147,39 @@ class PlainRendererTest {
                 ApprovalRequest.of("write_file", "{\"path\":\"a.txt\"}", "Test"));
         assertEquals(ApprovalResult.Decision.MODIFIED, result.decision());
         assertTrue(result.modifiedArguments().contains("b.txt"));
+    }
+
+    @Test
+    void promptElicitationFormReviewsBeforeAccepting() throws Exception {
+        ByteArrayOutputStream sink = new ByteArrayOutputStream();
+        BufferedReader reader = new BufferedReader(new StringReader("""
+                alice
+                submit
+                """));
+        PlainRenderer renderer = new PlainRenderer(
+                new PrintStream(sink, true, StandardCharsets.UTF_8), reader);
+        var schema = new ObjectMapper().readTree("""
+                {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}
+                """);
+        var request = new ElicitationRequest("demo", "identity", ElicitationRequest.Mode.FORM,
+                "Please provide your name", schema, null);
+        ElicitationResponse response = renderer.promptElicitation(request);
+        assertEquals(ElicitationResponse.Action.ACCEPT, response.action());
+        assertEquals("alice", response.content().path("name").asText());
+        assertTrue(sink.toString(StandardCharsets.UTF_8).contains("请检查即将发送"));
+    }
+
+    @Test
+    void promptElicitationUrlRequiresExplicitOpenChoice() throws Exception {
+        ByteArrayOutputStream sink = new ByteArrayOutputStream();
+        BufferedReader reader = new BufferedReader(new StringReader("decline" + System.lineSeparator()));
+        PlainRenderer renderer = new PlainRenderer(
+                new PrintStream(sink, true, StandardCharsets.UTF_8), reader);
+        var request = new ElicitationRequest("demo", "authorize", ElicitationRequest.Mode.URL,
+                "Open provider authorization", null, java.net.URI.create("https://example.test/authorize"));
+        ElicitationResponse response = renderer.promptElicitation(request);
+        assertEquals(ElicitationResponse.Action.DECLINE, response.action());
+        assertTrue(sink.toString(StandardCharsets.UTF_8).contains("https://example.test/authorize"));
     }
 
     @Test

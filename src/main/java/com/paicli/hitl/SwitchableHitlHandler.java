@@ -1,5 +1,8 @@
 package com.paicli.hitl;
 
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
+
 import java.util.Objects;
 
 /**
@@ -29,6 +32,14 @@ public final class SwitchableHitlHandler implements HitlHandler {
     @Override
     public ApprovalResult requestApproval(ApprovalRequest request) {
         return delegate.requestApproval(request);
+    }
+
+    @Override
+    public java.util.Set<String> supportedModes() { return delegate.supportedModes(); }
+
+    @Override
+    public ElicitationResponse requestElicitation(ElicitationRequest request) {
+        return delegate.requestElicitation(request);
     }
 
     @Override

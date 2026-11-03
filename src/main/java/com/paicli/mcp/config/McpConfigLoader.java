@@ -77,12 +77,14 @@ public class McpConfigLoader {
      */
     public static String fingerprint(McpServerConfig config) {
         ObjectNode node = MAPPER.createObjectNode();
+        if (config.getProtocolVersion() != null) node.put("protocolVersion", config.getProtocolVersion());
         node.put("command", config.getCommand());
         ArrayNode args = node.putArray("args");
         config.getArgs().forEach(args::add);
         node.set("env", MAPPER.valueToTree(new TreeMap<>(config.getEnv())));
         node.put("url", config.getUrl());
         node.set("headers", MAPPER.valueToTree(new TreeMap<>(config.getHeaders())));
+        if (config.getOauth() != null) node.set("oauth", MAPPER.valueToTree(config.getOauth()));
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(MAPPER.writeValueAsBytes(node));
@@ -174,6 +176,13 @@ public class McpConfigLoader {
     }
 
     private void validate(McpServerConfig config) {
+        config.protocolVersion();
+        if (config.getOauth() != null) {
+            if (!config.isHttp() || config.isStdio()) throw new IllegalArgumentException("OAuth 仅支持 MCP HTTP server");
+            config.getOauth().validate();
+            if (config.getHeaders().keySet().stream().anyMatch("Authorization"::equalsIgnoreCase))
+                throw new IllegalArgumentException("OAuth 不能与静态 Authorization header 同时配置");
+        }
         if (config.isStdio() == config.isHttp()) {
             throw new IllegalArgumentException("MCP server 必须且只能配置 command 或 url");
         }

@@ -4,6 +4,9 @@ import com.paicli.cli.TerminalInputGateway;
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
 import com.paicli.llm.LlmClient;
+import com.paicli.mcp.elicitation.ElicitationPrompter;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
 import com.paicli.render.PlainRenderer;
 import com.paicli.render.Renderer;
 import com.paicli.render.StatusInfo;
@@ -357,6 +360,34 @@ public final class InlineRenderer implements Renderer {
         }
         // 默认关闭时保留原行为；统一输入路径下只有 UI 所有者可以读取终端。
         return TerminalInputLock.exclusive(() -> new InlineApprovalPrompter(out, terminal).prompt(request));
+    }
+
+    @Override
+    public java.util.Set<String> supportedElicitationModes() {
+        if (closed) return java.util.Set.of();
+        if (terminal == null || (approvalGateway == null && lineReader == null))
+            return fallback.supportedElicitationModes();
+        return java.util.Set.of("form", "url");
+    }
+
+    @Override
+    public ElicitationResponse promptElicitation(ElicitationRequest request) {
+        if (terminal == null) return fallback.promptElicitation(request);
+        TerminalInputGateway gateway = approvalGateway;
+        if (gateway != null) {
+            try (TerminalInputGateway.Session session = gateway.openInteraction(
+                    com.paicli.cli.InputCoordinator.Mode.APPROVAL_INPUT)) {
+                return ElicitationPrompter.prompt(request, out,
+                        prompt -> session.read(TerminalInputGateway.Kind.MCP_ELICITATION_INPUT, prompt, approvalInputTimeout),
+                        ElicitationPrompter.desktopBrowser());
+            } catch (RuntimeException e) {
+                return ElicitationResponse.cancel();
+            }
+        }
+        LineReader reader = lineReader;
+        if (reader == null) return fallback.promptElicitation(request);
+        return TerminalInputLock.exclusive(() -> ElicitationPrompter.prompt(
+                request, out, reader::readLine, ElicitationPrompter.desktopBrowser()));
     }
 
     @Override

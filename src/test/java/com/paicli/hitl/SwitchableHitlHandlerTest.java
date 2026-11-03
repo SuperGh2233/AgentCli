@@ -1,5 +1,8 @@
 package com.paicli.hitl;
 
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -10,14 +13,21 @@ class SwitchableHitlHandlerTest {
     void delegatesToCurrentHandlerAndForwardsSessionStateOperations() {
         StubHitlHandler first = new StubHitlHandler(ApprovalResult.reject("first"));
         StubHitlHandler second = new StubHitlHandler(ApprovalResult.approve());
+        second.elicitationResult = new ElicitationResponse(ElicitationResponse.Action.ACCEPT, null);
         SwitchableHitlHandler handler = new SwitchableHitlHandler(first);
         ApprovalRequest request = ApprovalRequest.of("write_file", "{}", null, null, null);
 
         assertTrue(handler.requestApproval(request).isRejected());
+        var elicitation = new ElicitationRequest("demo", "key", ElicitationRequest.Mode.URL,
+                "Open provider", null, java.net.URI.create("https://example.test/"));
+        assertEquals(ElicitationResponse.Action.CANCEL, handler.requestElicitation(elicitation).action());
 
         handler.setDelegate(second);
 
         assertTrue(handler.requestApproval(request).isApproved());
+        assertEquals(ElicitationResponse.Action.ACCEPT, handler.requestElicitation(elicitation).action());
+        assertEquals(1, first.elicitationCount);
+        assertEquals(1, second.elicitationCount);
         assertEquals(1, first.requestCount);
         assertEquals(1, second.requestCount);
 
@@ -34,6 +44,8 @@ class SwitchableHitlHandlerTest {
         private final ApprovalResult result;
         private boolean enabled;
         private int requestCount;
+        private int elicitationCount;
+        private ElicitationResponse elicitationResult = ElicitationResponse.cancel();
         private int clearAllCount;
         private String lastClearedServer;
 
@@ -45,6 +57,12 @@ class SwitchableHitlHandlerTest {
         public ApprovalResult requestApproval(ApprovalRequest request) {
             requestCount++;
             return result;
+        }
+
+        @Override
+        public ElicitationResponse requestElicitation(ElicitationRequest request) {
+            elicitationCount++;
+            return elicitationResult;
         }
 
         @Override

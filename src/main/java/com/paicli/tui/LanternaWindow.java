@@ -28,6 +28,8 @@ public final class LanternaWindow {
     private final PaiCliConfig config;
     private final BasicWindow mainWindow;
     private final RootPane rootPane;
+    private final TextGUIThread guiThread;
+    private volatile boolean running;
     private Runnable closeHook = () -> {
     };
 
@@ -54,6 +56,7 @@ public final class LanternaWindow {
 
         // 创建 GUI 层（使用默认主题）
         this.gui = new MultiWindowTextGUI(screen);
+        this.guiThread = gui.getGUIThread();
 
         // 创建根面板（三栏布局）
         this.rootPane = new RootPane(config, llmClient);
@@ -68,11 +71,13 @@ public final class LanternaWindow {
      * 启动 TUI 主循环（阻塞直到窗口关闭）。
      */
     public void start() {
+        running = true;
         try {
             gui.waitForWindowToClose(mainWindow);
         } catch (Exception e) {
             System.err.println("❌ TUI 主循环异常: " + e.getMessage());
         } finally {
+            running = false;
             closeHook.run();
             tuiMode = false;
             closeScreen();
@@ -83,6 +88,7 @@ public final class LanternaWindow {
      * 关闭窗口。
      */
     public void close() {
+        running = false;
         mainWindow.close();
         closeScreen();
         tuiMode = false;
@@ -121,6 +127,11 @@ public final class LanternaWindow {
             gui.getGUIThread().invokeLater(task);
         }
     }
+
+    public boolean isGuiRunning() { return running; }
+
+    /** TextGUIThread.getThread is a thread identity getter, not a widget operation. */
+    public boolean isGuiThread() { return Thread.currentThread() == guiThread.getThread(); }
 
     public Screen getScreen() {
         return screen;

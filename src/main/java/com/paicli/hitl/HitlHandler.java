@@ -1,5 +1,8 @@
 package com.paicli.hitl;
 
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
+
 /**
  * HITL 审批交互接口 - 定义人工审批的交互契约
  *
@@ -10,8 +13,14 @@ package com.paicli.hitl;
  * - 审批是同步阻塞操作，实现类需等待用户输入后才返回
  * - 实现类不负责判断"是否需要审批"，该判断由 ApprovalPolicy 负责
  * - 实现类只负责"展示请求 + 收集决策"
+ * - MCP elicitation 复用同一 UI 生命周期，但有独立方法；审批授权、自动放行和 /hitl 开关绝不代表同意披露数据
  */
-public interface HitlHandler {
+public interface HitlHandler extends com.paicli.mcp.elicitation.McpElicitationHandler {
+
+    @Override
+    default ElicitationResponse elicit(ElicitationRequest request) {
+        return requestElicitation(request);
+    }
 
     /**
      * 向用户展示审批请求并收集决策
@@ -20,6 +29,11 @@ public interface HitlHandler {
      * @return 用户的审批决策
      */
     ApprovalResult requestApproval(ApprovalRequest request);
+
+    /** Collect MCP-requested user input; deliberately independent of approval/auto-allow state. */
+    default ElicitationResponse requestElicitation(ElicitationRequest request) {
+        return ElicitationResponse.cancel();
+    }
 
     /**
      * HITL 是否处于启用状态

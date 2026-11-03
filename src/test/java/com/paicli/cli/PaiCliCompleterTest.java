@@ -155,6 +155,23 @@ class PaiCliCompleterTest {
     }
 
     @Test
+    void completesOauthCommandsAndConfiguredServersBeforeLogin() {
+        PaiCliCompleter completer = new PaiCliCompleter(List::of, List::of, () -> null, () -> List.of("remote"));
+        List<Candidate> commands = new ArrayList<>();
+        completer.complete(null, parsed("/mcp l", "l"), commands);
+        assertTrue(commands.stream().anyMatch(c -> c.value().equals("login ")));
+        assertTrue(commands.stream().anyMatch(c -> c.value().equals("logout ")));
+        for (String action : List.of("login", "logout")) {
+            List<Candidate> servers = new ArrayList<>();
+            completer.complete(null, parsed("/mcp " + action + " ", ""), servers);
+            assertTrue(servers.stream().anyMatch(c -> c.value().equals("remote")));
+            List<Candidate> filtered = new ArrayList<>();
+            completer.complete(null, parsed("/mcp " + action + " re", "re"), filtered);
+            assertTrue(filtered.stream().anyMatch(c -> c.value().equals("remote")));
+        }
+    }
+
+    @Test
     void completesSkillNames() {
         PaiCliCompleter completer = new PaiCliCompleter(List::of, () -> List.of(
                 skill("web-access", "浏览器和联网策略"),

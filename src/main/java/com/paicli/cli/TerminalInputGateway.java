@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
  */
 public final class TerminalInputGateway implements AutoCloseable {
     public enum Kind {
-        APPROVAL_CHOICE, REJECTION_REASON, MODIFIED_ARGUMENTS, APPROVAL_SCOPE,
+        APPROVAL_CHOICE, REJECTION_REASON, MODIFIED_ARGUMENTS, APPROVAL_SCOPE, MCP_ELICITATION_INPUT,
         PLAN_REVIEW, PLAN_SUPPLEMENT;
 
         private InputCoordinator.Mode mode() {
