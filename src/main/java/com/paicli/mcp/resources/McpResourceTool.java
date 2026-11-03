@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.paicli.mcp.McpClient;
 import com.paicli.mcp.protocol.McpToolDescriptor;
+import com.paicli.tool.ToolOutput;
 
 import java.util.List;
 import java.util.function.Function;
@@ -39,10 +40,16 @@ public final class McpResourceTool {
     }
 
     public static Function<String, String> invoker(McpClient client, McpToolDescriptor descriptor) {
+        Function<String, ToolOutput> output = outputInvoker(client, descriptor);
+        return argumentsJson -> output.apply(argumentsJson).text();
+    }
+
+    /** Keeps failure status separate from resource text, which may itself describe errors. */
+    public static Function<String, ToolOutput> outputInvoker(McpClient client, McpToolDescriptor descriptor) {
         return argumentsJson -> {
             try {
                 if (LIST_RESOURCES.equals(descriptor.name())) {
-                    return McpClient.formatResources(client.listResources());
+                    return ToolOutput.text(McpClient.formatResources(client.listResources()));
                 }
                 if (READ_RESOURCE.equals(descriptor.name())) {
                     JsonNode args = argumentsJson == null || argumentsJson.isBlank()
@@ -50,13 +57,13 @@ public final class McpResourceTool {
                             : MAPPER.readTree(argumentsJson);
                     String uri = args.path("uri").asText("");
                     if (uri.isBlank()) {
-                        return "读取 MCP resource 失败: 缺少必填参数 uri";
+                        return ToolOutput.failure("读取 MCP resource 失败: 缺少必填参数 uri");
                     }
-                    return McpClient.formatResourceContents(client.readResource(uri));
+                    return ToolOutput.text(McpClient.formatResourceContents(client.readResource(uri)));
                 }
-                return "未知 MCP resource 虚拟工具: " + descriptor.name();
+                return ToolOutput.failure("未知 MCP resource 虚拟工具: " + descriptor.name());
             } catch (Exception e) {
-                return "MCP resource 工具调用失败 (" + descriptor.serverName() + "/" + descriptor.name() + "): " + e.getMessage();
+                return ToolOutput.failure("MCP resource 工具调用失败 (" + descriptor.serverName() + "/" + descriptor.name() + "): " + e.getMessage());
             }
         };
     }

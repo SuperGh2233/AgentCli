@@ -595,7 +595,7 @@ public class McpServerManager implements AutoCloseable {
     private void replaceTools(McpServer server, McpClient client, List<McpToolDescriptor> tools) {
         toolRegistry.replaceMcpToolOutputsForServer(server.name(), tools,
                 descriptor -> isResourceVirtualTool(descriptor)
-                        ? args -> ToolOutput.text(McpResourceTool.invoker(client, descriptor).apply(args))
+                        ? McpResourceTool.outputInvoker(client, descriptor)
                         : args -> invokeMcpToolOutput(client, descriptor, args));
     }
 
