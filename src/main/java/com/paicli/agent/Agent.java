@@ -228,6 +228,8 @@ public class Agent {
         long startNanos = System.nanoTime();
         AgentBudget budget = AgentBudget.fromSystemProperties();
         RunawayGuard runawayGuard = new RunawayGuard();
+        ResourceFailureObserver resourceFailureObserver =
+                new ResourceFailureObserver(Path.of(toolRegistry.getProjectPath()));
         pushStatus(budget, startNanos, "running");
 
         // 主退出条件 = LLM 自己决定（不再调用工具就返回）；
@@ -293,8 +295,12 @@ public class Agent {
                     renderer().appendToolCalls(
                             turnToolPolicy.visibleToolCalls(response.toolCalls(), toolExposure));
 
+                    List<ToolExecutionResult> executedResults = executeToolCalls(
+                            response.toolCalls(), iteration, turnToolPolicy, toolExposure);
+                    resourceFailureObserver.observe(executedResults).ifPresent(notice ->
+                            log.info("Resource failure observation: {}", notice));
                     LoadedSkillMessages.Injection skills = LoadedSkillMessages.prepare(
-                            executeToolCalls(response.toolCalls(), iteration, turnToolPolicy, toolExposure),
+                            executedResults,
                             toolRegistry.getSkillRegistry(),
                             conversationHistory);
                     List<ToolExecutionResult> toolResults = skills.results();

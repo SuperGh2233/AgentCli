@@ -46,6 +46,8 @@ ReAct、Plan 单任务和 SubAgent 共用 `AgentBudget`。优先级：系统属�
 
 设计取舍：交互式 Agent 默认在模型不再调用工具时自然结束，不设固定的 50 轮上限；长上下文模型也不再把 80% × window 当作执行的硬上限。
 
+文件重复失败观察器 `ResourceFailureObserver` 已接入 ReAct、Plan 单任务及 SubAgent 每次执行。只有 `-Dpaicli.stagnation.resource.observer.enabled=true` 才启用（默认 false），运行开始时读取开关，每个任务持有独立实例和项目根目录。它在工具批次返回后、Skill 处理前观察原始结果；已知项目内普通文件的 `edit_file old_text` 不存在连续三批时，忽略 `new_text` 变化，只记录一次固定 INFO 日志 `Resource failure observation: REPEATED_EDIT_SOURCE_NOT_FOUND`。事件无用户文本、路径、内容或 worker 标识。混合成功、取消、拒绝和未知结果打断计数；不修改模型输入、返回值、工具顺序、策略、预算或原有提醒。只识别现有固定错误前缀，未知失败保守跳过。
+
 默认先由 `RunawayGuard` 提醒：同一动作（工具名 + 按键名排序后的参数）或同一类错误（超时、限流、网络、鉴权、权限、找不到、参数、退出码等；归不进这些类别时按错误文本区分）连续出现 3 步，就在工具结果后面注入一条 `[runaway guard]` user 消息。每个任务最多提醒一次，不拦截工具；被策略或 HITL 拒绝的调用不计数，还会打断连续计数。
 
 真正起保护作用的是：停滞（stagnation）检测（连续 5 轮相同的工具调用；默认窗口必须大于提醒阈值）、上下文压缩、取消和 LLM 超时。CI、Runtime API、微信无人值守或需要严格控制成本的场景，可以用 `-Dpaicli.react.hard.max.iterations=N` 显式设一个正整数轮数上限，也可以用 `-Dpaicli.react.token.budget=N` 设 Token 上限。

@@ -36,3 +36,34 @@ git diff --check 通过；无真实模型、网络、Docker 或 Git 写操作。
 随意归类其他失败；当前不接入 RunawayGuard，不会产生新的用户或模型提醒。
 这刻意保留漏报，避免扩大错误状态推断。未来如要接入，先补明确的类型化失败原因，
 并在三个运行循环中传入正确项目根目录；本次不做这些改动。
+
+## Day2-C 接入（completed）
+
+只通过 -Dpaicli.stagnation.resource.observer.enabled=true 启用，默认关闭。
+每次 ReAct run、Plan 单任务、SubAgent execute 创建带项目根目录的局部观察器。
+工具批次返回后、Skill 改写前观察原始结果，只记一次固定事件，不含路径、正文或任务标识。
+不改变模型输入、工具顺序、返回值、策略、预算和 RunawayGuard。关闭属性即可回退。
+验收覆盖 FakeLLM 开关对照、混合成功、拒绝、取消、重复运行和并发 worker 隔离；
+新 target 目录、白名单环境、离线 Maven 和 Phase3B 原有 94 项；无网络、API、Docker 或 Git 写操作。
+
+2026-11-03 验证：基线为干净 HEAD a204b73a60b3cbec5d867758d2975cc2a8af1568。
+生产改动仅四个 Java 文件；新增 ResourceFailureIntegrationTest 六项 FakeLLM 测试，
+覆盖三模式开关对照（完整模型消息和返回值相等）、每次运行重置与一次性事件、
+混合成功、并发 worker 隔离、三模式真实 HITL 拒绝、ReAct 审批期间取消后不执行。
+取消检查沿用已存在的 Steering（执行中输入控制）路径，不改 Plan/Team 的取消机制。
+
+离线结果全部零失败、零错误、零跳过：
+- 定向 6 suites / 52 tests：target/day2c/targeted-1793667185363900000/summary.json。
+- Phase3B 默认关闭 12 suites / 94 tests：target/day2c/phase3b-default-1793667199688838000/summary.json。
+- Phase3B 显式开启 12 suites / 94 tests：target/day2c/phase3b-enabled-1793667225419987000/summary.json。
+
+复用 tools/run-phase3b3-tests.py 的隔离 POM、JDK 21、白名单环境和 Maven -o，
+仅在调用进程内替换 RUN 和测试名单；开启组给 Maven 增加
+-Dpaicli.stagnation.resource.observer.enabled=true，Surefire XML 确认属性传入。
+各组 maven.log 与 summary.json 同目录，不覆盖旧构建产物。
+最初一次 Maven 在编译前因本地缓存 .locks 写权限失败；获准只写该锁目录后通过。
+没有网络、API、Docker、敏感配置或 Git 写操作；git diff --check 通过。
+
+范围限制：仍只观察能够安全解析的已有普通文件和固定错误前缀；不增加
+通用失败分类，不向模型提醒，不拦工具、不切策略。日志事件正文是固定枚举值，
+没有额外任务、worker、路径或内容字段。没有需要跨会话继续的未完成工作。

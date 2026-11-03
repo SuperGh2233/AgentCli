@@ -12,6 +12,8 @@ import java.util.Optional;
 
 /** 独立、默认关闭的观察器；不注入模型消息，也不参与 AgentBudget。 */
 public final class ResourceFailureObserver {
+    public static final String ENABLED_PROPERTY = "paicli.stagnation.resource.observer.enabled";
+
     public enum Notice { REPEATED_EDIT_SOURCE_NOT_FOUND }
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -22,7 +24,7 @@ public final class ResourceFailureObserver {
     private boolean noticed;
 
     public ResourceFailureObserver(Path root) {
-        this(root, false);
+        this(root, Boolean.getBoolean(ENABLED_PROPERTY));
     }
 
     public ResourceFailureObserver(Path root, boolean enabled) {

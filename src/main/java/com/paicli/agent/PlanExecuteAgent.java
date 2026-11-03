@@ -703,6 +703,8 @@ public class PlanExecuteAgent {
         TaskStreamRenderer streamRenderer = new TaskStreamRenderer(task.getId(), streamState, out);
         AgentBudget budget = AgentBudget.fromSystemProperties();
         RunawayGuard runawayGuard = new RunawayGuard();
+        ResourceFailureObserver resourceFailureObserver =
+                new ResourceFailureObserver(Path.of(toolRegistry.getProjectPath()));
 
         while (true) {
             if (CancellationContext.isCancelled()) {
@@ -793,9 +795,12 @@ public class PlanExecuteAgent {
             // 被 HITL 提示"跨过"导致 🧠 / 🤖 标题与内容错位
             streamRenderer.resetBetweenIterations();
 
+            List<ToolExecutionResult> executedResults = executeToolCalls(
+                    task.getId(), iteration, response.toolCalls(), taskToolPolicy, toolExposure, observation);
+            resourceFailureObserver.observe(executedResults).ifPresent(notice ->
+                    log.info("Resource failure observation: {}", notice));
             LoadedSkillMessages.Injection skills = LoadedSkillMessages.prepare(
-                    executeToolCalls(task.getId(), iteration, response.toolCalls(), taskToolPolicy,
-                            toolExposure, observation),
+                    executedResults,
                     toolRegistry.getSkillRegistry(),
                     messages);
             List<ToolExecutionResult> toolResults = skills.results();
