@@ -234,6 +234,14 @@ public class Main {
 
         configureLogging();
 
+        CliStartupOptions startupOptions;
+        try {
+            startupOptions = CliStartupOptions.parse(args);
+        } catch (IllegalArgumentException e) {
+            System.err.println("❌ " + e.getMessage());
+            return;
+        }
+
         PaiCliConfig config = PaiCliConfig.load();
         LlmClient llmClient = LlmClientFactory.createFromConfig(config);
         if (llmClient == null) {
@@ -244,6 +252,14 @@ public class Main {
         AtomicReference<LlmClient> llmClientRef = new AtomicReference<>(llmClient);
 
         try (Terminal terminal = TerminalBuilder.builder().system(true).dumb(true).build()) {
+            boolean useTui = startupOptions.requested()
+                    && com.paicli.tui.TuiBootstrap.shouldUseTui(terminal);
+            try {
+                startupOptions.requireCli(useTui);
+            } catch (IllegalArgumentException e) {
+                System.err.println("❌ " + e.getMessage());
+                return;
+            }
             refreshTerminalColumns(terminal);
             TerminalHitlHandler terminalHitlHandler = new TerminalHitlHandler(false);
             SwitchableHitlHandler hitlHandler = new SwitchableHitlHandler(terminalHitlHandler);
@@ -392,6 +408,17 @@ public class Main {
                     conversationLedger, reactAgent.getToolRegistry().getProjectPath());
             reactAgent.setExternalContextSupplier(mcpServerManager::resourceIndexForPrompt);
             reactAgent.setSkillRegistry(skillRegistry);
+            if (startupOptions.requested()) {
+                ResumeCommandHandler.Result result =
+                        ResumeCommandHandler.handleStartup(reactAgent, startupOptions, hitlHandler);
+                ui.print(result.output());
+                renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
+                if (!result.restored()) {
+                    mcpServerManager.close();
+                    renderer.close();
+                    return;
+                }
+            }
             DurableTaskManager taskManager = openTaskManager(llmClientRef);
             taskManager.start();
             Runtime.getRuntime().addShutdownHook(new Thread(taskManager::close, "paicli-task-shutdown"));
@@ -410,7 +437,7 @@ public class Main {
 
             // === TUI / CLI 分支判断 ===
             // 旧 PAICLI_TUI=true 路径仍走 Lanterna 全屏 TUI（Day 5 后由 LanternaRenderer 接管）。
-            if (com.paicli.tui.TuiBootstrap.shouldUseTui(terminal)) {
+            if (startupOptions.requested() ? useTui : com.paicli.tui.TuiBootstrap.shouldUseTui(terminal)) {
                 try {
                     com.paicli.tui.TuiBootstrap.launch(config, llmClient, reactAgent, hitlHandler);
                     return;  // TUI 启动成功，不进入 CLI 循环

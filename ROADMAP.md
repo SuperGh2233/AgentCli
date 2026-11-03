@@ -691,7 +691,7 @@ E2 的原生观察接口已经接入：包括 13 类事件（角色、输入、�
 
 ### 第二批：体验与能力
 
-- 🟡 会话恢复：`/resume` 已完成（2026-10-09，按项目列出历史会话并恢复 ReAct 对话）；还缺启动参数 `--continue` / `--session <id>`、`/sessions` 管理面板、`/fork`、`/rewind`、`/retry`，以及 Lanterna TUI 入口。参考 `packages/tui/src/features/session/manager.ts`
+- 🟡 会话恢复：`/resume` 已完成（2026-10-09，按项目列出历史会话并恢复 ReAct 对话）；Day3-A 已完成启动参数 `--continue` / `--session <id>`（仅 CLI，复用原恢复逻辑，失败报错退出）；还缺 `/sessions` 管理面板、`/fork`、`/rewind`、`/retry`，以及 Lanterna TUI 入口。参考 `packages/tui/src/features/session/manager.ts`
 - ⬜ 按轮次回滚：可选“只回退对话 / 对话连同文件”，还原前比对哈希，文件已被别处改过则跳过并说明。参考 `packages/local-runtime/src/turns/file-changes.ts`
 - ✅ `edit_file` 容错：精确匹配失败后做 Unicode、行尾空白、引号归一化再匹配；剥掉从 read 输出带来的行号前缀；支持 `replace_all`（2026-09-25）
 - ⬜ 运行中插话：Enter 插话改变当前方向，Alt+Enter 排到下一轮，`/btw` 开一个只读的旁支会话；同时修掉 ESC 取消时的线程竞争问题。参考 `packages/tui/src/tui/shell/keybindings.ts`

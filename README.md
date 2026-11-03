@@ -16,6 +16,17 @@ Hao CLI 围绕一个目标展开：把模型推理、任务规划、工具调用
 
 执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；用户也已在普通 macOS Terminal 验证 Ctrl+C / Ctrl+D 的 JLine 原生异常。Phase3A ReAct 安全点和 Phase3B-3A 的 Main 接线已实现，但只有在 `paicli.steering.enabled=true`、交互式 inline ReAct 路径启用；Plain/Lanterna 和非交互路径不启用新输入循环，Plan/Team 仍保留原审批流程。Phase3B-3A 隔离离线回归已通过（12 suites / 94 tests，0 failures / 0 errors）；真实 Main + WakeableLineReader 终端组合、中文输入法候选窗和审批/Steer 输入归属仍待人工验收。Steer/Queue 输入会清除编辑态回显并写入可见的对话记录；`/queue` 目前只保存并显示数量，不会自动启动下一任务。`paicli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
 
+## 启动时恢复会话（Day3-A）
+
+```bash
+java -jar target/paicli-1.0-SNAPSHOT.jar --continue
+java -jar target/paicli-1.0-SNAPSHOT.jar --session <id>
+```
+
+`--continue` 按现有 `/resume` 的顺序恢复当前项目最近一个可恢复的旧 CLI 会话，排除本次启动新建的记录。`--session <id>` 精确匹配 ID（不是列表序号），只接受当前项目的 CLI 会话。两个参数不能混用或重复；ID 不能为空或包含路径。未知旧参数仍忽略，不带参数的启动不变，微信和 Runtime API 的专用入口不变。
+
+只恢复 ReAct 对话，沿用 `/resume` 对未完成最后一轮的处理，恢复后清除人工确认授权并刷新状态。找不到会话或记录不可用时明确报错并退出。实际选择 Lanterna 全屏 TUI 时拒绝这些参数；终端太小而退回 CLI 时可以恢复。不增加持久化机制或任务检查点，`/resume` 行为不变。
+
 ## 测试策略
 
 Day2-C 已将文件重复失败观察器接入 ReAct、Plan 单任务和 Team worker。

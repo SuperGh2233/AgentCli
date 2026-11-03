@@ -112,7 +112,13 @@ public final class SessionResume {
             SessionSummary summary = sessions.get(index - 1);
             return Optional.of(rebuild(summary.sessionId(), ConversationLedger.readEntriesSkippingBrokenLines(summary.file())));
         }
-        if (directory == null || !value.matches("[A-Za-z0-9._-]+") || value.equals(excludeSessionId)) {
+        return loadExact(directory, projectPath, excludeSessionId, value);
+    }
+
+    /** 精确 ID 入口，复用原有恢复规则；纯数字也按 ID 查找，不作为列表序号。 */
+    public static Optional<RestoredConversation> loadExact(Path directory, String projectPath,
+                                                           String excludeSessionId, String value) throws IOException {
+        if (value == null || directory == null || !value.matches("[A-Za-z0-9._-]+") || value.equals(excludeSessionId)) {
             return Optional.empty();
         }
         Path file = directory.resolve(value + ".jsonl");
