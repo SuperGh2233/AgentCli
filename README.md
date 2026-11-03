@@ -18,6 +18,10 @@ Hao CLI 围绕一个目标展开：把模型推理、任务规划、工具调用
 
 ## 测试策略
 
+Day2-B 新增独立的文件重复失败观察器，默认关闭，尚未接入 Agent。
+它只观察已验证文件的特定编辑失败，不改变现有提醒、预算或工具执行。
+范围和验证记录见[说明](docs/plans/active/PLAN-20261103-resource-failure-observation.md)。
+
 日常开发不需要每次都跑全量测试。`mvn clean package` 默认跳过测试，先打出能手工试用的 jar；需要回归测试时，按改动范围选择：
 
 ```bash
