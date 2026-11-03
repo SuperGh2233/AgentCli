@@ -29,6 +29,8 @@ java -jar target/paicli-1.0-SNAPSHOT.jar --session <id>
 
 ## 测试策略
 
+MRTR-3 历史验收与相关 MCP/界面离线回归：18 个测试类、170 项全部通过，保留原 159 项，新增能力声明测试 11 项。MRTR-4 Lanterna UI 已纳入完整离线回归：本轮 43 个测试类、387 项全部通过（0 失败、0 错误、0 跳过）；真实终端手工验收仍待执行。构建和测试输出隔离在 `/tmp`；没有调用模型、外网、真实浏览器或 Docker。命令和剩余限制见 [MRTR 实施记录](docs/plans/active/PLAN-20261103-mcp-mrtr.md)。
+
 Day2-C 已将文件重复失败观察器接入 ReAct、Plan 单任务和 Team worker。
 用 `java -Dpaicli.stagnation.resource.observer.enabled=true -jar target/paicli-1.0-SNAPSHOT.jar` 显式启用，默认关闭。
 Day2-D 使用工具实现传递的明确失败码识别 old_text 未找到，不再匹配错误文案；原错误显示不变。
@@ -179,7 +181,7 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 - 普通输入支持 `@server:protocol://path` 显式引用 resource，提交给 Agent 前展开为 `<resource>` 内联块
 - 被动处理 `notifications/tools/list_changed`、`notifications/resources/list_changed`、`notifications/resources/updated`
 - 运行中输入 `/cancel` 并回车可请求取消当前 Agent run
-- CLI 命令：`/mcp`、`/mcp restart <name>`、`/mcp logs <name>`、`/mcp disable <name>`、`/mcp enable <name>`、`/mcp trust <name>`、`/mcp resources <name>`、`/mcp prompts <name>`
+- CLI 命令：`/mcp login <name>`、`/mcp logout <name>`、`/mcp`、`/mcp restart <name>`、`/mcp logs <name>`、`/mcp disable <name>`、`/mcp enable <name>`、`/mcp trust <name>`、`/mcp resources <name>`、`/mcp prompts <name>`
 - `~/.paicli/mcp.json` 不存在时会自动创建默认 chrome-devtools 配置；项目级 `.paicli/mcp.json` 仍可按 server 名覆盖
 
 ### 第十二期：长上下文工程
@@ -613,6 +615,9 @@ PAICLI_LOG_TOTAL_SIZE_CAP=100MB
 
 ### 2. 可选：配置 MCP server
 
+双协议核心已完成（completed）。协议版本默认 `2025-03-26`；在单个 server 中加 `"protocolVersion": "2026-07-28"` 可启用现代协议，两种传输都支持。只允许这两个版本，不自动协商、不降级。现代模式先发 `server/discover`，没有 initialize/session/DELETE/ping 或资源订阅，暂不支持变化通知。MRTR-1 已完成 elicitation 表单/URL 交互；MRTR-2 已接通现代 tools/call、resources/read、prompts/get 的有限往返（最多 4 轮、每轮 8 项），新 id 重试并原样回传本轮 requestState，拒绝/取消也回传服务端。其他请求仍严格拒绝 input_required。MRTR-3 仅在这三种现代 MRTR 操作每次发送时查询当前 UI，按实际支持声明 elicitation.form/url，保留其他元数据和自定义能力；普通请求和通知不声明。Main 仅在 System.console() 非空时连接交互 handler，无法确认交互性的路径保持空能力；切换 UI 后下一次请求立即生效。MRTR-4 为 Lanterna 全屏 TUI 增加表单/URL 界面，仅在 GUI 已运行时声明对应能力；该实现已通过本轮 43 类/387 项完整离线回归，真实终端手工验收仍待执行。WeChat 和无人值守路径默认取消且不声明。不实现旧 sampling。配置见 [双协议说明](docs/specs/mcp-protocol-eras.md)，MRTR 进度见 [MRTR 约定](docs/specs/mcp-mrtr.md)。
+
+
 MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，PaiCLI 会自动创建默认 chrome-devtools 配置：
 
 ```json
@@ -717,7 +722,35 @@ google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-pr
 帮我看下 @filesystem:file://README.md 这份文档
 ```
 
-OAuth 和 `sampling/createMessage` 当前未实现；远程 server 需要鉴权时仍使用 `headers` + 环境变量注入 Bearer token。
+Streamable HTTP server 现在支持 OAuth 2.1 Authorization Code + PKCE S256（按 [MCP 2026-07-28 授权规范](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)）。默认 MCP 握手仍是 `2025-03-26`；stdio 和 HTTP 均可按 server 显式配置 `"protocolVersion": "2026-07-28"`。先在授权服务器预注册**公共客户端**，允许 `http://127.0.0.1:<随机端口>/oauth/callback` 回调，然后配置：
+
+```json
+{
+  "mcpServers": {
+    "remote": {
+      "url": "https://mcp.example.com/mcp",
+      "oauth": { "clientId": "your-pre-registered-client-id", "scopes": ["read"] }
+    }
+  }
+}
+```
+
+授权服务器元数据必须声明 `response_types_supported` 包含 `code`；若提供 `grant_types_supported`，必须包含 `authorization_code`。同时必须明确声明 `token_endpoint_auth_methods_supported` 包含 `none`；缺失时按 RFC 8414 默认 `client_secret_basic` 处理并拒绝。`scopes` 可省略；设置时仅表示你允许请求的范围。首次请求优先使用 401 `WWW-Authenticate` 挑战中的 scope，否则使用资源元数据的 `scopes_supported`；两者都没有时不传 scope。挑战要求的范围超出配置允许范围就报错；没有挑战时，取元数据范围与配置允许范围的交集，不自动追加权限。多个授权服务器时选择元数据列表第一项，客户端必须预注册在该服务器上。
+
+```text
+/mcp trust remote       # 仅项目级配置需要
+/mcp login remote
+/mcp logout remote
+/mcp login remote       # 成功后恢复连接；失败时仍保持停用
+```
+
+登录会按配置的协议版本发送未认证探测：旧版使用 `initialize`，现代版使用 `server/discover`；取得挑战后再发现资源与授权服务器元数据。授权服务器必须明确支持 S256，issuer/授权/令牌端点必须用 HTTPS。回调只监听 127.0.0.1，等待 180 秒；不能自动打开浏览器时会打印授权 URL，手动打开即可。成功后保存令牌并重启该 server；启动与 401 重试不会自动打开浏览器。
+
+令牌只保存在 `~/.paicli/oauth/mcp-oauth-tokens.json`，可用 JVM 参数 `-Dpaicli.mcp.oauth.tokens=/用户私有目录/tokens.json` 改路径，不能放进项目。POSIX 下新建目录 0700、文件 0600；已有父目录必须已经是 0700，程序不会修改共享目录权限。非 POSIX 使用仅属主可访问的 ACL，不支持权限控制或原子替换就拒绝存储；可换到支持这些能力的本地文件系统。默认使用新建的专用 `oauth/` 目录，不修改已有 `~/.paicli` 权限。
+
+带 access token 的请求遇到 401，只刷新并重试一次；refresh token 轮换会保存新值，`invalid_grant` 清除该 issuer 的旧凭证并要求重新登录。403 权限不足不重试。旧模式注销会先尝试带令牌 DELETE 关闭 MCP 会话（现代模式不发 DELETE），再删除该资源/client ID 下全部 issuer 的凭证并停用当前连接；不调用远程令牌撤销接口。
+
+静态 `headers` 仍可使用，但不能同时配置 OAuth 与静态 Authorization。令牌仅发送到配置的 MCP URL；元数据请求不携带 MCP headers，OAuth HTTP 跳转都不跟随，未配置 OAuth 的传输保留原有跳转与连接重试行为。此阶段要求资源 URL 没有 query/fragment、授权和 token endpoint 没有预置 query；不支持 confidential client secrets、client credentials、DCR/CIMD、step-up scope、device-code 或 sampling。实现约定和离线验证见 [OAuth 说明](docs/specs/mcp-oauth.md)。
 
 ### 3. 编译运行
 
@@ -860,6 +893,8 @@ I
 - `/hitl default` - 切回 auto（启动默认）
 - `/hitl` - 查看 HITL 当前档位
 - `/mcp` - 查看所有 MCP server 状态
+- `/mcp login <name>` - 登录预注册公共客户端的 HTTP OAuth，成功后恢复连接
+- `/mcp logout <name>` - 先关闭当前会话，再清除令牌并停用连接
 - `/mcp restart <name>` - 重启单个 MCP server
 - `/mcp logs <name>` - 查看 MCP server 最近 200 行 stderr 日志
 - `/mcp disable <name>` - 运行时禁用 MCP server 并移除其工具

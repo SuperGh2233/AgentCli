@@ -97,14 +97,26 @@ stdio server 的子进程不继承 PaiCLI 的全部环境变量，只带过去�
 stdio server 的进程管理：
 
 - 子进程意外退出时（`Process.onExit()`），正在等回复的请求立即失败，之后的新请求也直接失败；server 标成 ERROR、工具移除，然后按 1s、2s、4s 退避自动重启。重启后稳定运行超过 60 秒再出问题，计数从头算；连续 3 次没救回来就停下，提示用户 `/mcp logs` 和 `/mcp restart`。用户手动 restart / enable / disable / trust 会取消排期中的自动重启
-- 每 30 秒 ping 一次本地 stdio server（`PAICLI_MCP_PING_INTERVAL_SECONDS`，设成 0 关闭），超时 10 秒；连续 2 次不回判定卡死，按上面的流程结束并重启。server 正在处理请求时跳过这一轮，免得把忙着跑长工具调用的单线程 server 误杀；回 `-32601` 也算活着。HTTP server 不 ping，避免给远程服务增加负担
+- 每 30 秒 ping 一次旧协议本地 stdio server（`PAICLI_MCP_PING_INTERVAL_SECONDS`，设成 0 关闭），超时 10 秒；连续 2 次不回判定卡死，按上面的流程结束并重启。server 正在处理请求时跳过这一轮，免得把忙着跑长工具调用的单线程 server 误杀；回 `-32601` 也算活着。HTTP server 不 ping，避免给远程服务增加负担
 - 崩溃、重启、放弃的提示放进队列，主循环在显示下一个输入框前打印，不从后台线程直接写终端
 - 关闭时先记下整棵进程树再关 stdin，等 1 秒后从深到浅给还活着的进程发 SIGTERM，2 秒后还在的强制结束。不能只结束根进程：npx 拉起的 node 进程会被留下
 - 拉起的进程（包括后来发现的子进程）记在 `~/.paicli/mcp-pids.json`，带所属 PaiCLI 的 PID 和启动时间、进程自己的启动时间和命令；正常关闭时删掉。下次启动时只清理“所属 PaiCLI 已经退出”且启动时间、命令都对得上的进程（PID 会被复用），读写这个文件要先拿 `.lock` 文件锁
 
-stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日志）记进 `/mcp logs` 并跳过，读线程继续。server 主动发来的请求（带 `id` 和 `method`）和我们请求的回复分开处理：`ping` 回空结果，其他方法回 `-32601`（Method not found），回复原样带回 server 的 id。
+stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日志）记进 `/mcp logs` 并跳过，读线程继续。旧协议 server 主动发来的请求（带 `id` 和 `method`）和我们请求的回复分开处理：`ping` 回空结果，其他方法回 `-32601`（Method not found），回复原样带回 server 的 id。
 
 检测到 `STEP_API_KEY` 时，会自动内置一个 `step_search` 远程 MCP（如果显式配置了同名 server，以显式配置为准），Step 3.7 Flash 的 `web_search` / `web_fetch` 会优先转给它处理。
+
+### HTTP OAuth 登录（Day3-B）
+
+Streamable HTTP 使用预注册公共客户端的 Authorization Code + PKCE S256。授权服务器元数据必须声明 `response_types_supported` 包含 `code`；若提供 `grant_types_supported`，必须包含 `authorization_code`。同时必须明确声明 `token_endpoint_auth_methods_supported` 包含 `none`；缺失时按 RFC 8414 默认 `client_secret_basic` 拒绝。配置只有 `oauth.clientId` 与可选 `oauth.scopes`（允许范围），拒绝未知 OAuth 字段以及静态 Authorization 混用；clientId/scopes 都进入项目信任指纹。`/mcp login <name>` 是唯一打开浏览器的入口，未信任的项目配置不能登录；停用的 server 只有完成登录后才恢复启动。`/mcp logout` 先关闭会话，再撤销内存提供器并清除资源/clientId 下全部 issuer 凭证，保留停用状态。
+
+发现用未认证的 POST（旧版 initialize，现代版带 _meta 的 server/discover），解析 401 Bearer challenge 的 resource_metadata；缺失时按 endpoint-path → root 查询 RFC9728。AS 发现按 RFC8414 → OIDC path insertion → OIDC path append；只有 404/405 继续候选，网络错误、429、5xx、跳转直接失败。issuer 与选中 AS URL 精确比较，S256 必须显式声明；授权响应中声明支持 iss 时必填，任何出现的 iss 都精确比较后才能使用 code/error。服务端 challenge scope 优先，其次 PRM scopes_supported；都没有就省略。配置 scopes 是允许范围：挑战必须完整满足，没有挑战时取元数据与配置的交集。
+
+OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 2026-07-28。AS issuer、授权及令牌端点强制 HTTPS；HTTP 仅允许本地 MCP resource 与 127.0.0.1 redirect。发现客户端没有 MCP headers 或 Bearer，不跟随跳转。令牌按 resource/issuer/client ID 绑定，authorization/code/refresh 请求都带规范化 resource；403 不重试，401 刷新后只重试一次。`invalid_grant` 只清除对应 issuer 的凭证。
+
+凭证文件默认 `~/.paicli/oauth/mcp-oauth-tokens.json`，系统属性 `paicli.mcp.oauth.tokens` 可改到项目以外的私有目录；不写进 mcp.json。进程锁和文件锁保护读改写，新文件原子替换。新建目录 0700、文件 0600；现有父目录只检查不 chmod，权限太宽就拒绝。非 POSIX 用仅属主 ACL，否则拒绝并要求换本地存储路径。回调只绑定 127.0.0.1、精确路径，限制头/目标总计 16 KiB，单请求 2 秒，总等待 180 秒。错误不回显远端正文、code、verifier 或 token。
+
+限制：只选资源元数据中的第一个 AS；需预注册公共客户端并允许随机端口 loopback 回调；不支持 confidential client secrets、client credentials、DCR、CIMD、step-up scope、device-code、远程撤销和 sampling。资源不接受 query/fragment，授权/token endpoint 不接受预置 query。规范和测试入口见 [OAuth 配置与存储](specs/mcp-oauth.md)、[实施记录](plans/active/PLAN-20261103-mcp-oauth.md)。
 
 ---
 
@@ -232,6 +244,13 @@ stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日
 
 ### MCP 协议
 
+- 每个 server 的 protocolVersion 只接受 2025-03-26 或 2026-07-28；省略为旧版，版本参与信任指纹。现代模式首个请求 server/discover，校验 supportedProtocolVersions；不协商、不降级。
+- 现代请求和通知统一补 params._meta（版本、空客户端能力、当前应用 clientInfo），完整结果要求 resultType=complete；仅 tools/call、resources/read、prompts/get 可处理 input_required，其他入口拒绝，缺失/未知类型报错。
+- 现代 HTTP 带版本、方法和适用的非空主名称头，无 session/DELETE；现代 stdio 无 ping。现代资源订阅明确拒绝，服务端主动消息丢弃，无变化通知监听。工具、资源读取和 prompts 列表正常。
+- OAuth 探测按固定版本选择请求，其他 OAuth 安全行为不变。详见 [双协议约定](specs/mcp-protocol-eras.md)。
+- MRTR-1 交互层：`McpElicitationHandler` 与 Renderer/HITL 分离接入；表单支持受限 flat schema，URL 必须明确选择 open 才调用默认浏览器；拒绝/取消均 fail-closed。补充输入不受 `/hitl` 开关或会话批量批准影响。
+- Plain/Inline renderer 提供 elicitation UI；Lanterna 全屏 renderer 也已接入表单/URL 模态框，但只在 GUI 主循环运行时声明 form/url，关闭或不可用时为空能力。WeChat 和无人值守路径仍默认 cancel。MRTR-2 已接通最多 4 轮、每轮 8 项的协议往返与 requestState 当轮原样回传。MRTR-3 只在这三种现代 MRTR 操作发送时查询当前 UI 的 form/url，保留其他元数据和自定义能力，清除陈旧 elicitation。Main 只在 System.console() 非空时传入 SwitchableHitlHandler 对象；manager 不用 lambda 包装，client 的 supplier 逐次查询当前 delegate，失败或 null 为空。普通请求、通知和无控制台 CLI 不声明 elicitation。本轮 43 类/387 项完整离线回归全部通过（覆盖 MRTR-1/2/3/4、OAuth、双协议及 Lanterna）；真实终端手工验收仍待执行。详见 [MRTR 约定](specs/mcp-mrtr.md)。
+
 - 支持 stdio 和 Streamable HTTP 两种传输方式
 - 工具注册为 `mcp__{server}__{tool}`
 - McpSchemaSanitizer 清洗 inputSchema（工具的参数说明）再交给模型：删掉 `$schema` / `$id` / `$ref`，超长 description 截到 1000 字符；`anyOf` / `oneOf`（“几种写法任选其一”）按真实类型收起来，不再一律写成 `type: object`
@@ -243,7 +262,7 @@ stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日
 - 所有 mcp__ 工具默认都走 HITL + AuditLog
 - resources 有两种用法：作为虚拟工具调用，或在输入里用 @ 引用
 - CLI 首屏默认最多等 MCP 启动 8 秒，慢的 server 在后台继续初始化，状态保持 `starting`，可以用 `/mcp`、`/mcp logs <name>` 查看
-- 通知处理：tools/list_changed → 整体替换工具列表；resources 变化 → 缓存失效
+- 旧协议通知处理：tools/list_changed → 整体替换工具列表；resources 变化 → 缓存失效
 
 ### Chrome DevTools MCP
 

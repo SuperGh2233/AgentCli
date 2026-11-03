@@ -32,6 +32,8 @@
 - health ping / heartbeat
 - progress notification UI 展示
 
+> Day3-B 后续补充：Streamable HTTP OAuth Code + PKCE S256 已实现，仅支持预注册公共客户端；不改变第 11 期原始范围或 MCP 2025-03-26 握手。配置、限制和验收见 [OAuth 说明](specs/mcp-oauth.md)。
+
 > 后续补充：stdio server 的崩溃自动重启（1s/2s/4s 退避，连续 3 次失败停止）和本地 ping 探活已经实现，见 `docs/agents-reference.md` 的“MCP 配置”一节；HTTP server 仍然不 ping、不自动重连。
 
 ## 3. 模块拆分

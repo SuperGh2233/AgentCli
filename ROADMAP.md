@@ -270,7 +270,18 @@
 - progress / logging notification 的 UI 展示
 
 （后续已补：stdio server 的崩溃自动重启、本地 ping 探活、进程树清理，HTTP server 仍不 ping）
-- OAuth Device Flow / Client Credentials
+
+**Day3-B 后续交付**：Streamable HTTP 的 OAuth 2.1 Authorization Code + PKCE S256，包含 RFC9728/RFC8414/OIDC 发现、issuer/state 校验、loopback 回调、私有令牌文件、refresh 轮换与一次 401 重试、`/mcp login|logout`。只支持预注册公共客户端，不支持 confidential client secrets、client credentials、DCR/CIMD、step-up scope、device-code 或 sampling；默认 MCP 2025-03-26 握手不变。配置和验收见 `docs/specs/mcp-oauth.md`。
+
+**双协议核心后续交付 ✅ completed**：默认 2025-03-26，stdio/HTTP 可显式固定 2026-07-28；server/discover、请求元数据、严格 resultType 校验、HTTP 方法/名称头，无现代 session/DELETE/ping/订阅。现代变化通知尚未实现；补充输入的后续实现见下方 MRTR-2。见 `docs/specs/mcp-protocol-eras.md`。
+
+**MRTR-1 交互层 ✅ completed（离线验收）**：新增独立 elicitation request/response 模型、受限表单校验、URL 显式打开确认，并复用可切换 HITL/Renderer 生命周期；不实现旧 sampling/roots。见 `docs/specs/mcp-mrtr.md`。
+
+**MRTR-2 协议往返 ✅ completed（离线验收）**：仅现代 tools/call、resources/read、prompts/get；整轮校验、最多 4 轮/每轮 8 项、新 id、当轮响应和 requestState 原样回传。17 个测试类、159 项全部通过（新增 MRTR-2 测试 11 项）。当时暂缓的能力声明已由下方 MRTR-3 接续。
+
+**MRTR-3 动态能力声明 ✅ completed（离线验收）**：仅三种现代 MRTR 操作查询当前 UI 并声明 form/url，切换 delegate 后下一请求生效；保留其他元数据和自定义能力。普通请求、通知、legacy、WeChat、benchmark 与无控制台 CLI 不声明 elicitation；Lanterna 仅在全屏 GUI 已运行时声明 form/url。18 类、170 项全部通过（原 159 项保留，新增 11 项）。
+
+仍未实现：现代变化通知、OAuth Device Flow / Client Credentials。Lanterna elicitation UI 已实现并通过 43 类/387 项离线回归；真实终端手工验收仍待执行。
 
 **核心知识点**：
 - MCP resources/list + resources/read 包装成工具
