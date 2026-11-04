@@ -18,6 +18,12 @@ final class PermissionRuleRuntime {
 
     static PermissionRuleEvaluator.Evaluation evaluate(PermissionRuleStore store, String projectPath,
                                                       String toolName, String argumentsJson) throws IOException {
+        return evaluate(store, projectPath, toolName, argumentsJson, null);
+    }
+
+    static PermissionRuleEvaluator.Evaluation evaluate(PermissionRuleStore store, String projectPath,
+                                                      String toolName, String argumentsJson,
+                                                      com.paicli.mcp.McpPermissionBinding mcpBinding) throws IOException {
         Path projectRoot = Path.of(projectPath).toRealPath();
         store.requireOutsideProject(projectRoot);
         JsonNode args;
@@ -48,13 +54,26 @@ final class PermissionRuleRuntime {
                 // Never create a stored path allow-match from a rejected path.
             }
         }
+        String serverName = ApprovalPolicy.mcpServerName(toolName);
+        boolean matchingBinding = mcpBinding != null && serverName != null
+                && serverName.equals(mcpBinding.serverName());
         PermissionContext context = new PermissionContext(projectRoot.toString(), toolName,
-                ApprovalPolicy.mcpServerName(toolName), command, relativePath);
+                serverName, command, relativePath,
+                matchingBinding ? mcpBinding.configFingerprint() : null,
+                matchingBinding && mcpBinding.current(),
+                matchingBinding && mcpBinding.trusted(),
+                matchingBinding && mcpBinding.ready());
         return PermissionRuleEvaluator.evaluate(store.load(), context);
     }
 
     static PermissionRule proposePermanentAllow(PermissionRuleStore store, String projectPath,
                                                    String toolName, String argumentsJson) throws IOException {
+        return proposePermanentAllow(store, projectPath, toolName, argumentsJson, null);
+    }
+
+    static PermissionRule proposePermanentAllow(PermissionRuleStore store, String projectPath,
+                                                   String toolName, String argumentsJson,
+                                                   com.paicli.mcp.McpPermissionBinding mcpBinding) throws IOException {
         Path projectRoot = Path.of(projectPath).toRealPath();
         store.requireOutsideProject(projectRoot);
         JsonNode args;
@@ -64,6 +83,17 @@ final class PermissionRuleRuntime {
             return null;
         }
         if (args == null || !args.isObject()) return null;
+
+        if (ApprovalPolicy.isMcpTool(toolName)) {
+            String serverName = ApprovalPolicy.mcpServerName(toolName);
+            if (serverName == null || serverName.isBlank() || mcpBinding == null
+                    || !mcpBinding.usableForPermanentAllow()
+                    || !serverName.equals(mcpBinding.serverName())) return null;
+            return PermissionRule.create(projectRoot.toString(), PermissionRule.Effect.ALLOW,
+                    PermissionRule.Scope.TOOL, toolName,
+                    "用户在逐次审批时明确选择永久允许该精确 MCP 工具（绑定当前受信任配置）",
+                    mcpBinding.configFingerprint());
+        }
 
         if ("execute_command".equals(toolName) && args.path("command").isTextual()) {
             String command = args.path("command").asText();
@@ -92,14 +122,16 @@ final class PermissionRuleRuntime {
     }
 
     /**
-     * Broad tool-level grants never remove approval. MCP allows also require a
-     * configuration fingerprint, which is deferred to a later stage.
-     * Only explicitly scoped command/path rules can skip HITL in this opt-in runtime.
+     * Broad tool-level grants never remove approval. MCP tool grants are exact-name and
+     * fingerprint-bound; the caller must supply a current, trusted, ready server snapshot.
+     * Only explicitly scoped command/path rules and a valid MCP tool binding can skip HITL.
      */
     static boolean maySkipApproval(PermissionRuleEvaluator.Evaluation evaluation, String toolName) {
         if (evaluation.decision() != PermissionRuleEvaluator.Decision.ALLOW) return false;
         return switch (evaluation.matchedRule().scope()) {
-            case MCP_SERVER, TOOL -> false;
+            case MCP_SERVER -> false;
+            case TOOL -> ApprovalPolicy.isMcpTool(toolName)
+                    && evaluation.matchedRule().bindingFingerprint() != null;
             case COMMAND_EXACT, COMMAND_PREFIX -> "execute_command".equals(toolName);
             case PATH_EXACT, PATH_PREFIX -> "write_file".equals(toolName) || "edit_file".equals(toolName);
         };

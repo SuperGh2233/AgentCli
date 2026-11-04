@@ -14,7 +14,8 @@ public record PermissionRule(
         Scope scope,
         String matcher,
         long createdAtEpochMillis,
-        String reason
+        String reason,
+        String bindingFingerprint
 ) {
     public enum Effect { DENY, ASK, ALLOW }
     public enum Scope { TOOL, MCP_SERVER, COMMAND_EXACT, COMMAND_PREFIX, PATH_EXACT, PATH_PREFIX }
@@ -27,6 +28,15 @@ public record PermissionRule(
         effect = Objects.requireNonNull(effect, "effect");
         scope = Objects.requireNonNull(scope, "scope");
         matcher = normalizeMatcher(scope, matcher);
+        // Legacy MCP ALLOW entries remain readable for compatibility, but the evaluator treats
+        // server-wide ALLOW and unbound tool ALLOW as inert. New runtime proposals always bind HMAC.
+        if (scope == Scope.TOOL && ApprovalPolicy.isMcpTool(matcher) && effect == Effect.ALLOW) {
+            if (bindingFingerprint != null && !bindingFingerprint.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("MCP 工具 ALLOW 规则指纹格式非法");
+            }
+        } else if (bindingFingerprint != null) {
+            throw new IllegalArgumentException("只有 MCP 工具 ALLOW 规则可以绑定配置指纹");
+        }
         if (createdAtEpochMillis <= 0) throw new IllegalArgumentException("权限规则创建时间非法");
         if (reason != null) {
             reason = reason.strip();
@@ -37,10 +47,20 @@ public record PermissionRule(
         }
     }
 
+    public PermissionRule(String id, String projectRoot, Effect effect, Scope scope, String matcher,
+                          long createdAtEpochMillis, String reason) {
+        this(id, projectRoot, effect, scope, matcher, createdAtEpochMillis, reason, null);
+    }
+
     public static PermissionRule create(String projectRoot, Effect effect, Scope scope,
                                         String matcher, String reason) {
+        return create(projectRoot, effect, scope, matcher, reason, null);
+    }
+
+    public static PermissionRule create(String projectRoot, Effect effect, Scope scope,
+                                        String matcher, String reason, String bindingFingerprint) {
         return new PermissionRule(UUID.randomUUID().toString(), projectRoot, effect, scope,
-                matcher, System.currentTimeMillis(), reason);
+                matcher, System.currentTimeMillis(), reason, bindingFingerprint);
     }
 
     static String normalizeProjectRoot(String value) {

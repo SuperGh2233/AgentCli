@@ -158,7 +158,9 @@ public final class LanternaRenderer implements Renderer {
     private ApprovalResult doShowApprovalDialog(ApprovalRequest request) {
         String title = "⚠️ HITL 审批: " + request.toolName();
         String body = request.toDisplayText();
-        if (request.permanentAllowProposal() == null) {
+        boolean perCallOnly = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
+        if (request.permanentAllowProposal() == null || perCallOnly) {
             MessageDialogButton button = new MessageDialogBuilder()
                     .setTitle(title)
                     .setText(body + "\n\n[Yes] 批准  [No] 拒绝  [Cancel] 跳过")
@@ -191,8 +193,10 @@ public final class LanternaRenderer implements Renderer {
         if (selected.equals("仅批准本次")) return ApprovalResult.approve();
         if (!selected.equals(permanentOption)) return ApprovalResult.skip();
 
+        String binding = ApprovalRequest.bindingDescription(request.permanentAllowProposal());
         String confirmation = "将保存以下永久授权规则：\n"
                 + ApprovalRequest.scopeDescription(request.permanentAllowProposal())
+                + (binding == null ? "" : "\nMCP 配置绑定：" + binding)
                 + "\n项目根目录：" + request.permanentAllowProposal().projectRoot()
                 + "\n该规则仅对当前项目生效。确认保存吗？";
         MessageDialogButton confirmed = new MessageDialogBuilder()

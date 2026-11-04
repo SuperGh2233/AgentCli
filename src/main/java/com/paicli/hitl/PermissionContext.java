@@ -6,8 +6,22 @@ public record PermissionContext(
         String toolName,
         String serverName,
         String command,
-        String projectRelativePath
+        String projectRelativePath,
+        String configFingerprint,
+        boolean current,
+        boolean trusted,
+        boolean ready
 ) {
+    public PermissionContext(String projectRoot, String toolName, String serverName,
+                             String command, String projectRelativePath) {
+        this(projectRoot, toolName, serverName, command, projectRelativePath, null, false, false, false);
+    }
+
+    public boolean mcpBindingUsable() {
+        return configFingerprint != null && configFingerprint.matches("[0-9a-f]{64}")
+                && current && trusted && ready;
+    }
+
     public PermissionContext {
         projectRoot = PermissionRule.normalizeProjectRoot(projectRoot);
         if (toolName == null || toolName.isBlank() || toolName.length() > 256

@@ -44,8 +44,14 @@ public final class PermissionRuleEvaluator {
 
     private static boolean matches(PermissionRule rule, PermissionContext context) {
         return switch (rule.scope()) {
-            case TOOL -> rule.matcher().equals(context.toolName());
-            case MCP_SERVER -> rule.matcher().equals(context.serverName());
+            case TOOL -> rule.matcher().equals(context.toolName())
+                    && (rule.effect() != PermissionRule.Effect.ALLOW
+                    || !ApprovalPolicy.isMcpTool(rule.matcher())
+                    || (rule.bindingFingerprint() != null && context.mcpBindingUsable()
+                    && rule.bindingFingerprint().equals(context.configFingerprint())));
+            // Legacy server-wide ALLOW records are readable but never grant access.
+            case MCP_SERVER -> rule.effect() != PermissionRule.Effect.ALLOW
+                    && rule.matcher().equals(context.serverName());
             case COMMAND_EXACT -> "execute_command".equals(context.toolName())
                     && CommandPrefixMatcher.matchesExact(context.command(), rule.matcher());
             case COMMAND_PREFIX -> "execute_command".equals(context.toolName())

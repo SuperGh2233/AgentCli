@@ -82,12 +82,13 @@ public class TerminalHitlHandler implements HitlHandler {
     @Override
     public synchronized ApprovalResult requestApproval(ApprovalRequest request) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
-        boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
-        if (!sensitivePerCall && isApprovedAllByTool(request.toolName())) {
+        boolean perCallOnly = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
+        if (!perCallOnly && isApprovedAllByTool(request.toolName())) {
             out.println("  [HITL] " + encodeForDisplay(request.toolName()) + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAll();
         }
-        if (!sensitivePerCall && isApprovedAllByServer(mcpServer)) {
+        if (!perCallOnly && isApprovedAllByServer(mcpServer)) {
             out.println("  [HITL] MCP server " + encodeForDisplay(mcpServer) + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAllByServer();
         }
@@ -106,9 +107,10 @@ public class TerminalHitlHandler implements HitlHandler {
     private ApprovalResult promptUntilDecision(ApprovalRequest request) {
         for (int attempt = 0; attempt < 5; attempt++) {
             out.println();
-            boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
-            if (sensitivePerCall) {
-                out.println("请选择操作：[y/Enter] 批准本次  [n] 拒绝  [s] 跳过  [m] 修改参数");
+            boolean perCallOnly = request.forcePerCall()
+                    || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
+            if (perCallOnly) {
+                out.println("请选择操作：[y/Enter] 仅批准本次  [n] 拒绝  [s] 跳过  [m] 修改参数");
             } else {
                 out.println("请选择操作：[y/Enter] 批准  [a] 全部放行  [n] 拒绝  [s] 跳过  [m] 修改参数");
             }
@@ -136,8 +138,8 @@ public class TerminalHitlHandler implements HitlHandler {
             }
             switch (normalized) {
                 case "a" -> {
-                    if (sensitivePerCall) {
-                        out.println("  敏感页面操作不支持全部放行，请选择 y/n/s/m");
+                    if (perCallOnly) {
+                        out.println("  当前操作必须逐次确认，不支持全部放行，请选择 y/n/s/m");
                         continue;
                     }
                     return promptApproveAllScope(request);
@@ -174,8 +176,8 @@ public class TerminalHitlHandler implements HitlHandler {
     private ApprovalResult promptApproveAllScope(ApprovalRequest request) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
         if (mcpServer == null || mcpServer.isBlank()) {
-            approvedAllByTool.add(request.toolName());
-            out.println("  已批准，后续 " + encodeForDisplay(request.toolName()) + " 操作将自动通过");
+            out.println("  已选择本会话放行 " + encodeForDisplay(request.toolName())
+                    + "（将在本次操作通过校验后生效）");
             return ApprovalResult.approveAll();
         }
 
@@ -193,12 +195,12 @@ public class TerminalHitlHandler implements HitlHandler {
         }
         String normalized = scope == null ? "" : scope.trim().toLowerCase();
         if ("server".equals(normalized) || "s".equals(normalized)) {
-            approvedAllByServer.add(mcpServer);
-            out.println("  已批准，后续 MCP server " + encodeForDisplay(mcpServer) + " 的工具调用将自动通过");
+            out.println("  已选择本会话放行 MCP server " + encodeForDisplay(mcpServer)
+                    + "（将在本次操作通过校验后生效）");
             return ApprovalResult.approveAllByServer();
         }
-        approvedAllByTool.add(request.toolName());
-        out.println("  已批准，后续 " + encodeForDisplay(request.toolName()) + " 操作将自动通过");
+        out.println("  已选择本会话放行 " + encodeForDisplay(request.toolName())
+                + "（将在本次操作通过校验后生效）");
         return ApprovalResult.approveAll();
     }
 
@@ -243,10 +245,22 @@ public class TerminalHitlHandler implements HitlHandler {
     }
 
     @Override
-    public synchronized void clearApprovedAllForServer(String serverName) {
+    public void clearApprovedAllForServer(String serverName) {
         if (serverName != null) {
             approvedAllByServer.remove(serverName);
             approvedAllByTool.removeIf(name -> name.startsWith("mcp__" + serverName + "__"));
+        }
+    }
+
+    @Override
+    public void commitApproval(ApprovalRequest request, ApprovalResult result) {
+        if (request == null || result == null || request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank())) return;
+        String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
+        if (result.isApprovedAllForTool()) {
+            approvedAllByTool.add(request.toolName());
+        } else if (result.isApprovedAllForServer() && mcpServer != null) {
+            approvedAllByServer.add(mcpServer);
         }
     }
 

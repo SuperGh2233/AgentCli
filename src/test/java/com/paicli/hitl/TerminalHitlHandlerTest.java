@@ -38,6 +38,7 @@ class TerminalHitlHandlerTest {
             Harness h = Harness.withInput("a\n" + scope + "\n");
             var request = ApprovalRequest.of(tool, "{}", null);
             var result = h.handler.requestApproval(request);
+            h.handler.commitApproval(request, result);
             assertEquals(scope.equals("tool") ? ApprovalResult.Decision.APPROVED_ALL
                     : ApprovalResult.Decision.APPROVED_ALL_BY_SERVER, result.decision());
             assertTrue(scope.equals("tool") ? h.handler.isApprovedAllByTool(tool)
@@ -94,8 +95,9 @@ class TerminalHitlHandlerTest {
     void aInputApprovesAllAndCachesTool() {
         // 一次性准备两轮输入：第一次 a 触发缓存，第二次根本不读 stdin（缓存命中）
         Harness h = Harness.withInput("a\n\n");
-        assertEquals(ApprovalResult.Decision.APPROVED_ALL,
-                h.handler.requestApproval(WRITE_FILE_REQUEST).decision());
+        ApprovalResult first = h.handler.requestApproval(WRITE_FILE_REQUEST);
+        assertEquals(ApprovalResult.Decision.APPROVED_ALL, first.decision());
+        h.handler.commitApproval(WRITE_FILE_REQUEST, first);
 
         ApprovalResult cached = h.handler.requestApproval(WRITE_FILE_REQUEST);
         assertEquals(ApprovalResult.Decision.APPROVED_ALL, cached.decision());
@@ -107,6 +109,7 @@ class TerminalHitlHandlerTest {
     void aInputForMcpCanApproveEntireServer() {
         Harness h = Harness.withInput("a\nserver\n");
         ApprovalResult result = h.handler.requestApproval(MCP_CHROME_REQUEST);
+        h.handler.commitApproval(MCP_CHROME_REQUEST, result);
 
         assertEquals(ApprovalResult.Decision.APPROVED_ALL_BY_SERVER, result.decision());
         assertTrue(h.handler.isApprovedAllByServer("chrome-devtools"));
@@ -117,7 +120,8 @@ class TerminalHitlHandlerTest {
     @Test
     void approvedServerCacheSkipsLaterMcpToolsFromSameServer() {
         Harness h = Harness.withInput("a\nserver\n");
-        h.handler.requestApproval(MCP_CHROME_REQUEST);
+        ApprovalResult first = h.handler.requestApproval(MCP_CHROME_REQUEST);
+        h.handler.commitApproval(MCP_CHROME_REQUEST, first);
 
         ApprovalResult cached = h.handler.requestApproval(MCP_CHROME_CLICK_REQUEST);
 
@@ -128,7 +132,8 @@ class TerminalHitlHandlerTest {
     @Test
     void sensitiveRequestSkipsApprovedServerCache() {
         Harness h = Harness.withInput("a\nserver\ny\n");
-        h.handler.requestApproval(MCP_CHROME_REQUEST);
+        ApprovalResult first = h.handler.requestApproval(MCP_CHROME_REQUEST);
+        h.handler.commitApproval(MCP_CHROME_REQUEST, first);
         ApprovalRequest sensitive = ApprovalRequest.of(
                 "mcp__chrome-devtools__click",
                 "{\"uid\":\"1\"}",
@@ -140,6 +145,26 @@ class TerminalHitlHandlerTest {
 
         assertEquals(ApprovalResult.Decision.APPROVED, result.decision());
         assertTrue(h.output().contains("敏感页面"));
+    }
+
+    @Test
+    void forcePerCallBypassesExistingSessionGrantAndHidesApproveAllOption() {
+        Harness h = Harness.withInput("a\nserver\ny\n");
+        ApprovalResult first = h.handler.requestApproval(MCP_CHROME_REQUEST);
+        h.handler.commitApproval(MCP_CHROME_REQUEST, first);
+        int previousOutputLength = h.output().length();
+        ApprovalRequest forced = ApprovalRequest.of("mcp__chrome-devtools__click", "{\"uid\":\"1\"}",
+                "explicit ASK", null, null, null, true);
+
+        ApprovalResult result = h.handler.requestApproval(forced);
+
+        assertEquals(ApprovalResult.Decision.APPROVED, result.decision());
+        assertTrue(h.handler.isApprovedAllByServer("chrome-devtools"),
+                "existing session grant remains but cannot satisfy explicit ASK");
+        String forcedOutput = h.output().substring(previousOutputLength);
+        assertTrue(forcedOutput.contains("必须逐次确认"));
+        assertTrue(forcedOutput.contains("仅批准本次"));
+        assertFalse(forcedOutput.contains("[a] 全部放行"));
     }
 
     @Test
@@ -231,7 +256,8 @@ class TerminalHitlHandlerTest {
     @Test
     void clearApprovedAllResetsCache() {
         Harness h = Harness.withInput("a\n\ny\n");
-        h.handler.requestApproval(WRITE_FILE_REQUEST);
+        ApprovalResult first = h.handler.requestApproval(WRITE_FILE_REQUEST);
+        h.handler.commitApproval(WRITE_FILE_REQUEST, first);
         h.handler.clearApprovedAll();
         // 清空后需要重新审批，会读取第二行 "y"
         assertEquals(ApprovalResult.Decision.APPROVED,

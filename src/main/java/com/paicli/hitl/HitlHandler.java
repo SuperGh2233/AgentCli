@@ -30,6 +30,13 @@ public interface HitlHandler extends com.paicli.mcp.elicitation.McpElicitationHa
      */
     ApprovalResult requestApproval(ApprovalRequest request);
 
+    /**
+     * Publish a session-wide approval only after the caller has revalidated the approved operation.
+     * Interactive handlers must not mutate shared grants inside requestApproval().
+     */
+    default void commitApproval(ApprovalRequest request, ApprovalResult result) {
+    }
+
     /** Collect MCP-requested user input; deliberately independent of approval/auto-allow state. */
     default ElicitationResponse requestElicitation(ElicitationRequest request) {
         return ElicitationResponse.cancel();

@@ -51,6 +51,7 @@ class PlainRendererTest {
             var handler = new com.paicli.hitl.RendererHitlHandler(renderer, true);
             var request = ApprovalRequest.of(tool, "{}", null);
             var result = handler.requestApproval(request);
+            handler.commitApproval(request, result);
             assertEquals(scope.equals("tool") ? ApprovalResult.Decision.APPROVED_ALL
                     : ApprovalResult.Decision.APPROVED_ALL_BY_SERVER, result.decision());
             assertTrue(scope.equals("tool") ? handler.isApprovedAllByTool(tool) : handler.isApprovedAllByServer(server));
@@ -67,6 +68,25 @@ class PlainRendererTest {
     private static void assertSafeApprovalDisplay(String output) {
         output.codePoints().forEach(cp -> assertFalse((cp < 32 && cp != '\n')
                 || (cp >= 0x7F && cp <= 0x9F) || cp == 0x202E));
+    }
+
+    @Test
+    void forcePerCallHidesSessionAndPermanentAllowOptions() throws Exception {
+        var sink = new ByteArrayOutputStream();
+        var renderer = new PlainRenderer(new PrintStream(sink, true, StandardCharsets.UTF_8),
+                new BufferedReader(new StringReader("a\ny\n")));
+        ApprovalResult result = renderer.promptApproval(ApprovalRequest.of(
+                "mcp__browser__navigate", "{}", "explicit ASK", null, null,
+                PermissionRule.create(java.nio.file.Path.of(".").toRealPath().toString(),
+                        PermissionRule.Effect.ALLOW, PermissionRule.Scope.TOOL,
+                        "mcp__browser__navigate", "test", "a".repeat(64)), true));
+        assertEquals(ApprovalResult.Decision.APPROVED, result.decision());
+        String output = sink.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("必须逐次确认"), output);
+        assertTrue(output.contains("批准本次"), output);
+        assertFalse(output.contains("[a] 本会话全部放行"), output);
+        assertFalse(output.contains("[p] 永久允许"), output);
+        assertFalse(output.contains("永久授权范围"), output);
     }
 
     @Test

@@ -40,10 +40,26 @@ class SwitchableHitlHandlerTest {
         assertEquals("chrome-devtools", second.lastClearedServer);
     }
 
+    @Test
+    void commitsApprovalToTheHandlerThatPresentedItEvenAfterDelegateSwitch() {
+        StubHitlHandler first = new StubHitlHandler(ApprovalResult.approveAll());
+        StubHitlHandler second = new StubHitlHandler(ApprovalResult.approveAll());
+        SwitchableHitlHandler handler = new SwitchableHitlHandler(first);
+        ApprovalRequest request = ApprovalRequest.of("write_file", "{}", null);
+
+        ApprovalResult result = handler.requestApproval(request);
+        handler.setDelegate(second);
+        handler.commitApproval(request, result);
+
+        assertEquals(1, first.commitCount);
+        assertEquals(0, second.commitCount);
+    }
+
     private static final class StubHitlHandler implements HitlHandler {
         private final ApprovalResult result;
         private boolean enabled;
         private int requestCount;
+        private int commitCount;
         private int elicitationCount;
         private ElicitationResponse elicitationResult = ElicitationResponse.cancel();
         private int clearAllCount;
@@ -57,6 +73,11 @@ class SwitchableHitlHandlerTest {
         public ApprovalResult requestApproval(ApprovalRequest request) {
             requestCount++;
             return result;
+        }
+
+        @Override
+        public void commitApproval(ApprovalRequest request, ApprovalResult result) {
+            commitCount++;
         }
 
         @Override

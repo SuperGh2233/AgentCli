@@ -106,7 +106,8 @@ public final class PlainRenderer implements Renderer {
 
     @Override
     public ApprovalResult promptApproval(ApprovalRequest request) {
-        boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
+        boolean sensitivePerCall = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
         out.println();
         out.println("────────── ⚠️  HITL 审批请求 ──────────");
         out.println(request.toDisplayText());
@@ -143,7 +144,7 @@ public final class PlainRenderer implements Renderer {
             switch (normalized) {
                 case "a" -> {
                     if (sensitivePerCall) {
-                        out.println("  敏感页面操作不支持全部放行，请选择 y/n/s/m");
+                        out.println("  当前操作必须逐次确认，不支持全部放行，请选择 y/n/s/m");
                         continue;
                     }
                     return promptApproveAllScope(request);
@@ -224,6 +225,8 @@ public final class PlainRenderer implements Renderer {
     private boolean confirmPermanentAllow(ApprovalRequest request) {
         out.println("\n  即将保存永久授权规则：");
         out.println("  " + encodeForDisplay(ApprovalRequest.scopeDescription(request.permanentAllowProposal())));
+        String binding = ApprovalRequest.bindingDescription(request.permanentAllowProposal());
+        if (binding != null) out.println("  MCP 配置绑定：" + encodeForDisplay(binding));
         out.println("  项目根目录：" + encodeForDisplay(request.permanentAllowProposal().projectRoot()));
         out.println("  该规则仅适用于当前项目；请准确输入 YES 确认保存：");
         out.print("  > ");

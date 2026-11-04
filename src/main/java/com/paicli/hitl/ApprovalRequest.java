@@ -21,11 +21,19 @@ public record ApprovalRequest(
         String suggestion,
         String callerContext,
         String sensitiveNotice,
-        PermissionRule permanentAllowProposal
+        PermissionRule permanentAllowProposal,
+        boolean forcePerCall
 ) {
     public ApprovalRequest(String toolName, String arguments, String dangerLevel, String riskDescription,
                            String suggestion, String callerContext, String sensitiveNotice) {
-        this(toolName, arguments, dangerLevel, riskDescription, suggestion, callerContext, sensitiveNotice, null);
+        this(toolName, arguments, dangerLevel, riskDescription, suggestion, callerContext, sensitiveNotice, null, false);
+    }
+
+    public ApprovalRequest(String toolName, String arguments, String dangerLevel, String riskDescription,
+                           String suggestion, String callerContext, String sensitiveNotice,
+                           PermissionRule permanentAllowProposal) {
+        this(toolName, arguments, dangerLevel, riskDescription, suggestion, callerContext,
+                sensitiveNotice, permanentAllowProposal, false);
     }
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int BOX_INNER_WIDTH = 58;
@@ -48,6 +56,12 @@ public record ApprovalRequest(
 
     public static ApprovalRequest of(String toolName, String arguments, String suggestion, String callerContext,
                                      String sensitiveNotice, PermissionRule permanentAllowProposal) {
+        return of(toolName, arguments, suggestion, callerContext, sensitiveNotice, permanentAllowProposal, false);
+    }
+
+    public static ApprovalRequest of(String toolName, String arguments, String suggestion, String callerContext,
+                                     String sensitiveNotice, PermissionRule permanentAllowProposal,
+                                     boolean forcePerCall) {
         return new ApprovalRequest(
                 toolName,
                 arguments,
@@ -56,7 +70,8 @@ public record ApprovalRequest(
                 suggestion,
                 callerContext,
                 sensitiveNotice,
-                permanentAllowProposal
+                permanentAllowProposal,
+                forcePerCall
         );
     }
 
@@ -88,9 +103,14 @@ public record ApprovalRequest(
         if (sensitiveNotice != null && !sensitiveNotice.isEmpty()) {
             sb.append(formatBoxField("敏感页面", sensitiveNotice)).append("\n");
         }
-        if (permanentAllowProposal != null) {
+        if (forcePerCall) {
+            appendWrappedBoxField(sb, "授权约束", "必须逐次确认；不允许会话级或永久放行");
+        }
+        if (permanentAllowProposal != null && !forcePerCall) {
             sb.append("├").append(border).append("┤\n");
             appendWrappedBoxField(sb, "永久授权范围", scopeDescription(permanentAllowProposal));
+            String binding = bindingDescription(permanentAllowProposal);
+            if (binding != null) appendWrappedBoxField(sb, "MCP 配置绑定", binding);
             appendWrappedBoxField(sb, "项目根目录", permanentAllowProposal.projectRoot());
         }
         sb.append("├").append(border).append("┤\n");
@@ -114,6 +134,12 @@ public record ApprovalRequest(
         for (String line : wrapByDisplayWidth(encodeForDisplay(value), ARG_LINE_WIDTH)) {
             sb.append(formatBoxIndented(line)).append("\n");
         }
+    }
+
+    /** Short, non-secret HMAC fingerprint preview shown during permanent MCP authorization. */
+    public static String bindingDescription(PermissionRule rule) {
+        if (rule == null || rule.bindingFingerprint() == null) return null;
+        return "HMAC-SHA256 " + rule.bindingFingerprint().substring(0, 12) + "…";
     }
 
     public static String scopeDescription(PermissionRule rule) {

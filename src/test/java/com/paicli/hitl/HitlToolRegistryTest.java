@@ -238,8 +238,12 @@ class HitlToolRegistryTest {
                 registerMcpTool(registry, server, "another", args -> "another");
             }
             for (String server : List.of("alpha", "alpha-other")) {
-                handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__old", "{}", "test"));
-                handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__another", "{}", "test"));
+                ApprovalRequest toolRequest = ApprovalRequest.of("mcp__" + server + "__old", "{}", "test");
+                ApprovalResult toolResult = handler.requestApproval(toolRequest);
+                handler.commitApproval(toolRequest, toolResult);
+                ApprovalRequest serverRequest = ApprovalRequest.of("mcp__" + server + "__another", "{}", "test");
+                ApprovalResult serverResult = handler.requestApproval(serverRequest);
+                handler.commitApproval(serverRequest, serverResult);
                 assertTrue(handler.isApprovedAllByTool("mcp__" + server + "__old"));
                 assertTrue(handler.isApprovedAllByServer(server));
             }

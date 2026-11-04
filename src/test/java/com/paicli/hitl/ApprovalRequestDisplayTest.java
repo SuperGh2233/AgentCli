@@ -89,6 +89,23 @@ class ApprovalRequestDisplayTest {
     }
 
     @Test
+    void permanentMcpAllowShowsOnlyShortNonSecretBindingFingerprint() {
+        String fingerprint = "f".repeat(64);
+        PermissionRule proposal = PermissionRule.create("/tmp", PermissionRule.Effect.ALLOW,
+                PermissionRule.Scope.TOOL, "mcp__browser__navigate", "exact MCP tool", fingerprint);
+        var request = ApprovalRequest.of("mcp__browser__navigate", "{}", null,
+                null, null, proposal);
+
+        String display = request.toDisplayText();
+
+        assertTrue(display.contains("MCP 配置绑定"));
+        assertTrue(display.contains("HMAC-SHA256 ffffffffffff…"));
+        assertFalse(display.contains(fingerprint));
+        assertEquals("HMAC-SHA256 ffffffffffff…", ApprovalRequest.bindingDescription(proposal));
+        assertNull(ApprovalRequest.bindingDescription(null));
+    }
+
+    @Test
     void whitespaceControlsAreNotHiddenAsBlankInput() {
         var request = new ApprovalRequest("tool", "\r\n\t", "\t", "\r", "\n", "\t", "\r");
         String display = request.toDisplayText();

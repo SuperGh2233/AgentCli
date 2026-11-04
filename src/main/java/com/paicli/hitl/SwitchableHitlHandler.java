@@ -16,6 +16,8 @@ public final class SwitchableHitlHandler implements HitlHandler {
 
     private volatile HitlHandler delegate;
     private volatile boolean highRiskConfirmation;
+    /** Preserve the handler that actually presented this thread's approval until validation commits it. */
+    private final ThreadLocal<PendingApproval> pendingApproval = new ThreadLocal<>();
 
     public SwitchableHitlHandler(HitlHandler delegate) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
@@ -31,8 +33,23 @@ public final class SwitchableHitlHandler implements HitlHandler {
 
     @Override
     public ApprovalResult requestApproval(ApprovalRequest request) {
-        return delegate.requestApproval(request);
+        pendingApproval.remove();
+        HitlHandler selected = delegate;
+        ApprovalResult result = selected.requestApproval(request);
+        pendingApproval.set(new PendingApproval(selected, request, result));
+        return result;
     }
+
+    @Override
+    public void commitApproval(ApprovalRequest request, ApprovalResult result) {
+        PendingApproval pending = pendingApproval.get();
+        pendingApproval.remove();
+        if (pending != null && pending.request() == request && pending.result() == result) {
+            pending.handler().commitApproval(request, result);
+        }
+    }
+
+    private record PendingApproval(HitlHandler handler, ApprovalRequest request, ApprovalResult result) {}
 
     @Override
     public java.util.Set<String> supportedModes() { return delegate.supportedModes(); }

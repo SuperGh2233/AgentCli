@@ -104,6 +104,9 @@ public class ToolRegistry {
         return pending.gate().rejectionReason(pending.invocation());
     }
     private final Map<String, McpRegisteredTool> mcpTools = new ConcurrentHashMap<>();
+    /** Fair lifecycle lock: an invocation runs against one registration while replacement/revocation waits. */
+    private final java.util.concurrent.locks.ReentrantReadWriteLock mcpToolLock =
+            new java.util.concurrent.locks.ReentrantReadWriteLock(true);
     private final long commandTimeoutSeconds;
     private final long toolBatchTimeoutSeconds;
     private static final int DEFAULT_FETCH_MAX_CHARS = 8_000;
@@ -1376,23 +1379,33 @@ public class ToolRegistry {
     public synchronized void registerMcpToolOutput(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {
         Objects.requireNonNull(descriptor, "descriptor");
         Objects.requireNonNull(invoker, "invoker");
-        String toolName = descriptor.namespacedName();
-        McpRegisteredTool registered = new McpRegisteredTool(descriptor, invoker);
-        mcpTools.put(toolName, registered);
-        tools.put(toolName, new Tool(
-                toolName,
-                mcpDescription(descriptor),
-                descriptor.inputSchema(),
-                args -> "MCP 工具不应通过 Map<String,String> 入口执行"
-        ));
+        mcpToolLock.writeLock().lock();
+        try {
+            String toolName = descriptor.namespacedName();
+            McpRegisteredTool registered = new McpRegisteredTool(descriptor, invoker);
+            mcpTools.put(toolName, registered);
+            tools.put(toolName, new Tool(
+                    toolName,
+                    mcpDescription(descriptor),
+                    descriptor.inputSchema(),
+                    args -> "MCP 工具不应通过 Map<String,String> 入口执行"
+            ));
+        } finally {
+            mcpToolLock.writeLock().unlock();
+        }
     }
 
     public synchronized void unregisterMcpTool(String toolName) {
         if (toolName == null || toolName.isBlank()) {
             return;
         }
-        mcpTools.remove(toolName);
-        tools.remove(toolName);
+        mcpToolLock.writeLock().lock();
+        try {
+            mcpTools.remove(toolName);
+            tools.remove(toolName);
+        } finally {
+            mcpToolLock.writeLock().unlock();
+        }
     }
 
     public synchronized void replaceMcpToolsForServer(String serverName, List<McpToolDescriptor> newTools,
@@ -1406,17 +1419,80 @@ public class ToolRegistry {
         Objects.requireNonNull(serverName, "serverName");
         Objects.requireNonNull(newTools, "newTools");
         Objects.requireNonNull(invokerFactory, "invokerFactory");
-        String prefix = "mcp__" + serverName + "__";
-        List<String> existing = mcpTools.keySet().stream()
-                .filter(name -> name.startsWith(prefix))
-                .toList();
-        for (String toolName : existing) {
-            mcpTools.remove(toolName);
-            tools.remove(toolName);
+        mcpToolLock.writeLock().lock();
+        try {
+            String prefix = "mcp__" + serverName + "__";
+            List<String> existing = mcpTools.keySet().stream()
+                    .filter(name -> name.startsWith(prefix))
+                    .toList();
+            for (String toolName : existing) {
+                mcpTools.remove(toolName);
+                tools.remove(toolName);
+            }
+            for (McpToolDescriptor descriptor : newTools) {
+                registerMcpToolOutput(descriptor, invokerFactory.apply(descriptor));
+            }
+        } finally {
+            mcpToolLock.writeLock().unlock();
         }
-        for (McpToolDescriptor descriptor : newTools) {
-            registerMcpToolOutput(descriptor, invokerFactory.apply(descriptor));
+    }
+
+    /** Snapshot the exact registered MCP invoker before permission checks or user approval. */
+    protected final McpRegisteredTool mcpToolSnapshot(String toolName) {
+        return toolName == null ? null : mcpTools.get(toolName);
+    }
+
+    /** Run a registry mutation and its permission-grant invalidation under the same write lock. */
+    protected final void withMcpToolRegistryWriteLock(Runnable action) {
+        Objects.requireNonNull(action, "action");
+        mcpToolLock.writeLock().lock();
+        try {
+            action.run();
+        } finally {
+            mcpToolLock.writeLock().unlock();
         }
+    }
+
+    protected final boolean isCurrentMcpToolRegistration(String toolName, McpRegisteredTool expected) {
+        if (toolName == null || expected == null) return false;
+        mcpToolLock.readLock().lock();
+        try {
+            return mcpTools.get(toolName) == expected;
+        } finally {
+            mcpToolLock.readLock().unlock();
+        }
+    }
+
+    /** Execute only the exact MCP registration captured before permission evaluation/approval. */
+    protected final ToolOutput doExecuteMcpToolBound(String name, String argumentsJson,
+                                                      McpRegisteredTool expected) {
+        return doExecuteMcpToolBound(name, argumentsJson, expected, null);
+    }
+
+    /** Run the approval commit callback only after the captured registration is locked and validated. */
+    protected final ToolOutput doExecuteMcpToolBound(String name, String argumentsJson,
+                                                      McpRegisteredTool expected, Runnable beforeInvoke) {
+        if (expected == null) {
+            return ToolOutput.failure("[PERMISSION] MCP 工具注册已变化或不可用，未执行");
+        }
+        mcpToolLock.readLock().lock();
+        try {
+            if (mcpTools.get(name) != expected) {
+                return ToolOutput.failure("[PERMISSION] MCP 工具在审批期间被替换，未执行；请重新审批");
+            }
+            return doExecuteToolLocked(name, argumentsJson, expected, beforeInvoke);
+        } finally {
+            mcpToolLock.readLock().unlock();
+        }
+    }
+
+    /** Execute a non-MCP tool and publish its approval only after validation and the start gate pass. */
+    protected final ToolOutput doExecuteToolWithBeforeInvoke(String name, String argumentsJson,
+                                                              Runnable beforeInvoke) {
+        if (name != null && name.startsWith("mcp__")) {
+            return ToolOutput.failure("MCP 工具必须使用绑定注册的执行入口");
+        }
+        return doExecuteToolLocked(name, argumentsJson, null, beforeInvoke);
     }
 
     /**
@@ -1439,6 +1515,19 @@ public class ToolRegistry {
     }
 
     protected ToolOutput doExecuteTool(String name, String argumentsJson) {
+        if (name != null && name.startsWith("mcp__")) {
+            mcpToolLock.readLock().lock();
+            try {
+                return doExecuteToolLocked(name, argumentsJson, null, null);
+            } finally {
+                mcpToolLock.readLock().unlock();
+            }
+        }
+        return doExecuteToolLocked(name, argumentsJson, null, null);
+    }
+
+    private ToolOutput doExecuteToolLocked(String name, String argumentsJson,
+                                            McpRegisteredTool expectedMcpTool, Runnable beforeInvoke) {
         if (CancellationContext.isCancelled()) {
             return ToolOutput.failure("用户取消了此次工具调用");
         }
@@ -1452,6 +1541,12 @@ public class ToolRegistry {
         BrowserAuditMetadata auditMetadata = null;
 
         McpRegisteredTool mcpTool = mcpTools.get(name);
+        if (expectedMcpTool != null && mcpTool != expectedMcpTool) {
+            return ToolOutput.failure("[PERMISSION] MCP 工具注册已变化，未执行；请重新审批");
+        }
+        if (name != null && name.startsWith("mcp__") && mcpTool == null) {
+            return ToolOutput.failure("未知工具: " + name);
+        }
         ToolArgumentValidator.Outcome checked = argumentValidator.check(name, validationSchema(tool, mcpTool), argumentsJson, mcpTool == null);
         if (!checked.passed()) {
             if (shouldAudit) {
@@ -1470,6 +1565,7 @@ public class ToolRegistry {
                 }
                 String rejection = claimPendingToolStart();
                 if (rejection != null) return ToolOutput.failure(rejection);
+                if (beforeInvoke != null) beforeInvoke.run();
                 ToolOutput output = mcpTool.invoker().apply(argumentsJson);
                 if (output == null) {
                     output = ToolOutput.text("");
@@ -1500,6 +1596,7 @@ public class ToolRegistry {
                     argMap.put(entry.getKey(), entry.getValue().asText()));
             String rejection = claimPendingToolStart();
             if (rejection != null) return ToolOutput.failure(rejection);
+            if (beforeInvoke != null) beforeInvoke.run();
             ToolOutput output;
             if ("web_search".equals(name)) {
                 output = webSearchOutput(argMap.get("query"), parseInt(argMap.get("top_k"), 5));
@@ -2017,7 +2114,7 @@ public class ToolRegistry {
 
     public record Tool(String name, String description, JsonNode parameters, ToolExecutor executor) {}
 
-    private record McpRegisteredTool(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {}
+    protected static record McpRegisteredTool(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {}
 
     public record ToolInvocation(String id, String name, String argumentsJson) {}
 

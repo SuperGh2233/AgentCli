@@ -47,6 +47,21 @@ class PermissionRuleStoreTest {
     }
 
     @Test
+    void addIfChecksBindingBeforePublishingInsideTheStoreWriteLock() throws Exception {
+        PermissionRuleStore store = store();
+        PermissionRule rule = rule("mcp-rule", PermissionRule.Effect.ALLOW, "write_file");
+
+        assertFalse(store.addIf(rule, () -> false));
+        assertTrue(store.load().isEmpty());
+        assertTrue(store.addIf(rule, () -> true));
+        assertEquals(rule, store.load().get(0));
+        assertThrows(IOException.class, () -> store.addIf(
+                rule("mcp-rule-2", PermissionRule.Effect.ALLOW, "edit_file"),
+                () -> { throw new IllegalStateException("binding unavailable"); }));
+        assertEquals(1, store.load().size());
+    }
+
+    @Test
     void corruptStoreFailsClosedAndIsNotOverwritten() throws Exception {
         PermissionRuleStore store = store();
         store.add(rule("rule-1", PermissionRule.Effect.ALLOW, "write_file"));

@@ -30,7 +30,8 @@ class RendererHitlHandlerTest {
             stub.nextResult = byServer ? ApprovalResult.approveAllByServer() : ApprovalResult.approveAll();
             var handler = new RendererHitlHandler(stub, true);
             var request = ApprovalRequest.of(tool, "{}", null);
-            handler.requestApproval(request);
+            ApprovalResult first = handler.requestApproval(request);
+            handler.commitApproval(request, first);
             assertTrue(byServer ? handler.isApprovedAllByServer(server) : handler.isApprovedAllByTool(tool));
             assertFalse(handler.isApprovedAllByServer(ApprovalRequest.encodeForDisplay(server)));
             assertFalse(handler.isApprovedAllByTool(ApprovalRequest.encodeForDisplay(tool)));
@@ -54,7 +55,9 @@ class RendererHitlHandlerTest {
         stub.nextElicitation = new ElicitationResponse(ElicitationResponse.Action.ACCEPT,
                 mapper.createObjectNode().put("name", "alice"));
         RendererHitlHandler handler = new RendererHitlHandler(stub, false);
-        handler.requestApproval(ApprovalRequest.of("mcp__demo__write", "{}", "test"));
+        ApprovalRequest approval = ApprovalRequest.of("mcp__demo__write", "{}", "test");
+        ApprovalResult approved = handler.requestApproval(approval);
+        handler.commitApproval(approval, approved);
         assertTrue(handler.isApprovedAllByTool("mcp__demo__write"));
 
         ObjectNode schema = mapper.createObjectNode().put("type", "object");
@@ -86,8 +89,10 @@ class RendererHitlHandlerTest {
         stub.nextResult = ApprovalResult.approveAll();
         RendererHitlHandler handler = new RendererHitlHandler(stub, true);
 
-        // First call asks renderer and records approve-all
-        handler.requestApproval(ApprovalRequest.of("write_file", "{}", "test"));
+        // First call asks renderer; the caller commits the grant only after validation.
+        ApprovalRequest request = ApprovalRequest.of("write_file", "{}", "test");
+        ApprovalResult first = handler.requestApproval(request);
+        handler.commitApproval(request, first);
         assertEquals(1, stub.promptCount);
         assertTrue(handler.isApprovedAllByTool("write_file"));
 
@@ -99,12 +104,42 @@ class RendererHitlHandlerTest {
     }
 
     @Test
+    void forcePerCallBypassesCachedGrantAndNeverCommitsAnotherGrant() {
+        StubRenderer stub = new StubRenderer();
+        stub.nextResult = ApprovalResult.approveAll();
+        RendererHitlHandler handler = new RendererHitlHandler(stub, true);
+        ApprovalRequest ordinary = ApprovalRequest.of("write_file", "{}", "test");
+        ApprovalResult all = handler.requestApproval(ordinary);
+        handler.commitApproval(ordinary, all);
+        assertTrue(handler.isApprovedAllByTool("write_file"));
+
+        stub.nextResult = ApprovalResult.approve();
+        ApprovalRequest forced = ApprovalRequest.of("write_file", "{}", "ASK requires per-call",
+                null, null, null, true);
+        ApprovalResult result = handler.requestApproval(forced);
+        handler.commitApproval(forced, ApprovalResult.approveAll());
+
+        assertEquals(ApprovalResult.Decision.APPROVED, result.decision());
+        assertEquals(2, stub.promptCount, "forcePerCall must bypass the cached session grant");
+        assertTrue(handler.isApprovedAllByTool("write_file"), "existing grant remains but cannot satisfy ASK");
+
+        ApprovalRequest newForced = ApprovalRequest.of("edit_file", "{}", "ASK requires per-call",
+                null, null, null, true);
+        stub.nextResult = ApprovalResult.approveAll();
+        ApprovalResult invalidAll = handler.requestApproval(newForced);
+        handler.commitApproval(newForced, invalidAll);
+        assertFalse(handler.isApprovedAllByTool("edit_file"));
+    }
+
+    @Test
     void approveAllByServerCoversFutureMcpCalls() {
         StubRenderer stub = new StubRenderer();
         stub.nextResult = ApprovalResult.approveAllByServer();
         RendererHitlHandler handler = new RendererHitlHandler(stub, true);
 
-        handler.requestApproval(ApprovalRequest.of("mcp__chrome-devtools__click", "{}", "test"));
+        ApprovalRequest request = ApprovalRequest.of("mcp__chrome-devtools__click", "{}", "test");
+        ApprovalResult first = handler.requestApproval(request);
+        handler.commitApproval(request, first);
         assertTrue(handler.isApprovedAllByServer("chrome-devtools"));
 
         // Different tool from same server — fast path
@@ -119,7 +154,9 @@ class RendererHitlHandlerTest {
         StubRenderer stub = new StubRenderer();
         stub.nextResult = ApprovalResult.approveAll();
         RendererHitlHandler handler = new RendererHitlHandler(stub, true);
-        handler.requestApproval(ApprovalRequest.of("write_file", "{}", "test"));
+        ApprovalRequest request = ApprovalRequest.of("write_file", "{}", "test");
+        ApprovalResult first = handler.requestApproval(request);
+        handler.commitApproval(request, first);
         assertTrue(handler.isApprovedAllByTool("write_file"));
 
         handler.clearApprovedAll();
@@ -164,9 +201,13 @@ class RendererHitlHandlerTest {
         RendererHitlHandler handler = new RendererHitlHandler(stub, true);
         for (String server : List.of("alpha", "alpha-other")) {
             stub.nextResult = ApprovalResult.approveAll();
-            handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__old", "{}", "test"));
+            ApprovalRequest toolRequest = ApprovalRequest.of("mcp__" + server + "__old", "{}", "test");
+            ApprovalResult toolResult = handler.requestApproval(toolRequest);
+            handler.commitApproval(toolRequest, toolResult);
             stub.nextResult = ApprovalResult.approveAllByServer();
-            handler.requestApproval(ApprovalRequest.of("mcp__" + server + "__another", "{}", "test"));
+            ApprovalRequest serverRequest = ApprovalRequest.of("mcp__" + server + "__another", "{}", "test");
+            ApprovalResult serverResult = handler.requestApproval(serverRequest);
+            handler.commitApproval(serverRequest, serverResult);
         }
         handler.clearApprovedAllForServer(null);
         handler.clearApprovedAllForServer("alpha");

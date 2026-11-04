@@ -15,6 +15,7 @@ import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
  * User-level permission rules with private permissions, process/file locking and atomic replacement.
@@ -97,6 +98,32 @@ public final class PermissionRuleStore {
                 rules.add(rule);
                 writeRules(rules);
                 return List.copyOf(rules);
+            });
+        }
+    }
+
+    /**
+     * Add a rule only if its external binding is still valid while holding the store's write lock.
+     * The predicate must be fail-closed and must not access this store recursively.
+     */
+    public boolean addIf(PermissionRule rule, BooleanSupplier condition) throws IOException {
+        if (rule == null) throw new IllegalArgumentException("权限规则不能为空");
+        if (condition == null) throw new IllegalArgumentException("权限规则发布条件不能为空");
+        synchronized (PROCESS_LOCK) {
+            return withFileLock(() -> {
+                List<PermissionRule> rules = readRules();
+                final boolean allowed;
+                try {
+                    allowed = condition.getAsBoolean();
+                } catch (RuntimeException error) {
+                    throw new IOException("权限规则绑定校验失败；未发布规则", error);
+                }
+                if (!allowed) return false;
+                rules.removeIf(existing -> existing.id().equals(rule.id()));
+                if (rules.size() >= MAX_RULES) throw new IOException("权限规则数量达到上限");
+                rules.add(rule);
+                writeRules(rules);
+                return true;
             });
         }
     }

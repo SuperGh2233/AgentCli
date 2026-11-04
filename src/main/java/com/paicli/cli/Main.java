@@ -177,8 +177,10 @@ public class Main {
                 for (PermissionRule rule : rules) {
                     out.append("- ").append(rule.id()).append(" | ").append(rule.effect())
                             .append(" | ").append(com.paicli.hitl.ApprovalRequest.encodeForDisplay(
-                                    com.paicli.hitl.ApprovalRequest.scopeDescription(rule)))
-                            .append("\n");
+                                    com.paicli.hitl.ApprovalRequest.scopeDescription(rule)));
+                    String binding = com.paicli.hitl.ApprovalRequest.bindingDescription(rule);
+                    if (binding != null) out.append(" | ").append(binding);
+                    out.append("\n");
                 }
                 out.append("\n/permissions revoke <rule-id> - 撤销一条规则\n")
                         .append("/permissions clear --confirm - 清除当前项目全部规则");
@@ -345,6 +347,7 @@ public class Main {
             BrowserConnectivityCheck browserConnectivityCheck = new BrowserConnectivityCheck();
             hitlToolRegistry.setBrowserGuard(new BrowserGuard(browserSession, new SensitivePagePolicy()));
             McpServerManager mcpServerManager = new McpServerManager(hitlToolRegistry, Path.of("."));
+            hitlToolRegistry.setMcpPermissionBindingProvider(mcpServerManager::permissionBinding);
             // MCP elicitation 走独立的用户输入通道；切换 Plain/Inline/Lanterna renderer 时自动跟随 delegate。
             if (System.console() != null) mcpServerManager.setElicitationHandler(hitlHandler);
             AtomicReference<SkillRegistry> skillRegistryRef = new AtomicReference<>();
