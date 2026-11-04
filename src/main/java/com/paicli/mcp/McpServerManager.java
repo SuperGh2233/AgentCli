@@ -107,7 +107,10 @@ public class McpServerManager implements AutoCloseable {
     public void loadConfiguredServers() throws IOException {
         Map<String, McpServerConfig> configs = configLoader.load();
         servers.clear();
-        configs.forEach((name, config) -> servers.put(name, new McpServer(name, config)));
+        configs.forEach((name, config) -> {
+            markSource(config, true);
+            servers.put(name, new McpServer(name, config));
+        });
     }
 
     public void startAll() {
@@ -252,6 +255,7 @@ public class McpServerManager implements AutoCloseable {
             return "未找到 MCP server: " + name;
         }
         server.config().overrideArgs(args);
+        markSource(server.config(), true);
         return restart(name);
     }
 
@@ -265,7 +269,7 @@ public class McpServerManager implements AutoCloseable {
         if (server == null) return "未找到 MCP server: " + name;
         if (!isTrusted(server)) return untrustedMessage(server);
         try {
-            configLoader.prepare(server.config());
+            prepareEffective(server.config());
             if (!server.config().isHttp() || server.config().getOauth() == null)
                 return "❌ /mcp login 仅支持配置了 oauth.clientId 的 HTTP server";
             OAuthTokenStore store = oauthTokenStore();
@@ -282,7 +286,7 @@ public class McpServerManager implements AutoCloseable {
         if (server == null) return "未找到 MCP server: " + name;
         if (!isTrusted(server)) return untrustedMessage(server);
         try {
-            configLoader.prepare(server.config());
+            prepareEffective(server.config());
             if (!server.config().isHttp() || server.config().getOauth() == null)
                 return "❌ /mcp logout 仅支持配置了 oauth.clientId 的 HTTP server";
             OAuthTokenProvider provider = oauthProviders.get(name);
@@ -439,21 +443,50 @@ public class McpServerManager implements AutoCloseable {
     }
 
     /** Read-only MCP trust/config snapshot for permission-rule evaluation. */
-    public McpPermissionBinding permissionBinding(String serverName) {
+    public synchronized McpPermissionBinding permissionBinding(String serverName) {
         if (serverName == null || serverName.isBlank()) return null;
         McpServer server = servers.get(serverName);
         if (server == null) return null;
         McpServerConfig config = server.config();
-        String fingerprint = config.configFingerprint();
-        if (fingerprint == null) {
-            try {
-                fingerprint = McpConfigLoader.fingerprint(config);
-            } catch (RuntimeException ignored) {
-                fingerprint = null;
+        boolean current = false;
+        try {
+            McpServerConfig fresh = configLoader.load().get(serverName);
+            if (fresh != null && config.projectScoped() == fresh.projectScoped()
+                    && java.util.Objects.equals(config.projectConfigFile(), fresh.projectConfigFile())) {
+                if (config.runtimeArgs() != null) fresh.overrideArgs(config.runtimeArgs());
+                if (config.runtimeDisabledOverride() != null) fresh.setDisabled(config.runtimeDisabledOverride());
+                markSource(fresh, false);
+                prepareEffective(fresh);
+                current = config.sourceFingerprint() != null && config.configFingerprint() != null
+                        && config.sourceFingerprint().equals(fresh.sourceFingerprint())
+                        && config.configFingerprint().equals(fresh.configFingerprint());
             }
+        } catch (IOException | RuntimeException ignored) {
+            // No fallback: stale or unreadable configuration cannot bind an ALLOW.
         }
-        return new McpPermissionBinding(serverName, fingerprint, isTrusted(server),
-                server.status() == McpServerStatus.READY, config.projectScoped());
+        return new McpPermissionBinding(serverName, config.configFingerprint(), isTrusted(server),
+                server.status() == McpServerStatus.READY, config.projectScoped(), current);
+    }
+
+    private String hmac(byte[] payload, boolean initialize) {
+        if (trustStore == null) return null;
+        try {
+            return trustStore.fingerprint(payload, initialize);
+        } catch (IOException | RuntimeException ignored) {
+            return null;
+        }
+    }
+
+    private void markSource(McpServerConfig config, boolean initialize) {
+        String fingerprint = hmac(config.sourcePayload(), initialize);
+        if (config.projectScoped()) config.markProjectScoped(config.projectConfigFile(), fingerprint);
+        else config.markUserScoped(fingerprint);
+    }
+
+    private void prepareEffective(McpServerConfig config) {
+        config.effectiveFingerprint(null);
+        configLoader.prepare(config);
+        config.effectiveFingerprint(hmac(McpConfigLoader.fingerprintPayload(config), false));
     }
 
     private static String untrustedMessage(McpServer server) {
@@ -684,7 +717,7 @@ public class McpServerManager implements AutoCloseable {
         try {
             // 在单 server 启动路径里展开 ${VAR} 与校验 transport，
             // 单个失败仅标 ERROR，不会阻塞其他 server。
-            configLoader.prepare(server.config());
+            prepareEffective(server.config());
             McpTransport transport = createTransport(server);
             McpClient client = new McpClient(server.name(), transport, server.config().protocolVersion());
             client.setElicitationHandler(elicitationHandler);

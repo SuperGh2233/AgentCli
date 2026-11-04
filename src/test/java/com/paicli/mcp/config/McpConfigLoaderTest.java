@@ -140,10 +140,10 @@ class McpConfigLoaderTest {
         Map<String, McpServerConfig> configs = new McpConfigLoader(user, project, tempDir).load();
 
         assertFalse(configs.get("fs").projectScoped());
-        assertNotNull(configs.get("fs").configFingerprint(), "用户级配置也必须具有稳定的权限绑定指纹");
+        assertNull(configs.get("fs").configFingerprint(), "load 不产生有效配置指纹");
         assertTrue(configs.get("git").projectScoped(), "同名覆盖后按项目级处理，不能沿用用户级的信任");
         assertEquals(project.toAbsolutePath().normalize(), configs.get("git").projectConfigFile());
-        assertNotNull(configs.get("git").projectFingerprint());
+        assertNull(configs.get("git").projectFingerprint(), "source HMAC 由 Manager 标记");
         assertEquals(configs.get("git").projectFingerprint(), configs.get("git").configFingerprint());
     }
 
@@ -194,5 +194,69 @@ class McpConfigLoaderTest {
         Map<String, McpServerConfig> configs = new McpConfigLoader(user, user, tempDir).load();
 
         assertFalse(configs.get("fs").projectScoped());
+    }
+
+    @Test
+    void canonicalPayloadIncludesDisabledAndSortsMaps() {
+        McpServerConfig config = new McpServerConfig();
+        config.setCommand("node");
+        config.setEnv(new java.util.LinkedHashMap<>(Map.of("B", "2", "A", "1")));
+        byte[] original = McpConfigLoader.fingerprintPayload(config);
+        config.setEnv(new java.util.TreeMap<>(config.getEnv()));
+        assertArrayEquals(original, McpConfigLoader.fingerprintPayload(config));
+        config.setDisabled(true);
+        assertFalse(java.util.Arrays.equals(original, McpConfigLoader.fingerprintPayload(config)));
+    }
+
+    @Test
+    void prepareRestoresRawPlaceholdersAndReappliesOverride(@TempDir Path temp) throws Exception {
+        String variable = "PAICLI_C2A_TEST_VALUE";
+        String previous = System.getProperty(variable);
+        McpConfigLoader loader = new McpConfigLoader(temp.resolve("user.json"), temp.resolve("project.json"), temp);
+        McpTrustStore store = new McpTrustStore(temp.resolve("state/trust.json"));
+        McpServerConfig config = new McpServerConfig();
+        config.setCommand("node");
+        config.setArgs(List.of("${" + variable + "}"));
+        config.markUserScoped(null);
+        byte[] source = config.sourcePayload();
+        try {
+            System.setProperty(variable, "first");
+            loader.prepare(config);
+            String first = store.fingerprint(McpConfigLoader.fingerprintPayload(config), true);
+            System.setProperty(variable, "second");
+            loader.prepare(config);
+            assertEquals(List.of("second"), config.getArgs());
+            assertNotEquals(first, store.fingerprint(McpConfigLoader.fingerprintPayload(config), false));
+            assertArrayEquals(source, config.sourcePayload());
+            config.overrideArgs(List.of("override"));
+            loader.prepare(config);
+            assertEquals(List.of("override"), config.getArgs());
+            config.overrideArgs(List.of("${" + variable + "}"));
+            assertArrayEquals(source, config.sourcePayload());
+            config.sourceConfig().setCommand("mutated");
+            loader.prepare(config);
+            assertEquals("node", config.getCommand());
+        } finally {
+            if (previous == null) System.clearProperty(variable);
+            else System.setProperty(variable, previous);
+        }
+    }
+
+    @Test
+    void preparePreservesRuntimeEnableOverrideForDisabledSource(@TempDir Path temp) throws Exception {
+        Path user = temp.resolve("user.json");
+        Files.writeString(user, """
+                {"mcpServers":{"personal":{"command":"node","disabled":true}}}
+                """);
+        McpConfigLoader loader = new McpConfigLoader(user, temp.resolve("project.json"), temp);
+        McpServerConfig config = loader.load().get("personal");
+        assertTrue(config.isDisabled());
+
+        config.setDisabled(false);
+        loader.prepare(config);
+
+        assertFalse(config.isDisabled(), "prepare must not undo an explicit runtime enable");
+        loader.prepare(config);
+        assertFalse(config.isDisabled(), "repeated prepare must preserve runtime enable");
     }
 }

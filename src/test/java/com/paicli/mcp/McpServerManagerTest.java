@@ -96,7 +96,7 @@ class McpServerManagerTest {
                 trustStore, new McpPidFile(trustDir.resolve("mcp-pids.json")));
         Path projectConfig = trustDir.resolve("project.json");
         McpServerConfig config = httpConfig(webServer);
-        config.markProjectScoped(projectConfig, McpConfigLoader.fingerprint(config));
+        config.markProjectScoped(projectConfig, trustStore.fingerprint(config.sourcePayload(), true));
         loadServersFromMap(Map.of("repo", config));
 
         manager.startAll();
@@ -118,7 +118,7 @@ class McpServerManagerTest {
         assertTrue(result.contains("已启动"), result);
         assertEquals(McpServerStatus.READY, server.status());
         assertTrue(registry.hasTool("mcp__repo__echo"));
-        assertTrue(trustStore.isTrusted(projectConfig, "repo", McpConfigLoader.fingerprint(config)));
+        assertTrue(trustStore.isTrusted(projectConfig, "repo", config.projectFingerprint()));
         assertEquals("", manager.untrustedStartupNote());
     }
 
@@ -131,7 +131,7 @@ class McpServerManagerTest {
         Path projectConfig = trustDir.resolve("project.json");
         trustStore.trust(projectConfig, "repo", "0".repeat(64));
         McpServerConfig config = httpConfig(webServer);
-        config.markProjectScoped(projectConfig, McpConfigLoader.fingerprint(config));
+        config.markProjectScoped(projectConfig, trustStore.fingerprint(config.sourcePayload(), true));
         loadServersFromMap(Map.of("repo", config));
 
         manager.startAll();

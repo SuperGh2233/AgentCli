@@ -1,6 +1,6 @@
 # HITL 权限规则持久化
 
-状态：active；Stage 3A、Stage 3B1、Stage 3B2、Stage 3C1 均已推送 GitHub。Stage 3B2 代码 commit `85a2866d1fb197be76a713aa88b7432b18ab8287`、文档 commit `0672b49120bf6a39113059da51b3ddb32a2a370f` 已推送。Stage 3C1 以 commit `1cf61154a4b48f7be3109ab048591516d3d31638` 推送成功，13 个测试类 156/156 隔离离线定向测试通过，推送后工作区干净。下一阶段 Stage 3C2 将把配置指纹与 trust binding 接入 MCP 永久 ALLOW 裁决。
+状态：active；Stage 3A、Stage 3B1、Stage 3B2、Stage 3C1 均已推送 GitHub。Stage 3C1 commit `1cf61154a4b48f7be3109ab048591516d3d31638` 已推送，13 个测试类 156/156 隔离离线定向测试通过。Stage 3C2-A 代码已完成，5 个测试类 43/43 禁网隔离离线定向回归通过，尚待独立 commit/push。下一阶段 C2-B 将把 current/trusted/ready/config fingerprint 接入 MCP 永久 ALLOW 裁决。
 
 ## 背景与当前行为
 
@@ -137,3 +137,13 @@
 - 2026-11-04：Stage 3B1 实现可选权限执行链、原路径 guard 和作用域限制，10/10 禁网隔离定向回归通过；commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8` 本地创建成功，首次推送因 Repo Ops 服务失败未完成。
 - 2026-11-04：Stage 3B2 实现精确命令/文件永久授权候选、Plain/Inline/Lanterna 审批范围预览与二次确认、用户级存储启用和项目级 `/permissions` 管理命令。修正测试数据 ID 与 Mockito 隔离兼容问题，并将 Lanterna lifecycle 测试改为不依赖 final-class mock 的注入方式；最终 156/156 隔离离线定向回归通过。此结果不代表全量测试通过；真实 TUI 对话框 smoke test 尚待执行。
 - 2026-11-04：Stage 3C1 完成 MCP trust store 加固、用户/项目级配置指纹、runtime args override 指纹更新、permission binding snapshot 和 `/mcp untrust`；最终 13 个测试类 156/156 禁网隔离离线定向回归通过，BUILD SUCCESS。新增验证了 trust 文件损坏时仍先停止 server 并在当前会话阻止 restart。该结果不代表全量测试通过。Commit `1cf61154a4b48f7be3109ab048591516d3d31638` 已推送 GitHub。
+
+### Stage 3C2-A（代码完成，43/43 隔离离线定向回归通过）
+
+- 只完成 MCP 配置一致性基础设施，不接入权限执行链，MCP 永久 ALLOW 继续禁用。
+- canonical JSON 包含 protocolVersion、command、args、env、url、headers、OAuth 和 disabled；本地随机 32-byte HMAC-SHA256 密钥保存在私有 `mcp-trust.json`，使用现有 0700/0600、文件锁和原子替换。旧 SHA 信任记录首次迁移时会清空并要求项目重新 `/mcp trust`；损坏文件/非法密钥拒绝覆盖。trust 记录的历史 `sha256` 字段名保留兼容，但新值是 HMAC。
+- source fingerprint 绑定原始配置与 runtime args override；effective fingerprint 在恢复 raw source、重新展开环境变量、校验 transport 后计算。重复 `prepare()` 不会丢失 `${VAR}` 占位符；runtime args 和 runtime enable/disable override 均可稳定恢复，原始文件内容仍参与 source fingerprint。
+- `permissionBinding()` 每次重新读取当前 mcp.json、重新展开 System.getenv / System properties / 项目 `.env` / 用户 `~/.env`，并比较 source/effective HMAC。配置消失、变化、展开失败、HMAC 不可用或 fingerprint 不一致时返回 `current=false`，不做 SHA 回退、不自动启动/重启、不泄露 secret。binding 检查是读取时快照，检查后立即发生的文件变化需在下一次调用重新发现。
+- 本阶段不自动 reload；外部修改 mcp.json 后需重新启动 CLI 载入。 `/mcp restart` 只重启已载入配置并重新展开变量；`restartWithArgs` 只修改当前会话的运行时参数，不重读文件。
+- 禁网隔离离线定向回归：`McpConfigLoaderTest` 14、`McpTrustStoreTest` 8、`McpServerManagerTrustTest` 12、`McpProtocolEraTest` 6、`McpOAuthConfigTest` 3，合计 **43/43**，失败/错误/跳过均为 0，BUILD SUCCESS。测试使用全新临时副本、独立 Maven 缓存/HOME、`phase0-central-only` settings 和 `sandbox-exec` 禁网。未运行含 MockWebServer/loopback 的 `McpServerManagerTest`、`McpServerLifecycleTest`、`OAuthManagerTest`；因此这不是全量测试。
+- `git diff --check` 通过；测试任务前后工作区状态一致，未在原工作区运行 Maven。C2-B 尚未接入执行链，后续必须在每次 MCP 调用时将 `current/trusted/ready/fingerprint` 作为 ALLOW 的必要条件。

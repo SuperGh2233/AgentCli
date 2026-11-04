@@ -21,7 +21,9 @@ import java.util.Set;
  * 锁失败或符号链接一律按未信任处理；更新和撤销均使用锁与原子替换。
  */
 public final class McpTrustStore {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+            .enable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(com.fasterxml.jackson.core.JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
     private static final String TRUSTED = "trustedProjectServers";
     private static final int MAX_BYTES = 1_048_576;
     private static final Object PROCESS_LOCK = new Object();
@@ -42,12 +44,58 @@ public final class McpTrustStore {
         return new McpTrustStore(Path.of(System.getProperty("user.home"), ".paicli", "mcp-trust.json"));
     }
 
+    /** initialize=false never creates or rotates a key (binding freshness checks). */
+    public String fingerprint(byte[] payload, boolean initialize) throws IOException {
+        return withFileLock(() -> {
+            ObjectNode root = readRoot();
+            byte[] key = fingerprintKey(root, initialize);
+            try {
+                javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+                mac.init(new javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"));
+                mac.update("paicli:mcp-config:v1\0".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                return java.util.HexFormat.of().formatHex(mac.doFinal(payload));
+            } catch (java.security.GeneralSecurityException e) {
+                throw new IOException("MCP HMAC 不可用");
+            } finally {
+                java.util.Arrays.fill(key, (byte) 0);
+            }
+        });
+    }
+
+    private byte[] fingerprintKey(ObjectNode root, boolean initialize) throws IOException {
+        if (!root.has("fingerprintKey")) {
+            if (!initialize) throw new IOException("MCP 指纹密钥缺失");
+            byte[] key = new byte[32];
+            new java.security.SecureRandom().nextBytes(key);
+            root.put("fingerprintKey", java.util.Base64.getEncoder().encodeToString(key));
+            // Old SHA records must never become HMAC trust implicitly.
+            root.putArray(TRUSTED);
+            write(root);
+            return key;
+        }
+        return decodeFingerprintKey(root.get("fingerprintKey"));
+    }
+
+    private static byte[] decodeFingerprintKey(JsonNode node) throws IOException {
+        try {
+            if (!node.isTextual()) throw new IllegalArgumentException();
+            byte[] key = java.util.Base64.getDecoder().decode(node.textValue());
+            if (key.length != 32 || !java.util.Base64.getEncoder().encodeToString(key).equals(node.textValue()))
+                throw new IllegalArgumentException();
+            return key;
+        } catch (IllegalArgumentException e) {
+            throw new IOException("MCP 指纹密钥非法；拒绝覆盖");
+        }
+    }
+
     public boolean isTrusted(Path configFile, String serverName, String fingerprint) {
         if (!validKey(configFile, serverName, fingerprint)) return false;
         String path = normalize(configFile);
         try {
             return withFileLock(() -> {
-                for (JsonNode entry : readRoot().path(TRUSTED)) {
+                ObjectNode root = readRoot();
+                if (!root.has("fingerprintKey")) return false;
+                for (JsonNode entry : root.path(TRUSTED)) {
                     if (path.equals(entry.path("config").asText())
                             && serverName.equals(entry.path("name").asText())
                             && fingerprint.equals(entry.path("sha256").asText())) return true;
@@ -66,11 +114,14 @@ public final class McpTrustStore {
         String path = normalize(configFile);
         withFileLock(() -> {
             ObjectNode root = readRoot();
+            byte[] key = fingerprintKey(root, true);
+            java.util.Arrays.fill(key, (byte) 0);
             ArrayNode next = MAPPER.createArrayNode();
             for (JsonNode entry : root.path(TRUSTED)) {
                 if (!(path.equals(entry.path("config").asText())
                         && serverName.equals(entry.path("name").asText()))) next.add(entry);
             }
+            // Keep the legacy field name for storage compatibility; values are now HMAC-SHA256.
             next.addObject().put("config", path).put("name", serverName).put("sha256", fingerprint);
             root.set(TRUSTED, next);
             write(root);
@@ -140,7 +191,7 @@ public final class McpTrustStore {
     }
 
     private ObjectNode readRoot() throws IOException {
-        if (!Files.exists(file, LinkOption.NOFOLLOW_LINKS)) return MAPPER.createObjectNode();
+        if (Files.notExists(file, LinkOption.NOFOLLOW_LINKS)) return MAPPER.createObjectNode();
         secureFile(file);
         long size = Files.size(file);
         if (size <= 0 || size > MAX_BYTES) throw new IOException("MCP trust 文件大小非法");
@@ -165,6 +216,10 @@ public final class McpTrustStore {
             } catch (RuntimeException error) {
                 throw new IOException("MCP trust 文件包含非法路径或记录；按未信任处理", error);
             }
+        }
+        if (object.has("fingerprintKey")) {
+            byte[] key = decodeFingerprintKey(object.get("fingerprintKey"));
+            java.util.Arrays.fill(key, (byte) 0);
         }
         return object;
     }

@@ -98,16 +98,19 @@ class McpProtocolEraTest {
 
     @Test void configDefaultsValidationAndFingerprint() throws Exception {
         var loader = new McpConfigLoader(Path.of("/tmp/protocol-config"));
-        var c = new McpServerConfig(); c.setCommand("unused");
-        loader.prepare(c); assertEquals(McpProtocolVersion.LEGACY, c.protocolVersion());
-        String original = McpConfigLoader.fingerprint(c);
-        c.setProtocolVersion("2025-03-26"); loader.prepare(c);
-        c.setProtocolVersion("2026-07-28"); loader.prepare(c);
-        assertNotEquals(original, McpConfigLoader.fingerprint(c));
+        var legacy = new McpServerConfig(); legacy.setCommand("unused");
+        loader.prepare(legacy); assertEquals(McpProtocolVersion.LEGACY, legacy.protocolVersion());
+        String original = McpConfigLoader.fingerprint(legacy);
+
+        var dated = new McpServerConfig(); dated.setCommand("unused");
+        dated.setProtocolVersion("2025-03-26"); loader.prepare(dated);
+        var modern = new McpServerConfig(); modern.setCommand("unused");
+        modern.setProtocolVersion("2026-07-28"); loader.prepare(modern);
+        assertNotEquals(original, McpConfigLoader.fingerprint(modern));
         assertEquals(McpProtocolVersion.MODERN, M.readValue("{\"protocolVersion\":\"2026-07-28\"}", McpServerConfig.class).protocolVersion());
         for (String value : new String[]{"", "2025-11-25", " 2026-07-28"}) {
-            c.setProtocolVersion(value);
-            assertThrows(IllegalArgumentException.class, () -> loader.prepare(c));
+            var invalid = new McpServerConfig(); invalid.setCommand("unused"); invalid.setProtocolVersion(value);
+            assertThrows(IllegalArgumentException.class, () -> loader.prepare(invalid));
         }
     }
 }

@@ -32,7 +32,9 @@ public class McpServerConfig {
     private String projectFingerprint;
     private String sourceFingerprint;
     private String configFingerprint;
-    private List<String> sourceArgs = List.of();
+    private byte[] rawSource;
+    private List<String> runtimeArgs;
+    private Boolean runtimeDisabledOverride;
 
     public String getCommand() {
         return command;
@@ -80,6 +82,7 @@ public class McpServerConfig {
 
     public void setDisabled(boolean disabled) {
         this.disabled = disabled;
+        if (rawSource != null) this.runtimeDisabledOverride = disabled;
     }
 
     public boolean isStdio() {
@@ -104,23 +107,56 @@ public class McpServerConfig {
     }
 
     private void markSourceFingerprint(String fingerprint) {
+        captureSource();
         this.sourceFingerprint = fingerprint;
-        this.configFingerprint = fingerprint;
-        this.sourceArgs = List.copyOf(args);
+        this.configFingerprint = null;
     }
 
-    /** Runtime argument overrides must invalidate any previous project trust and permission binding. */
-    public void overrideArgs(List<String> args) {
-        List<String> nextArgs = args == null ? List.of() : List.copyOf(args);
-        if (sourceFingerprint == null) {
-            markSourceFingerprint(McpConfigLoader.fingerprint(this));
-        }
-        this.args = new ArrayList<>(nextArgs);
-        this.configFingerprint = nextArgs.equals(sourceArgs)
-                ? sourceFingerprint
-                : McpConfigLoader.fingerprintWithRuntimeArgs(sourceFingerprint, nextArgs);
-        if (projectScoped()) this.projectFingerprint = configFingerprint;
+    private void captureSource() {
+        if (rawSource == null) rawSource = McpConfigLoader.fingerprintPayload(this);
     }
+
+    /** Detached copy: the immutable raw snapshot never escapes. */
+    public McpServerConfig sourceConfig() {
+        captureSource();
+        McpServerConfig source = McpConfigLoader.fromPayload(rawSource);
+        if (runtimeArgs != null) source.setArgs(new ArrayList<>(runtimeArgs));
+        return source;
+    }
+
+    public byte[] sourcePayload() {
+        captureSource();
+        McpServerConfig raw = McpConfigLoader.fromPayload(rawSource);
+        if (runtimeArgs == null || runtimeArgs.equals(raw.getArgs())) return rawSource.clone();
+        return McpConfigLoader.runtimeSourcePayload(rawSource, runtimeArgs);
+    }
+
+    public void restoreSource() {
+        McpServerConfig source = sourceConfig();
+        protocolVersion = source.protocolVersion;
+        command = source.command;
+        args = source.args;
+        env = source.env;
+        url = source.url;
+        headers = source.headers;
+        disabled = runtimeDisabledOverride == null ? source.disabled : runtimeDisabledOverride;
+        oauth = source.oauth;
+        configFingerprint = null;
+    }
+
+    public void overrideArgs(List<String> args) {
+        captureSource();
+        runtimeArgs = args == null ? List.of() : List.copyOf(args);
+        this.args = new ArrayList<>(runtimeArgs);
+        sourceFingerprint = null;
+        projectFingerprint = null;
+        configFingerprint = null;
+    }
+
+    public List<String> runtimeArgs() { return runtimeArgs; }
+    public Boolean runtimeDisabledOverride() { return runtimeDisabledOverride; }
+    public String sourceFingerprint() { return sourceFingerprint; }
+    public void effectiveFingerprint(String fingerprint) { configFingerprint = fingerprint; }
 
     /** 来自项目目录 .paicli/mcp.json 的 server：随仓库分发，启动前要用户确认。 */
     public boolean projectScoped() {
