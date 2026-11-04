@@ -63,18 +63,18 @@ public record ApprovalRequest(
         sb.append("├").append(border).append("┤\n");
         sb.append(formatBoxField("工具", toolName)).append("\n");
         String mcpServer = ApprovalPolicy.mcpServerName(toolName);
-        if (mcpServer != null && !mcpServer.isBlank()) {
+        if (mcpServer != null && !mcpServer.isEmpty()) {
             sb.append(formatBoxField("MCP server", mcpServer)).append("\n");
         }
         sb.append(formatBoxField("等级", dangerLevel)).append("\n");
         sb.append(formatBoxField("风险", riskDescription)).append("\n");
-        if (callerContext != null && !callerContext.isBlank()) {
+        if (callerContext != null && !callerContext.isEmpty()) {
             sb.append(formatBoxField("来源", callerContext)).append("\n");
         }
-        if (suggestion != null && !suggestion.isBlank()) {
+        if (suggestion != null && !suggestion.isEmpty()) {
             sb.append(formatBoxField("自动审查", suggestion)).append("\n");
         }
-        if (sensitiveNotice != null && !sensitiveNotice.isBlank()) {
+        if (sensitiveNotice != null && !sensitiveNotice.isEmpty()) {
             sb.append(formatBoxField("敏感页面", sensitiveNotice)).append("\n");
         }
         sb.append("├").append(border).append("┤\n");
@@ -82,10 +82,10 @@ public record ApprovalRequest(
         for (String line : formatArgs(arguments)) {
             sb.append(formatBoxIndented(line)).append("\n");
         }
-        if (suggestion != null && !suggestion.isBlank()) {
+        if (suggestion != null && !suggestion.isEmpty()) {
             sb.append("├").append(border).append("┤\n");
             sb.append(formatBoxLine("执行理由:")).append("\n");
-            for (String line : wrapByDisplayWidth(suggestion, ARG_LINE_WIDTH)) {
+            for (String line : wrapByDisplayWidth(encodeForDisplay(suggestion), ARG_LINE_WIDTH)) {
                 sb.append(formatBoxIndented(line)).append("\n");
             }
         }
@@ -98,7 +98,7 @@ public record ApprovalRequest(
      */
     private String formatBoxField(String prefix, String value) {
         String label = prefix + ": ";
-        String safeValue = value == null ? "" : value;
+        String safeValue = encodeForDisplay(value);
         int used = displayWidth(label) + 2;  // "│  " 占 2 显示列
         int target = BOX_INNER_WIDTH - used;
         String truncated = truncateByDisplayWidth(safeValue, target);
@@ -135,7 +135,7 @@ public record ApprovalRequest(
      */
     private List<String> formatArgs(String args) {
         List<String> lines = new ArrayList<>();
-        if (args == null || args.isBlank()) {
+        if (args == null || args.isEmpty()) {
             lines.add("(无参数)");
             return lines;
         }
@@ -145,22 +145,25 @@ public record ApprovalRequest(
                 Iterator<Map.Entry<String, JsonNode>> it = root.fields();
                 while (it.hasNext()) {
                     Map.Entry<String, JsonNode> entry = it.next();
-                    String key = entry.getKey();
+                    String key = encodeForDisplay(entry.getKey());
                     JsonNode valNode = entry.getValue();
                     if (valNode.isTextual()) {
                         String v = valNode.asText();
-                        if (v.length() > MAX_LONG_VALUE_PREVIEW) {
-                            String head = v.substring(0, MAX_LONG_VALUE_PREVIEW)
-                                    .replace("\n", "⏎");
+                        if (v.length() > MAX_LONG_VALUE_PREVIEW
+                                && !("execute_command".equals(toolName) && "command".equals(entry.getKey()))) {
+                            int end = MAX_LONG_VALUE_PREVIEW;
+                            if (Character.isHighSurrogate(v.charAt(end - 1))
+                                    && Character.isLowSurrogate(v.charAt(end))) end--;
+                            String head = encodeForDisplay(v.substring(0, end));
                             lines.addAll(wrapByDisplayWidth(
                                     key + ": \"" + head + "...\" (" + v.length() + " 字符)",
                                     ARG_LINE_WIDTH));
                         } else {
-                            String v1 = v.replace("\n", "⏎");
+                            String v1 = encodeForDisplay(v);
                             lines.addAll(wrapByDisplayWidth(key + ": \"" + v1 + "\"", ARG_LINE_WIDTH));
                         }
                     } else {
-                        lines.addAll(wrapByDisplayWidth(key + ": " + valNode.toString(), ARG_LINE_WIDTH));
+                        lines.addAll(wrapByDisplayWidth(key + ": " + encodeForDisplay(valNode.toString()), ARG_LINE_WIDTH));
                     }
                 }
                 if (lines.isEmpty()) {
@@ -169,9 +172,27 @@ public record ApprovalRequest(
                 return lines;
             }
         } catch (Exception ignored) {
-            // 非法 JSON，退回到原样展示
+            // 非法 JSON 也先编码，再按显示宽度换行。
         }
-        return wrapByDisplayWidth(args.trim(), ARG_LINE_WIDTH);
+        return wrapByDisplayWidth(encodeForDisplay(args), ARG_LINE_WIDTH);
+    }
+
+    /** 只编码显示副本；普通字符（包括 Shell 反斜线）保持原样。 */
+    public static String encodeForDisplay(String text) {
+        if (text == null) return "";
+        StringBuilder safe = new StringBuilder();
+        text.codePoints().forEach(cp -> {
+            if (cp <= 0x1F || (cp >= 0x7F && cp <= 0x9F)
+                    || cp == 0x061C || cp == 0x200E || cp == 0x200F
+                    || (cp >= 0x202A && cp <= 0x202E)
+                    || (cp >= 0x2066 && cp <= 0x206F)
+                    || cp == 0x2028 || cp == 0x2029) {
+                safe.append(String.format("<U+%04X>", cp));
+            } else {
+                safe.appendCodePoint(cp);
+            }
+        });
+        return safe.toString();
     }
 
     /**

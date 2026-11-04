@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.Objects;
 
 import static com.paicli.cli.TerminalInputGateway.Kind.*;
+import static com.paicli.hitl.ApprovalRequest.encodeForDisplay;
 
 /**
  * Inline 形态的 HITL 审批提示。
@@ -77,9 +78,6 @@ public final class InlineApprovalPrompter {
         boolean sensitive = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
         out.println();
         out.println(AnsiStyle.heading("⚠️  HITL 审批"));
-        if (sensitive) {
-            out.println("  " + request.sensitiveNotice());
-        }
         out.println(request.toDisplayText());
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -106,7 +104,7 @@ public final class InlineApprovalPrompter {
             }
             char ch = Character.toLowerCase((char) key);
             // echo + newline so后续输出不和提示行挤在一起
-            out.println(ch);
+            out.println(ch == '\n' || ch == '\r' ? "Enter" : encodeForDisplay(String.valueOf(ch)));
             out.flush();
 
             switch (ch) {
@@ -132,7 +130,7 @@ public final class InlineApprovalPrompter {
                         return modified;
                     }
                 }
-                default -> out.println(AnsiStyle.subtle("  ❓ 未识别按键 '" + ch + "'，重新选择"));
+                default -> out.println(AnsiStyle.subtle("  ❓ 未识别按键 '" + encodeForDisplay(String.valueOf(ch)) + "'，重新选择"));
             }
         }
         out.println(AnsiStyle.subtle("  连续多次无效输入，保守处理为拒绝"));
@@ -180,10 +178,10 @@ public final class InlineApprovalPrompter {
     private ApprovalResult promptApproveAllScope(ApprovalRequest request, TerminalInputGateway.Session session) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
         if (mcpServer == null || mcpServer.isBlank()) {
-            out.println(AnsiStyle.subtle("  已批准，后续 " + request.toolName() + " 自动通过"));
+            out.println(AnsiStyle.subtle("  已批准，后续 " + encodeForDisplay(request.toolName()) + " 自动通过"));
             return ApprovalResult.approveAll();
         }
-        out.println("  全部放行范围 [tool/Enter] 仅本工具  [server] 整个 MCP server " + mcpServer);
+        out.println("  全部放行范围 [tool/Enter] 仅本工具  [server] 整个 MCP server " + encodeForDisplay(mcpServer));
         if (session == null) {
             out.print("> ");
             out.flush();
@@ -204,7 +202,7 @@ public final class InlineApprovalPrompter {
     }
 
     private ApprovalResult promptForModifiedArgs(ApprovalRequest request, TerminalInputGateway.Session session) {
-        out.println("  当前参数: " + request.arguments());
+        out.println("  当前参数: " + encodeForDisplay(request.arguments()));
         if (session == null) {
             out.print("  修改后的 JSON（空行 = 保留原参数）: ");
             out.flush();
@@ -223,7 +221,7 @@ public final class InlineApprovalPrompter {
         try {
             JSON.readTree(trimmed);
         } catch (Exception e) {
-            out.println(AnsiStyle.subtle("  ❌ 非法 JSON: " + e.getMessage()));
+            out.println(AnsiStyle.subtle("  ❌ 非法 JSON: " + encodeForDisplay(e.getMessage())));
             return null;
         }
         return ApprovalResult.modify(trimmed);

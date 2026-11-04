@@ -16,6 +16,59 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class TerminalHitlHandlerTest {
 
+    @Test
+    void modifyPromptEncodesOnlyDisplayAndKeepsModifiedJson() {
+        String original = "foo\\bar\u001B[2J\r\n\u202E";
+        String modified = "{\"command\":\"foo\\\\bar\u202E\"}";
+        var request = ApprovalRequest.of("execute_command", original, null);
+        Harness h = Harness.withInput("m\n" + modified + "\n");
+        var result = h.handler.requestApproval(request);
+        assertEquals(ApprovalResult.Decision.MODIFIED, result.decision());
+        assertEquals(modified, result.modifiedArguments());
+        assertEquals(original, request.arguments());
+        assertTrue(h.output().contains("当前参数：foo\\bar<U+001B>[2J<U+000D><U+000A><U+202E>"));
+        assertSafeDisplay(h.output());
+    }
+
+    @Test
+    void approveAllPromptsAndCacheHitsEncodeNamesButKeepRawKeys() {
+        String server = "demo\u001B[2J\r\n\u202E";
+        String tool = "mcp__" + server + "__foo\\bar";
+        for (String scope : new String[]{"tool", "server"}) {
+            Harness h = Harness.withInput("a\n" + scope + "\n");
+            var request = ApprovalRequest.of(tool, "{}", null);
+            var result = h.handler.requestApproval(request);
+            assertEquals(scope.equals("tool") ? ApprovalResult.Decision.APPROVED_ALL
+                    : ApprovalResult.Decision.APPROVED_ALL_BY_SERVER, result.decision());
+            assertTrue(scope.equals("tool") ? h.handler.isApprovedAllByTool(tool)
+                    : h.handler.isApprovedAllByServer(server));
+            assertFalse(h.handler.isApprovedAllByTool(ApprovalRequest.encodeForDisplay(tool)));
+            assertFalse(h.handler.isApprovedAllByServer(ApprovalRequest.encodeForDisplay(server)));
+            assertEquals(result.decision(), h.handler.requestApproval(request).decision());
+            assertTrue(h.output().contains("已在本次会话中全部放行"));
+            assertTrue(h.output().contains(ApprovalRequest.encodeForDisplay(tool)));
+            assertTrue(h.output().contains(ApprovalRequest.encodeForDisplay(server)));
+            assertEquals(tool, request.toolName());
+            assertSafeDisplay(h.output());
+        }
+    }
+
+    private static void assertSafeDisplay(String output) {
+        output.codePoints().forEach(cp -> assertFalse((cp < 32 && cp != '\n')
+                || (cp >= 0x7F && cp <= 0x9F) || cp == 0x202E));
+    }
+
+    @Test
+    void sensitiveNoticeIsOnlyPrintedSafelyInsideBox() {
+        Harness h = Harness.withInput("y\n");
+        var request = ApprovalRequest.of("write_file", "{}", null, null, "notice\u001B[2J\u202E");
+        assertEquals(ApprovalResult.Decision.APPROVED, h.handler.requestApproval(request).decision());
+        assertFalse(h.output().contains("\u001B"));
+        assertFalse(h.output().contains("\u202E"));
+        assertEquals(1, h.output().split("notice", -1).length - 1);
+        assertTrue(h.output().contains("notice<U+001B>[2J<U+202E>"));
+    }
+
     private static final ApprovalRequest WRITE_FILE_REQUEST =
             ApprovalRequest.of("write_file", "{\"path\":\"/tmp/x.txt\",\"content\":\"hi\"}", null);
     private static final ApprovalRequest MCP_CHROME_REQUEST =

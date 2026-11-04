@@ -107,6 +107,7 @@ mvn test -DskipTests=false
 - 危险操作静态规则识别：`write_file`、`edit_file`、`execute_command`、`create_project`、`revert_turn`
 - 三级危险等级：高危（`execute_command`）、中危（`write_file` / `edit_file` / `create_project`）
 - 审批决策：批准 / 全部放行 / 拒绝 / 跳过 / 修改参数后执行
+- Terminal（终端）、Plain（纯文本）、Inline（行内界面）的审批框均完整展示 `execute_command` 命令，按显示宽度换行；动态内容中的控制字符与双向文本控制字符显示为 `<U+001B>` 等可见标记，修改参数时的当前参数、工具名和 MCP 服务名提示也安全显示。普通中文、路径和反斜线保留，其他长字符串仍只显示预览；实际工具参数、修改后的参数和审批缓存键保持原样。
 - auto（启动默认，不打断用户）：读写文件直接执行；Shell 命令先由轻量模型分类器审查，低风险直接执行；分类器不放行的命令，以及 MCP 工具、回滚快照，都交回模型换做法或向你说明，同一轮连续被拦 3 次才弹审批
 - ask：写文件、编辑文件、执行命令、创建项目、回滚快照和 MCP 工具都要确认
 - `/hitl on` 切到 ask，`/hitl default` 切回 auto，`/hitl` 查看当前档位；交互式 CLI 不提供全部放行

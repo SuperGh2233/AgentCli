@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static com.paicli.hitl.ApprovalRequest.encodeForDisplay;
+
 /**
  * 与 {@link Renderer} 协作的 HITL 处理器：
  * 状态（启用开关、全部放行集合）由本类维护，
@@ -40,12 +42,12 @@ public final class RendererHitlHandler implements HitlHandler {
 
     @Override
     public void onAutoDenied(String toolName, String reason) {
-        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ⊘ auto 未放行 " + toolName + "：" + reason + "（已交回模型处理）"));
+        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ⊘ auto 未放行 " + encodeForDisplay(toolName) + "：" + encodeForDisplay(reason) + "（已交回模型处理）"));
     }
 
     @Override
     public void onAutoApproved(String toolName, String reason) {
-        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ✓ auto 已放行 " + toolName + "：" + reason));
+        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ✓ auto 已放行 " + encodeForDisplay(toolName) + "：" + encodeForDisplay(reason)));
     }
 
     @Override
@@ -62,12 +64,12 @@ public final class RendererHitlHandler implements HitlHandler {
         boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
 
         if (!sensitivePerCall && isApprovedAllByTool(request.toolName())) {
-            renderer.stream().println("  [HITL] " + request.toolName()
+            renderer.stream().println("  [HITL] " + encodeForDisplay(request.toolName())
                     + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAll();
         }
         if (!sensitivePerCall && isApprovedAllByServer(mcpServer)) {
-            renderer.stream().println("  [HITL] MCP server " + mcpServer
+            renderer.stream().println("  [HITL] MCP server " + encodeForDisplay(mcpServer)
                     + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAllByServer();
         }

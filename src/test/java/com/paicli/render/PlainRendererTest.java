@@ -16,10 +16,57 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlainRendererTest {
+
+    @Test
+    void modifyPromptSafelyDisplaysOriginalButReturnsUnencodedJson() {
+        String original = "foo\\bar\u001B[2J\r\n\u202E";
+        String modified = "{\"command\":\"foo\\\\bar\u202E\"}";
+        var request = ApprovalRequest.of("execute_command", original, null);
+        var sink = new ByteArrayOutputStream();
+        var renderer = new PlainRenderer(new PrintStream(sink, true, StandardCharsets.UTF_8),
+                new BufferedReader(new StringReader("m\n" + modified + "\n")));
+        var result = renderer.promptApproval(request);
+        assertEquals(ApprovalResult.Decision.MODIFIED, result.decision());
+        assertEquals(modified, result.modifiedArguments());
+        assertEquals(original, request.arguments());
+        String output = sink.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("当前参数：foo\\bar<U+001B>[2J<U+000D><U+000A><U+202E>"));
+        assertSafeApprovalDisplay(output);
+    }
+
+    @Test
+    void approveAllScopeAndConfirmationSafelyDisplayMcpNames() {
+        String server = "demo\u001B[2J\r\n\u202E";
+        String tool = "mcp__" + server + "__foo\\bar";
+        for (String scope : new String[]{"tool", "server"}) {
+            var sink = new ByteArrayOutputStream();
+            var renderer = new PlainRenderer(new PrintStream(sink, true, StandardCharsets.UTF_8),
+                    new BufferedReader(new StringReader("a\n" + scope + "\n")));
+            var handler = new com.paicli.hitl.RendererHitlHandler(renderer, true);
+            var request = ApprovalRequest.of(tool, "{}", null);
+            var result = handler.requestApproval(request);
+            assertEquals(scope.equals("tool") ? ApprovalResult.Decision.APPROVED_ALL
+                    : ApprovalResult.Decision.APPROVED_ALL_BY_SERVER, result.decision());
+            assertTrue(scope.equals("tool") ? handler.isApprovedAllByTool(tool) : handler.isApprovedAllByServer(server));
+            assertFalse(handler.isApprovedAllByTool(ApprovalRequest.encodeForDisplay(tool)));
+            assertFalse(handler.isApprovedAllByServer(ApprovalRequest.encodeForDisplay(server)));
+            assertEquals(result.decision(), handler.requestApproval(request).decision());
+            String output = sink.toString(StandardCharsets.UTF_8);
+            assertTrue(output.contains(ApprovalRequest.encodeForDisplay(tool)));
+            assertTrue(output.contains(ApprovalRequest.encodeForDisplay(server)));
+            assertSafeApprovalDisplay(output);
+        }
+    }
+
+    private static void assertSafeApprovalDisplay(String output) {
+        output.codePoints().forEach(cp -> assertFalse((cp < 32 && cp != '\n')
+                || (cp >= 0x7F && cp <= 0x9F) || cp == 0x202E));
+    }
 
     @Test
     void streamReturnsConfiguredPrintStream() {

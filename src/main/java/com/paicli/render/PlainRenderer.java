@@ -21,6 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import static com.paicli.hitl.ApprovalRequest.encodeForDisplay;
+
 /**
  * Plain 渲染器：纯 println 模式，等价 phase-15 行为，无折叠、无状态栏。
  *
@@ -107,9 +109,6 @@ public final class PlainRenderer implements Renderer {
         boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
         out.println();
         out.println("────────── ⚠️  HITL 审批请求 ──────────");
-        if (sensitivePerCall) {
-            out.println("⚠️  " + request.sensitiveNotice());
-        }
         out.println(request.toDisplayText());
 
         for (int attempt = 0; attempt < 5; attempt++) {
@@ -168,7 +167,7 @@ public final class PlainRenderer implements Renderer {
                         return modified;
                     }
                 }
-                default -> out.println("  ❓ 无法识别的选项：'" + input + "'，请输入 y/a/n/s/m 之一（Enter 等价于 y）");
+                default -> out.println("  ❓ 无法识别的选项：'" + encodeForDisplay(input) + "'，请输入 y/a/n/s/m 之一（Enter 等价于 y）");
             }
         }
         out.println("  [HITL] 连续多次无效输入，保守处理为拒绝");
@@ -216,13 +215,13 @@ public final class PlainRenderer implements Renderer {
     private ApprovalResult promptApproveAllScope(ApprovalRequest request) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
         if (mcpServer == null || mcpServer.isBlank()) {
-            out.println("  已批准，后续 " + request.toolName() + " 操作将自动通过");
+            out.println("  已批准，后续 " + encodeForDisplay(request.toolName()) + " 操作将自动通过");
             return ApprovalResult.approveAll();
         }
 
         out.println("  全部放行范围：");
-        out.println("  [tool / Enter] 仅本工具 " + request.toolName());
-        out.println("  [server]       整个 MCP server " + mcpServer + "（连续浏览器操作推荐）");
+        out.println("  [tool / Enter] 仅本工具 " + encodeForDisplay(request.toolName()));
+        out.println("  [server]       整个 MCP server " + encodeForDisplay(mcpServer) + "（连续浏览器操作推荐）");
         out.print("> ");
         out.flush();
         String scope;
@@ -234,15 +233,15 @@ public final class PlainRenderer implements Renderer {
         }
         String normalized = scope == null ? "" : scope.trim().toLowerCase();
         if ("server".equals(normalized) || "s".equals(normalized)) {
-            out.println("  已批准，后续 MCP server " + mcpServer + " 的工具调用将自动通过");
+            out.println("  已批准，后续 MCP server " + encodeForDisplay(mcpServer) + " 的工具调用将自动通过");
             return ApprovalResult.approveAllByServer();
         }
-        out.println("  已批准，后续 " + request.toolName() + " 操作将自动通过");
+        out.println("  已批准，后续 " + encodeForDisplay(request.toolName()) + " 操作将自动通过");
         return ApprovalResult.approveAll();
     }
 
     private ApprovalResult promptModifiedArguments(ApprovalRequest request) {
-        out.println("  当前参数：" + request.arguments());
+        out.println("  当前参数：" + encodeForDisplay(request.arguments()));
         out.print("  请输入修改后的参数（JSON 格式，空行则使用原始参数）：");
         out.flush();
 
@@ -262,7 +261,7 @@ public final class PlainRenderer implements Renderer {
         try {
             JSON.readTree(trimmed);
         } catch (Exception e) {
-            out.println("  ❌ 修改后的参数不是合法 JSON：" + e.getMessage());
+            out.println("  ❌ 修改后的参数不是合法 JSON：" + encodeForDisplay(e.getMessage()));
             return null;
         }
         return ApprovalResult.modify(trimmed);

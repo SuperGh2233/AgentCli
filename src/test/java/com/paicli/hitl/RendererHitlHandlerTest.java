@@ -22,6 +22,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RendererHitlHandlerTest {
 
     @Test
+    void cachedApprovalDisplaysSafeNamesAndRetainsRawKeys() {
+        String server = "demo\u001B[2J\r\n\u202E";
+        String tool = "mcp__" + server + "__foo\\bar";
+        for (boolean byServer : new boolean[]{false, true}) {
+            StubRenderer stub = new StubRenderer();
+            stub.nextResult = byServer ? ApprovalResult.approveAllByServer() : ApprovalResult.approveAll();
+            var handler = new RendererHitlHandler(stub, true);
+            var request = ApprovalRequest.of(tool, "{}", null);
+            handler.requestApproval(request);
+            assertTrue(byServer ? handler.isApprovedAllByServer(server) : handler.isApprovedAllByTool(tool));
+            assertFalse(handler.isApprovedAllByServer(ApprovalRequest.encodeForDisplay(server)));
+            assertFalse(handler.isApprovedAllByTool(ApprovalRequest.encodeForDisplay(tool)));
+            assertEquals(stub.nextResult.decision(), handler.requestApproval(request).decision());
+            assertEquals(1, stub.promptCount);
+            String output = stub.sink.toString(StandardCharsets.UTF_8);
+            assertTrue(output.contains(ApprovalRequest.encodeForDisplay(byServer ? server : tool)));
+            assertFalse(output.contains("\u001B"));
+            assertFalse(output.contains("\r"));
+            assertFalse(output.contains("\u202E"));
+            assertEquals(tool, request.toolName());
+            assertEquals("{}", request.arguments());
+        }
+    }
+
+    @Test
     void elicitationIsIndependentFromApprovalGrantsAndHitlToggle() {
         StubRenderer stub = new StubRenderer();
         stub.nextResult = ApprovalResult.approveAll();
@@ -156,7 +181,8 @@ class RendererHitlHandlerTest {
     }
 
     private static final class StubRenderer implements Renderer {
-        private final PrintStream out = new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8);
+        private final ByteArrayOutputStream sink = new ByteArrayOutputStream();
+        private final PrintStream out = new PrintStream(sink, true, StandardCharsets.UTF_8);
         ApprovalResult nextResult;
         int promptCount;
         int elicitationCount;
