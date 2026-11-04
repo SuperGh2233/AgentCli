@@ -1,6 +1,6 @@
 # HITL 权限规则持久化
 
-状态：active；Stage 3A、Stage 3B1、Stage 3B2、Stage 3C1 均已推送 GitHub。Stage 3C1 commit `1cf61154a4b48f7be3109ab048591516d3d31638` 已推送，13 个测试类 156/156 隔离离线定向测试通过。Stage 3C2-A 代码已完成，5 个测试类 43/43 禁网隔离离线定向回归通过，尚待独立 commit/push。下一阶段 C2-B 将把 current/trusted/ready/config fingerprint 接入 MCP 永久 ALLOW 裁决。
+状态：active；Stage 3A、Stage 3B1、Stage 3B2、Stage 3C1、Stage 3C2 均已独立提交并推送 GitHub。Stage 3C2 commit `b760befa38af6cb73c1fbd8bed1f23b1974ff7d2` 已推送；18 个测试类 199/199 隔离离线定向回归通过，BUILD SUCCESS。Stage 3B2 的真实 Lanterna TUI 审批对话框 smoke test 仍待真实终端交互验收；这不是自动化测试通过项。
 
 ## 背景与当前行为
 
@@ -104,7 +104,7 @@
 - 最终禁网隔离离线定向回归：13 个测试类、156 项通过，失败/错误/跳过均为 0，BUILD SUCCESS。覆盖 trust store 权限/损坏/symlink/untrust、配置指纹、runtime args 变更、server trust revoke、permission binding、存储撤销失败时的会话级阻断、CLI parser，并回归 Stage 3B 权限规则/UI。未运行需要 MockWebServer 的 `McpServerManagerTest` / `McpServerLifecycleTest`，也不是全量测试。
 - 使用此前成功的 `phase0-central-only` Maven settings，保留 Maven 默认 resources plugin 3.5.0；原 `~/.m2`、`_remote.repositories` 和工作区均未被测试任务改动。Stage 3C1 已提交为 `1cf61154a4b48f7be3109ab048591516d3d31638`（`feat: harden MCP trust lifecycle and revocation`）并推送成功；推送后工作区干净。
 
-### Stage 3C2：MCP 永久 ALLOW 裁决集成（下一阶段）
+### Stage 3C2：MCP 永久 ALLOW 裁决集成（目标与验收要求，已完成）
 
 - 为 `PermissionRule` 增加 MCP 配置 binding fingerprint；MCP TOOL / MCP_SERVER 的 ALLOW 必须带 fingerprint。旧的无 binding MCP ALLOW 不得自动迁移为有效授权，按 fail closed 处理。
 - 将 `McpPermissionBinding` 注入 `HitlToolRegistry` / `PermissionRuleRuntime`，在每次 MCP 工具调用时取得当前 server fingerprint + trust + ready 状态；无 binding、未 READY、未信任、fingerprint 缺失/变化时 ALLOW 不匹配并退回逐次审批。
@@ -146,4 +146,14 @@
 - `permissionBinding()` 每次重新读取当前 mcp.json、重新展开 System.getenv / System properties / 项目 `.env` / 用户 `~/.env`，并比较 source/effective HMAC。配置消失、变化、展开失败、HMAC 不可用或 fingerprint 不一致时返回 `current=false`，不做 SHA 回退、不自动启动/重启、不泄露 secret。binding 检查是读取时快照，检查后立即发生的文件变化需在下一次调用重新发现。
 - 本阶段不自动 reload；外部修改 mcp.json 后需重新启动 CLI 载入。 `/mcp restart` 只重启已载入配置并重新展开变量；`restartWithArgs` 只修改当前会话的运行时参数，不重读文件。
 - 禁网隔离离线定向回归：`McpConfigLoaderTest` 14、`McpTrustStoreTest` 8、`McpServerManagerTrustTest` 12、`McpProtocolEraTest` 6、`McpOAuthConfigTest` 3，合计 **43/43**，失败/错误/跳过均为 0，BUILD SUCCESS。测试使用全新临时副本、独立 Maven 缓存/HOME、`phase0-central-only` settings 和 `sandbox-exec` 禁网。未运行含 MockWebServer/loopback 的 `McpServerManagerTest`、`McpServerLifecycleTest`、`OAuthManagerTest`；因此这不是全量测试。
-- `git diff --check` 通过；测试任务前后工作区状态一致，未在原工作区运行 Maven。C2-B 尚未接入执行链，后续必须在每次 MCP 调用时将 `current/trusted/ready/fingerprint` 作为 ALLOW 的必要条件。
+- `git diff --check` 通过；测试任务前后工作区状态一致，未在原工作区运行 Maven。C2-B 已接入执行链：每次 MCP 调用将 `current/trusted/ready/fingerprint` 作为 ALLOW 的必要条件。
+
+### Stage 3C2 完成（199/199 隔离离线定向回归通过）
+
+- MCP 永久 ALLOW 仅支持精确 `TOOL` scope，并绑定当前 64 位 HMAC-SHA256 配置指纹；`MCP_SERVER ALLOW` 保持关闭。规则匹配要求当前配置、trusted、READY 和指纹一致；缺失 binding、配置变化、撤销信任、server 未 READY、环境变量展开变化时旧 ALLOW 不匹配。旧版无指纹 MCP TOOL ALLOW 与旧 MCP_SERVER ALLOW 可读取但保持 inert；DENY > ASK > ALLOW 优先级不变。
+- `Main` 将 `McpServerManager.permissionBinding()` 接入 `HitlToolRegistry`。每次调用重新读取当前配置并重新展开 System.getenv、System properties、项目 `.env`、用户 `~/.env`，比较 source/effective HMAC；外部修改配置文件不会自动 reload 已运行 server，需重启 CLI 载入新配置。当前绑定检查是调用时快照，检查后立即发生的文件变化在下一次调用重新发现。
+- 永久授权候选仅在 server READY、受信任且 fingerprint 可用时出现；UI 显示精确 server/tool、指纹短摘要、项目根和授权范围，并要求二次确认。敏感页面和显式 ASK 使用 `forcePerCall`，不提供会话级/永久放行；Registry 额外拒绝 handler 返回的宽范围放行结果。
+- MCP 工具注册身份在审批前捕获；执行期间持有注册读锁，注册替换/撤销在同一写锁内先清理会话授权再变更工具，避免审批期间替换工具或旧授权在撤销后重新出现。审批结果延迟提交给实际展示审批的 handler，切换 Plain/Inline/Lanterna/TUI delegate 不会串单。
+- 独立静态安全复审未发现可确认的 P0/P1；识别到一个低风险边界：审批拒绝、跳过或后续校验失败时，`SwitchableHitlHandler` 的每线程 `PendingApproval` 会保留到同线程下次审批或线程退出，每线程最多一条，不构成累积泄漏。
+- 最终一次 Maven 禁网隔离离线定向回归：18 个测试类、199 项全部通过，失败/错误/跳过均为 0，BUILD SUCCESS；指定 JDK 21、独立 Maven 缓存/HOME、`phase0-central-only` settings 和 `sandbox-exec` 禁网。未运行需要 MockWebServer/真实网络的 MCP 生命周期测试，也未运行全量测试。
+- Commit `b760befa38af6cb73c1fbd8bed1f23b1974ff7d2`（`feat(security): bind MCP permissions to trusted config`）已提交并推送至 `origin/feat/steering-phase2b`；推送后工作区干净。
