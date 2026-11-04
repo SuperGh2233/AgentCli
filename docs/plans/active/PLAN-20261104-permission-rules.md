@@ -1,6 +1,6 @@
 # HITL 权限规则持久化
 
-状态：active；Stage 3A 已推送 GitHub。Stage 3B1 已通过 10/10 定向回归并提交为 a3386e49，Stage 3B2 已通过 156/156 隔离离线定向回归；当前本地包含 Stage 3B1/3B2 待推送提交，Repo Ops 上次推送失败，需在 Stage 3B2 提交后统一推送并核对远端 HEAD。下一阶段为 Stage 3C：MCP 永久授权的配置指纹与信任生命周期绑定。
+状态：active；Stage 3A、Stage 3B1、Stage 3B2 均已推送 GitHub。Stage 3B1 定向回归 10/10 通过；Stage 3B2 隔离离线定向回归 156/156 通过，并于 2026-11-04 以 commit `85a2866d1fb197be76a713aa88b7432b18ab8287` 推送成功（同时补推此前暂留本地的 Stage 3B1 commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8`）。本地工作区干净。下一阶段为 Stage 3C：MCP 永久授权的配置指纹与信任生命周期绑定。
 
 ## 背景与当前行为
 
@@ -80,7 +80,7 @@
 - MCP 永久 ALLOW 仍关闭；未绑定 MCP 配置指纹和 trust 状态前不能跳过审批。敏感页面逐次确认保持原样。
 - 新增 `PermissionCommandTest`、精确 scope evaluator/store 测试、Plain/Inline 永久授权二次确认测试、永久授权执行链集成测试，以及 Lanterna lifecycle 测试。最终一次 Maven 离线禁网隔离定向回归：11 个测试类、156 项通过，失败/错误/跳过均为 0（BUILD SUCCESS）；这不是全量测试。Lanterna 的交互式对话框仍需在真实 TUI 终端做手工 smoke test。
 - 为隔离环境避免 Mockito Inline MockMaker 依赖动态代理附加，测试资源显式使用 Subclass MockMaker；Lanterna lifecycle 测试改为注入 `LanternaElicitation`，不再 mock final `LanternaWindow`。`LanternaRenderer.close()` 对注入式测试构造器的空 window 安全处理。
-- Stage 3B2 代码已完成，等待独立 commit/push；推送时同时带上此前因 Repo Ops 暂时失败而留在本地的 Stage 3B1 commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8`。
+- Stage 3B2 已独立提交为 `85a2866d1fb197be76a713aa88b7432b18ab8287`（`feat: add confirmed project-scoped permanent permissions`）并推送成功；同一次 push 同步上传此前因 Repo Ops 暂时失败而留在本地的 Stage 3B1 commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8`。推送后本地工作区干净。
 
 ### Stage 3C：MCP 永久授权生命周期（下一阶段）
 
