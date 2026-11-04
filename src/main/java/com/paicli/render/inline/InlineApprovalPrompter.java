@@ -5,6 +5,7 @@ import com.paicli.cli.InputCoordinator;
 import com.paicli.cli.TerminalInputGateway;
 import com.paicli.hitl.ApprovalPolicy;
 import com.paicli.hitl.ApprovalRequest;
+import com.paicli.hitl.PermissionRule;
 import com.paicli.hitl.ApprovalResult;
 import com.paicli.util.AnsiStyle;
 import org.jline.terminal.Attributes;
@@ -83,6 +84,8 @@ public final class InlineApprovalPrompter {
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             String options = sensitive
                     ? "[y] approve  [n] reject  [s] skip  [m] modify"
+                    : request.permanentAllowProposal() != null
+                    ? "[y] approve  [p] permanent allow (confirm again)  [a] session allow  [n] reject  [s] skip  [m] modify"
                     : "[y] approve  [a] all  [n] reject  [s] skip  [m] modify";
             if (session != null) {
                 options += "（输入选项后按 Enter；空 Enter 也会批准）";
@@ -118,6 +121,13 @@ public final class InlineApprovalPrompter {
                     }
                     return promptApproveAllScope(request, session);
                 }
+                case 'p' -> {
+                    if (sensitive || request.permanentAllowProposal() == null) {
+                        out.println(AnsiStyle.subtle("  当前操作不支持永久授权"));
+                        continue;
+                    }
+                    if (confirmPermanentAllow(request, session)) return ApprovalResult.allowPermanently();
+                }
                 case 'n' -> {
                     return ApprovalResult.reject(promptForReason(session));
                 }
@@ -139,7 +149,7 @@ public final class InlineApprovalPrompter {
 
     private int readSingleKey(TerminalInputGateway.Session session) {
         if (session != null) {
-            String line = session.read(APPROVAL_CHOICE, "审批选项 y/a/n/s/m（按 Enter 提交）", inputTimeout);
+            String line = session.read(APPROVAL_CHOICE, "审批选项 y/p/a/n/s/m（按 Enter 提交）", inputTimeout);
             // 普通句子即使以 y 开头也不能被截成批准；所有输入都留在审批模式。
             return line.isEmpty() ? '\n' : line.length() == 1 ? line.charAt(0) : '?';
         }
@@ -173,6 +183,29 @@ public final class InlineApprovalPrompter {
         } catch (IOException e) {
             return "";
         }
+    }
+
+    private boolean confirmPermanentAllow(ApprovalRequest request, TerminalInputGateway.Session session) {
+        PermissionRule proposal = request.permanentAllowProposal();
+        out.println("\n  即将保存永久授权规则：");
+        out.println("  " + encodeForDisplay(ApprovalRequest.scopeDescription(proposal)));
+        out.println("  项目根目录：" + encodeForDisplay(proposal.projectRoot()));
+        out.println("  规则仅适用于当前项目。请准确输入 YES 确认保存：");
+        if (session == null) {
+            out.print("  > ");
+            out.flush();
+        }
+        try {
+            String confirmation = readLine(session, APPROVAL_SCOPE, "输入 YES 确认保存永久授权规则");
+            if (confirmation != null && confirmation.trim().equals("YES")) {
+                out.println(AnsiStyle.subtle("  已确认永久授权规则"));
+                return true;
+            }
+        } catch (IOException ignored) {
+            // Fail closed.
+        }
+        out.println(AnsiStyle.subtle("  未确认，永久授权未保存"));
+        return false;
     }
 
     private ApprovalResult promptApproveAllScope(ApprovalRequest request, TerminalInputGateway.Session session) {

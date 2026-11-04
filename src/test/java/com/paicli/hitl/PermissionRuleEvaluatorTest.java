@@ -78,6 +78,38 @@ class PermissionRuleEvaluatorTest {
     }
 
     @Test
+    void exactCommandRuleDoesNotPermitAdditionalArguments() {
+        var allow = rule("exact-command", PermissionRule.Effect.ALLOW,
+                PermissionRule.Scope.COMMAND_EXACT, "git status");
+
+        assertEquals(PermissionRuleEvaluator.Decision.ALLOW,
+                PermissionRuleEvaluator.evaluate(List.of(allow),
+                        context("execute_command", null, "git   status", null)).decision());
+        assertEquals(PermissionRuleEvaluator.Decision.NO_MATCH,
+                PermissionRuleEvaluator.evaluate(List.of(allow),
+                        context("execute_command", null, "git status --short", null)).decision());
+        assertEquals(PermissionRuleEvaluator.Decision.NO_MATCH,
+                PermissionRuleEvaluator.evaluate(List.of(allow),
+                        context("execute_command", null, "git status\nrm -rf /", null)).decision());
+    }
+
+    @Test
+    void exactPathRuleDoesNotPermitSiblingOrDescendantPaths() {
+        var allow = rule("exact-path", PermissionRule.Effect.ALLOW,
+                PermissionRule.Scope.PATH_EXACT, "src/App.java");
+
+        assertEquals(PermissionRuleEvaluator.Decision.ALLOW,
+                PermissionRuleEvaluator.evaluate(List.of(allow),
+                        context("write_file", null, null, "src/App.java")).decision());
+        assertEquals(PermissionRuleEvaluator.Decision.NO_MATCH,
+                PermissionRuleEvaluator.evaluate(List.of(allow),
+                        context("write_file", null, null, "src/App.java/child")).decision());
+        assertEquals(PermissionRuleEvaluator.Decision.NO_MATCH,
+                PermissionRuleEvaluator.evaluate(List.of(allow),
+                        context("write_file", null, null, "src/App2.java")).decision());
+    }
+
+    @Test
     void pathPrefixUsesSeparatorBoundaryAndDoesNotMatchSiblingNames() {
         var allow = rule("allow", PermissionRule.Effect.ALLOW, PermissionRule.Scope.PATH_PREFIX, "src/app");
 

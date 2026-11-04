@@ -2,6 +2,7 @@ package com.paicli.render;
 
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
+import com.paicli.hitl.PermissionRule;
 import com.paicli.llm.LlmClient;
 import com.paicli.mcp.elicitation.ElicitationRequest;
 import com.paicli.mcp.elicitation.ElicitationResponse;
@@ -66,6 +67,39 @@ class PlainRendererTest {
     private static void assertSafeApprovalDisplay(String output) {
         output.codePoints().forEach(cp -> assertFalse((cp < 32 && cp != '\n')
                 || (cp >= 0x7F && cp <= 0x9F) || cp == 0x202E));
+    }
+
+    @Test
+    void permanentAllowShowsExactScopeAndRequiresSecondConfirmation() throws Exception {
+        String root = java.nio.file.Path.of(".").toRealPath().toString();
+        PermissionRule proposal = PermissionRule.create(root, PermissionRule.Effect.ALLOW,
+                PermissionRule.Scope.COMMAND_EXACT, "git status", "test proposal");
+        var sink = new ByteArrayOutputStream();
+        var renderer = new PlainRenderer(new PrintStream(sink, true, StandardCharsets.UTF_8),
+                new BufferedReader(new StringReader("p\nYES\n")));
+
+        ApprovalResult result = renderer.promptApproval(ApprovalRequest.of("execute_command",
+                "{\"command\":\"git status\"}", null, null, null, proposal));
+
+        assertEquals(ApprovalResult.Decision.PERMANENTLY_ALLOWED, result.decision());
+        String output = sink.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("命令精确匹配: git status"), output);
+        assertTrue(output.contains("准确输入 YES"), output);
+        assertTrue(output.contains(root), output);
+    }
+
+    @Test
+    void permanentAllowWithoutExactConfirmationFallsBackToNormalApprovalMenu() throws Exception {
+        String root = java.nio.file.Path.of(".").toRealPath().toString();
+        PermissionRule proposal = PermissionRule.create(root, PermissionRule.Effect.ALLOW,
+                PermissionRule.Scope.PATH_EXACT, "src/App.java", "test proposal");
+        var renderer = new PlainRenderer(new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8),
+                new BufferedReader(new StringReader("p\nno\ny\n")));
+
+        ApprovalResult result = renderer.promptApproval(ApprovalRequest.of("write_file",
+                "{\"path\":\"src/App.java\"}", null, null, null, proposal));
+
+        assertEquals(ApprovalResult.Decision.APPROVED, result.decision());
     }
 
     @Test

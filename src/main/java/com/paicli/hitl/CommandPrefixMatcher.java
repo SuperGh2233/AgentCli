@@ -22,6 +22,11 @@ final class CommandPrefixMatcher {
         return command == null ? "" : command.strip().replaceAll("\\s+", " ");
     }
 
+    static boolean matchesExact(String command, String expected) {
+        return isSafeSimpleCommand(command) && isSafeSimpleCommand(expected)
+                && normalizeWhitespace(command).equals(normalizeWhitespace(expected));
+    }
+
     static boolean matches(String command, String prefix) {
         if (!isSafeSimpleCommand(command) || !isSafeSimpleCommand(prefix)) return false;
         String normalizedCommand = normalizeWhitespace(command);

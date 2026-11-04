@@ -14,6 +14,8 @@ import com.paicli.hitl.HitlHandler;
 import com.paicli.hitl.HitlToolRegistry;
 import com.paicli.hitl.SwitchableHitlHandler;
 import com.paicli.hitl.RendererHitlHandler;
+import com.paicli.hitl.PermissionRule;
+import com.paicli.hitl.PermissionRuleStore;
 import com.paicli.hitl.TerminalHitlHandler;
 import com.paicli.history.ConversationLedger;
 import com.paicli.harness.BetterHarnessOptions;
@@ -152,6 +154,55 @@ public class Main {
                 ? manager.login(command.payload(), output) : manager.logout(command.payload());
     }
 
+    static String handlePermissionsCommand(PermissionRuleStore store, String payload, Path projectPath) {
+        if (store == null) {
+            return "❌ 永久权限规则未启用：存储路径未通过安全检查。";
+        }
+        final String projectRoot;
+        try {
+            projectRoot = projectPath.toRealPath().toString();
+            store.requireOutsideProject(projectPath);
+        } catch (IOException | RuntimeException error) {
+            return "❌ 当前项目路径或权限规则存储不安全：" + error.getMessage();
+        }
+
+        String command = payload == null || payload.isBlank() ? "list" : payload.trim();
+        String[] parts = command.split(" +");
+        try {
+            if (parts.length == 1 && parts[0].equalsIgnoreCase("list")) {
+                List<PermissionRule> rules = store.load().stream()
+                        .filter(rule -> rule.projectRoot().equals(projectRoot)).toList();
+                if (rules.isEmpty()) return "当前项目没有永久授权规则。\n使用 /permissions 查看规则管理帮助。";
+                StringBuilder out = new StringBuilder("当前项目永久授权规则（").append(rules.size()).append(" 条）：\n");
+                for (PermissionRule rule : rules) {
+                    out.append("- ").append(rule.id()).append(" | ").append(rule.effect())
+                            .append(" | ").append(com.paicli.hitl.ApprovalRequest.encodeForDisplay(
+                                    com.paicli.hitl.ApprovalRequest.scopeDescription(rule)))
+                            .append("\n");
+                }
+                out.append("\n/permissions revoke <rule-id> - 撤销一条规则\n")
+                        .append("/permissions clear --confirm - 清除当前项目全部规则");
+                return out.toString();
+            }
+            if (parts.length == 2 && parts[0].equalsIgnoreCase("revoke")) {
+                boolean removed = store.remove(parts[1], projectRoot);
+                return removed ? "✅ 已撤销当前项目规则：" + parts[1]
+                        : "⚠️ 未找到属于当前项目的规则：" + parts[1];
+            }
+            if (parts.length == 1 && parts[0].equalsIgnoreCase("clear")) {
+                return "⚠️ 此操作会清除当前项目的全部永久授权规则。\n如确认，请执行：/permissions clear --confirm";
+            }
+            if (parts.length == 2 && parts[0].equalsIgnoreCase("clear")
+                    && parts[1].equalsIgnoreCase("--confirm")) {
+                int removed = store.clearProject(projectRoot);
+                return "✅ 已清除当前项目的 " + removed + " 条永久授权规则；其他项目规则保持不变。";
+            }
+            return "用法：\n/permissions 或 /permissions list\n/permissions revoke <rule-id>\n/permissions clear --confirm";
+        } catch (IOException | IllegalArgumentException error) {
+            return "❌ 权限规则操作失败（fail closed）：" + error.getMessage();
+        }
+    }
+
     private static final String DEFAULT_CHROME_DEVTOOLS_MCP_JSON = """
             {
               "mcpServers": {
@@ -275,6 +326,17 @@ public class Main {
             hitlHandler.setHighRiskConfirmationEnabled(true);
             SessionModeController sessionModes = new SessionModeController(hitlHandler);
             HitlToolRegistry hitlToolRegistry = new HitlToolRegistry(hitlHandler);
+            PermissionRuleStore permissionRuleStore;
+            try {
+                PermissionRuleStore store = PermissionRuleStore.defaultStore();
+                Path projectRoot = Path.of(hitlToolRegistry.getProjectPath()).toRealPath();
+                store.requireOutsideProject(projectRoot);
+                hitlToolRegistry.setPermissionRuleStore(store);
+                permissionRuleStore = store;
+            } catch (IOException | IllegalArgumentException error) {
+                permissionRuleStore = null;
+                System.err.println("⚠️ 永久权限规则未启用（安全检查失败）：" + error.getMessage());
+            }
             // auto 模式的 Shell 命令审查：跟随当前会话的供应商，关闭思考的轻量请求；切换模型后自动重建
             com.paicli.hitl.LlmApprovalClassifier approvalClassifier = new com.paicli.hitl.LlmApprovalClassifier(
                     approvalClassifierClient(llmClientRef, config));
@@ -781,6 +843,12 @@ public class Main {
                     }
                     case POLICY_STATUS -> {
                         printPolicyStatus(ui, reactAgent);
+                        continue;
+                    }
+                    case PERMISSIONS -> {
+                        ui.println(handlePermissionsCommand(permissionRuleStore, command.payload(),
+                                Path.of(reactAgent.getToolRegistry().getProjectPath())));
+                        ui.println();
                         continue;
                     }
                     case CONFIG -> {
@@ -1962,6 +2030,9 @@ public class Main {
                 new SlashCommandHint("/mcp resources ", "/mcp resources <name>", "查看 MCP resources"),
                 new SlashCommandHint("/mcp prompts ", "/mcp prompts <name>", "查看 MCP prompts"),
                 new SlashCommandHint("/policy", "/policy", "查看安全策略状态"),
+                new SlashCommandHint("/permissions", "/permissions", "查看当前项目的永久授权规则"),
+                new SlashCommandHint("/permissions revoke ", "/permissions revoke <rule-id>", "撤销当前项目的一条永久授权规则"),
+                new SlashCommandHint("/permissions clear --confirm", "/permissions clear --confirm", "清除当前项目的全部永久授权规则"),
                 new SlashCommandHint("/config", "/config", "打开配置 palette（只读视图 + 切换提示）"),
                 new SlashCommandHint("/audit", "/audit", "查看今日最近 10 条危险工具审计"),
                 new SlashCommandHint("/audit ", "/audit [N]", "查看今日最近 N 条危险工具审计"),

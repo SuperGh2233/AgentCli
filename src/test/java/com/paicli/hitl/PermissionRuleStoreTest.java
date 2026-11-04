@@ -120,6 +120,20 @@ class PermissionRuleStoreTest {
     }
 
     @Test
+    void clearProjectPreservesRulesFromOtherProjects() throws Exception {
+        PermissionRuleStore store = store();
+        store.add(rule("local-1", PermissionRule.Effect.ALLOW, "write_file"));
+        String otherProject = temp.resolve("another-project").toAbsolutePath().normalize().toString();
+        store.add(new PermissionRule("other-1", otherProject, PermissionRule.Effect.ALLOW,
+                PermissionRule.Scope.TOOL, "edit_file", System.currentTimeMillis(), "other project"));
+
+        assertEquals(1, store.clearProject(temp.toString()));
+        assertEquals(1, store.load().size());
+        assertEquals("other-1", store.load().get(0).id());
+        assertFalse(store.remove("other-1", temp.toString()));
+    }
+
+    @Test
     void rejectsDuplicateIdsWhenReadingFile() throws Exception {
         PermissionRuleStore store = store();
         store.add(rule("rule-1", PermissionRule.Effect.ALLOW, "write_file"));

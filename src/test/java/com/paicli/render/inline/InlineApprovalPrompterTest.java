@@ -2,6 +2,7 @@ package com.paicli.render.inline;
 
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
+import com.paicli.hitl.PermissionRule;
 import org.jline.terminal.Terminal;
 import org.jline.utils.NonBlockingReader;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,27 @@ class InlineApprovalPrompterTest {
         // 允许渲染器自己生成的 SGR 颜色，其他原始控制字符都不能来自动态内容。
         output.replaceAll("\u001B\\[[0-9;]*m", "").codePoints().forEach(cp ->
                 assertFalse((cp < 32 && cp != '\n') || (cp >= 0x7F && cp <= 0x9F) || cp == 0x202E));
+    }
+
+    @Test
+    void permanentAllowRequiresExactSecondConfirmation() throws Exception {
+        String root = java.nio.file.Path.of(".").toRealPath().toString();
+        PermissionRule proposal = PermissionRule.create(root, PermissionRule.Effect.ALLOW,
+                PermissionRule.Scope.PATH_EXACT, "src/App.java", "test proposal");
+        var sink = new ByteArrayOutputStream();
+        InlineApprovalPrompter prompt = new InlineApprovalPrompter(
+                new PrintStream(sink, true, StandardCharsets.UTF_8),
+                mockTerminalReturning('p'), new BufferedReader(new StringReader("YES\n")));
+
+        ApprovalResult result = prompt.prompt(ApprovalRequest.of("write_file",
+                "{\"path\":\"src/App.java\"}", null, null, null, proposal));
+
+        assertEquals(ApprovalResult.Decision.PERMANENTLY_ALLOWED, result.decision());
+        String output = sink.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("项目文件精确路径: src/App.java"), output);
+        assertTrue(output.contains("准确输入 YES"), output);
+        assertTrue(output.contains(root), output);
+        assertSafeApprovalDisplay(output);
     }
 
     @Test

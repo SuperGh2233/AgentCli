@@ -17,7 +17,7 @@ public record PermissionRule(
         String reason
 ) {
     public enum Effect { DENY, ASK, ALLOW }
-    public enum Scope { TOOL, MCP_SERVER, COMMAND_PREFIX, PATH_PREFIX }
+    public enum Scope { TOOL, MCP_SERVER, COMMAND_EXACT, COMMAND_PREFIX, PATH_EXACT, PATH_PREFIX }
 
     public PermissionRule {
         if (id == null || !id.matches("[A-Za-z0-9_-]{1,64}")) {
@@ -73,13 +73,13 @@ public record PermissionRule(
                 }
                 yield matcher;
             }
-            case COMMAND_PREFIX -> {
+            case COMMAND_EXACT, COMMAND_PREFIX -> {
                 if (!CommandPrefixMatcher.isSafeSimpleCommand(matcher)) {
-                    throw new IllegalArgumentException("命令前缀只支持不含 Shell 控制语法的简单命令");
+                    throw new IllegalArgumentException("命令规则只支持不含 Shell 控制语法的简单命令");
                 }
                 yield CommandPrefixMatcher.normalizeWhitespace(matcher);
             }
-            case PATH_PREFIX -> normalizeRelativePath(matcher);
+            case PATH_EXACT, PATH_PREFIX -> normalizeRelativePath(matcher);
         };
     }
 

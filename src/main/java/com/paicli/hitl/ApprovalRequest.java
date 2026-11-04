@@ -20,8 +20,13 @@ public record ApprovalRequest(
         String riskDescription,
         String suggestion,
         String callerContext,
-        String sensitiveNotice
+        String sensitiveNotice,
+        PermissionRule permanentAllowProposal
 ) {
+    public ApprovalRequest(String toolName, String arguments, String dangerLevel, String riskDescription,
+                           String suggestion, String callerContext, String sensitiveNotice) {
+        this(toolName, arguments, dangerLevel, riskDescription, suggestion, callerContext, sensitiveNotice, null);
+    }
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int BOX_INNER_WIDTH = 58;
     private static final int FIELD_WIDTH = BOX_INNER_WIDTH - 8;  // 为"│  xxx: "留出
@@ -38,6 +43,11 @@ public record ApprovalRequest(
 
     public static ApprovalRequest of(String toolName, String arguments, String suggestion, String callerContext,
                                      String sensitiveNotice) {
+        return of(toolName, arguments, suggestion, callerContext, sensitiveNotice, null);
+    }
+
+    public static ApprovalRequest of(String toolName, String arguments, String suggestion, String callerContext,
+                                     String sensitiveNotice, PermissionRule permanentAllowProposal) {
         return new ApprovalRequest(
                 toolName,
                 arguments,
@@ -45,7 +55,8 @@ public record ApprovalRequest(
                 ApprovalPolicy.getRiskDescription(toolName),
                 suggestion,
                 callerContext,
-                sensitiveNotice
+                sensitiveNotice,
+                permanentAllowProposal
         );
     }
 
@@ -77,6 +88,11 @@ public record ApprovalRequest(
         if (sensitiveNotice != null && !sensitiveNotice.isEmpty()) {
             sb.append(formatBoxField("敏感页面", sensitiveNotice)).append("\n");
         }
+        if (permanentAllowProposal != null) {
+            sb.append("├").append(border).append("┤\n");
+            appendWrappedBoxField(sb, "永久授权范围", scopeDescription(permanentAllowProposal));
+            appendWrappedBoxField(sb, "项目根目录", permanentAllowProposal.projectRoot());
+        }
         sb.append("├").append(border).append("┤\n");
         sb.append(formatBoxLine("参数:")).append("\n");
         for (String line : formatArgs(arguments)) {
@@ -91,6 +107,25 @@ public record ApprovalRequest(
         }
         sb.append("└").append(border).append("┘");
         return sb.toString();
+    }
+
+    private void appendWrappedBoxField(StringBuilder sb, String label, String value) {
+        sb.append(formatBoxLine(label + ":")).append("\n");
+        for (String line : wrapByDisplayWidth(encodeForDisplay(value), ARG_LINE_WIDTH)) {
+            sb.append(formatBoxIndented(line)).append("\n");
+        }
+    }
+
+    public static String scopeDescription(PermissionRule rule) {
+        String scope = switch (rule.scope()) {
+            case COMMAND_EXACT -> "命令精确匹配";
+            case COMMAND_PREFIX -> "命令前缀匹配";
+            case PATH_EXACT -> "项目文件精确路径";
+            case PATH_PREFIX -> "项目路径前缀";
+            case TOOL -> "工具";
+            case MCP_SERVER -> "MCP server";
+        };
+        return scope + ": " + rule.matcher();
     }
 
     /**

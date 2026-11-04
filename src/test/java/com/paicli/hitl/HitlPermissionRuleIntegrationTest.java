@@ -87,6 +87,41 @@ class HitlPermissionRuleIntegrationTest {
     }
 
     @Test
+    void permanentAllowSavesOnlyTheExactApprovedProjectFile() throws Exception {
+        Path root = project();
+        TestHandler handler = new TestHandler(ApprovalResult.allowPermanently(), false);
+        HitlToolRegistry registry = new HitlToolRegistry(handler);
+        registry.setProjectPath(root.toString());
+        PermissionRuleStore rules = store();
+        registry.setPermissionRuleStore(rules);
+
+        String result = registry.executeTool("write_file", writeArguments("notes.txt"));
+
+        assertEquals("written", Files.readString(root.resolve("notes.txt")));
+        assertEquals(1, rules.load().size());
+        PermissionRule saved = rules.load().get(0);
+        assertEquals(PermissionRule.Scope.PATH_EXACT, saved.scope());
+        assertEquals("notes.txt", saved.matcher());
+        assertEquals(root.toRealPath().toString(), saved.projectRoot());
+        assertEquals(PermissionRule.Scope.PATH_EXACT, handler.lastRequest.permanentAllowProposal().scope());
+        assertFalse(result.contains("PERMISSION"), result);
+    }
+
+    @Test
+    void permanentAllowProposalUsesExactCommandNotACommandPrefix() throws Exception {
+        Path root = project();
+        PermissionRule proposal = PermissionRuleRuntime.proposePermanentAllow(store(), root.toString(),
+                "execute_command", "{\"command\":\"git status\"}");
+
+        assertNotNull(proposal);
+        assertEquals(PermissionRule.Scope.COMMAND_EXACT, proposal.scope());
+        assertEquals("git status", proposal.matcher());
+        assertFalse(PermissionRuleRuntime.maySkipApproval(
+                new PermissionRuleEvaluator.Evaluation(PermissionRuleEvaluator.Decision.ALLOW, proposal),
+                "write_file"));
+    }
+
+    @Test
     void broadToolLevelAllowCannotDisableConfirmationForFileWrites() throws Exception {
         Path root = project();
         TestHandler handler = new TestHandler(ApprovalResult.reject("broad grant ignored"), false);
@@ -204,6 +239,7 @@ class HitlPermissionRuleIntegrationTest {
 
     private static final class TestHandler implements HitlHandler {
         private final ApprovalResult answer;
+        private ApprovalRequest lastRequest;
         private boolean cachedToolGrant;
         private int requestCount;
 
@@ -214,6 +250,7 @@ class HitlPermissionRuleIntegrationTest {
 
         @Override public ApprovalResult requestApproval(ApprovalRequest request) {
             requestCount++;
+            lastRequest = request;
             return answer;
         }
 

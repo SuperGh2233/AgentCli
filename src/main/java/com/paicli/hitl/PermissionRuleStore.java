@@ -113,6 +113,36 @@ public final class PermissionRuleStore {
         }
     }
 
+    /** Remove a rule only when it belongs to the requested project. */
+    public boolean remove(String id, String projectRoot) throws IOException {
+        if (id == null || id.isBlank()) return false;
+        String project = PermissionRule.normalizeProjectRoot(projectRoot);
+        synchronized (PROCESS_LOCK) {
+            return withFileLock(() -> {
+                List<PermissionRule> rules = readRules();
+                boolean removed = rules.removeIf(rule -> rule.id().equals(id)
+                        && rule.projectRoot().equals(project));
+                if (removed) writeRules(rules);
+                return removed;
+            });
+        }
+    }
+
+    /** Remove all rules for one project while preserving rules belonging to other projects. */
+    public int clearProject(String projectRoot) throws IOException {
+        String project = PermissionRule.normalizeProjectRoot(projectRoot);
+        synchronized (PROCESS_LOCK) {
+            return withFileLock(() -> {
+                List<PermissionRule> rules = readRules();
+                int before = rules.size();
+                rules.removeIf(rule -> rule.projectRoot().equals(project));
+                int removed = before - rules.size();
+                if (removed > 0) writeRules(rules);
+                return removed;
+            });
+        }
+    }
+
     @FunctionalInterface
     private interface LockedOperation<T> {
         T run() throws IOException;

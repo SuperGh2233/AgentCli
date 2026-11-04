@@ -147,7 +147,17 @@ public class HitlToolRegistry extends ToolRegistry {
         if (inAutoMode()) {
             return executeInAutoMode(name, argumentsJson, sensitiveNotice);
         }
-        return executeAfterExplicitApproval(name, argumentsJson, sensitiveNotice, null);
+        PermissionRule permanentAllowProposal = null;
+        PermissionRuleStore activeStore = permissionRuleStore;
+        if (activeStore != null && sensitiveNotice == null) {
+            try {
+                permanentAllowProposal = PermissionRuleRuntime.proposePermanentAllow(
+                        activeStore, getProjectPath(), name, argumentsJson);
+            } catch (IOException | IllegalArgumentException ignored) {
+                // No permanent-allow option is shown when a safe, project-scoped proposal cannot be built.
+            }
+        }
+        return executeAfterExplicitApproval(name, argumentsJson, sensitiveNotice, null, permanentAllowProposal);
     }
 
     /**
@@ -209,8 +219,14 @@ public class HitlToolRegistry extends ToolRegistry {
 
     private ToolOutput executeAfterExplicitApproval(String name, String argumentsJson, String sensitiveNotice,
                                                     String reviewNote) {
+        return executeAfterExplicitApproval(name, argumentsJson, sensitiveNotice, reviewNote, null);
+    }
+
+    private ToolOutput executeAfterExplicitApproval(String name, String argumentsJson, String sensitiveNotice,
+                                                    String reviewNote, PermissionRule permanentAllowProposal) {
         long start = System.nanoTime();
-        ApprovalRequest request = ApprovalRequest.of(name, argumentsJson, reviewNote, null, sensitiveNotice);
+        ApprovalRequest request = ApprovalRequest.of(name, argumentsJson, reviewNote, null, sensitiveNotice,
+                permanentAllowProposal);
         ApprovalResult result = hitlHandler.requestApproval(request);
 
         if (result.isRejected()) {
@@ -228,7 +244,27 @@ public class HitlToolRegistry extends ToolRegistry {
             return ToolOutput.failure("[HITL] 操作已被跳过");
         }
 
-        // 批准（含修改参数）- 使用 effectiveArguments 获取最终参数；父类执行路径会负责 allow audit
+        if (result.decision() == ApprovalResult.Decision.PERMANENTLY_ALLOWED) {
+            PermissionRuleStore store = permissionRuleStore;
+            PermissionRule proposal = request.permanentAllowProposal();
+            if (store == null || proposal == null || proposal.effect() != PermissionRule.Effect.ALLOW) {
+                return ToolOutput.failure("[PERMISSION] 当前操作没有有效的永久授权候选，未保存规则");
+            }
+            try {
+                String realProject = java.nio.file.Path.of(getProjectPath()).toRealPath().toString();
+                if (!realProject.equals(proposal.projectRoot())) {
+                    return ToolOutput.failure("[PERMISSION] 项目路径已变化，永久授权未保存；请重新审批");
+                }
+                store.requireOutsideProject(java.nio.file.Path.of(realProject));
+                store.add(proposal);
+            } catch (IOException | IllegalArgumentException error) {
+                getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
+                        "永久授权保存失败：" + error.getMessage(), elapsedMillis(start)));
+                return ToolOutput.failure("[PERMISSION] 永久授权保存失败，操作未执行：" + error.getMessage());
+            }
+        }
+
+        // 批准（含修改参数或刚刚明确确认的永久规则）- 父类仍执行所有硬策略
         String effectiveArgs = result.effectiveArguments(argumentsJson);
         return super.doExecuteTool(name, effectiveArgs);
     }

@@ -30,6 +30,7 @@ final class CliCommandParser {
         GRAPH_QUERY,
         CONTEXT_STATUS,
         POLICY_STATUS,
+        PERMISSIONS,
         AUDIT_TAIL,
         SNAPSHOT,
         RESTORE_SNAPSHOT,
@@ -233,6 +234,14 @@ final class CliCommandParser {
 
         if (trimmed.equalsIgnoreCase("/policy")) {
             return new ParsedCommand(CommandType.POLICY_STATUS, null);
+        }
+
+        if (trimmed.equalsIgnoreCase("/permissions")) {
+            return new ParsedCommand(CommandType.PERMISSIONS, "list");
+        }
+
+        if (trimmed.regionMatches(true, 0, "/permissions ", 0, 13)) {
+            return new ParsedCommand(CommandType.PERMISSIONS, trimmed.substring(13).trim());
         }
 
         if (trimmed.equalsIgnoreCase("/config")) {

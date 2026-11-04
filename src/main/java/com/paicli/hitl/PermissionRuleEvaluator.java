@@ -46,8 +46,11 @@ public final class PermissionRuleEvaluator {
         return switch (rule.scope()) {
             case TOOL -> rule.matcher().equals(context.toolName());
             case MCP_SERVER -> rule.matcher().equals(context.serverName());
+            case COMMAND_EXACT -> "execute_command".equals(context.toolName())
+                    && CommandPrefixMatcher.matchesExact(context.command(), rule.matcher());
             case COMMAND_PREFIX -> "execute_command".equals(context.toolName())
                     && CommandPrefixMatcher.matches(context.command(), rule.matcher());
+            case PATH_EXACT -> rule.matcher().equals(context.projectRelativePath());
             case PATH_PREFIX -> context.projectRelativePath() != null
                     && (context.projectRelativePath().equals(rule.matcher())
                     || context.projectRelativePath().startsWith(rule.matcher() + "/"));
@@ -64,8 +67,9 @@ public final class PermissionRuleEvaluator {
 
     private static int scopePriority(PermissionRule.Scope scope) {
         return switch (scope) {
-            case TOOL -> 4;
-            case MCP_SERVER -> 3;
+            case TOOL -> 5;
+            case MCP_SERVER -> 4;
+            case COMMAND_EXACT, PATH_EXACT -> 3;
             case COMMAND_PREFIX, PATH_PREFIX -> 2;
         };
     }

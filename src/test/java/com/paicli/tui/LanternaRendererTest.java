@@ -1,15 +1,14 @@
 package com.paicli.tui;
 
-import com.googlecode.lanterna.gui2.WindowBasedTextGUI;
+import com.paicli.mcp.elicitation.ElicitationPrompter;
 import com.paicli.render.Renderer;
-import com.paicli.tui.pane.CenterPane;
-import com.paicli.tui.pane.StatusPane;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 /**
  * LanternaRenderer 的轻量级测试 —— 覆盖类型契约与 GUI 可用性声明生命周期。
@@ -32,18 +31,21 @@ class LanternaRendererTest {
     }
 
     @Test
-    void publicRendererTracksGuiLifecycleForElicitationCapabilities() {
-        LanternaWindow window = mock(LanternaWindow.class);
-        RootPane root = mock(RootPane.class);
-        when(window.getRootPane()).thenReturn(root);
-        when(root.getCenterPane()).thenReturn(mock(CenterPane.class));
-        when(root.getStatusPane()).thenReturn(mock(StatusPane.class));
-        when(window.getGui()).thenReturn(mock(WindowBasedTextGUI.class));
-        when(window.isGuiRunning()).thenReturn(false);
+    void rendererTracksGuiLifecycleForElicitationCapabilities() {
+        AtomicBoolean guiAvailable = new AtomicBoolean(false);
+        LanternaElicitation elicitation = new LanternaElicitation(new LanternaElicitation.Dialogs() {
+            @Override public boolean available() { return guiAvailable.get(); }
+            @Override public boolean isGuiThread() { return false; }
+            @Override public void dispatch(Runnable task) { task.run(); }
+            @Override public Runnable show(String text, LanternaElicitation.Step step,
+                                           java.util.function.Consumer<String> answer) {
+                return () -> { };
+            }
+        }, ElicitationPrompter.desktopBrowser(), Duration.ofMinutes(5));
 
-        LanternaRenderer renderer = new LanternaRenderer(window);
+        LanternaRenderer renderer = new LanternaRenderer(elicitation);
         assertTrue(renderer.supportedElicitationModes().isEmpty());
-        when(window.isGuiRunning()).thenReturn(true);
+        guiAvailable.set(true);
         assertEquals(Set.of("form", "url"), renderer.supportedElicitationModes());
         renderer.close();
         assertTrue(renderer.supportedElicitationModes().isEmpty());

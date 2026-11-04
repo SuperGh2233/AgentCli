@@ -1,6 +1,6 @@
 # HITL 权限规则持久化
 
-状态：active；Stage 3A 已完成 16/16 隔离离线定向回归，并通过 da497544 提交上传 GitHub。Stage 3B1（工具执行链的可选权限裁决接入）代码已写入，尚未复验、提交或推送；Stage 3B2（审批 UI 的授权预览/二次确认及规则管理）尚未实现。
+状态：active；Stage 3A 已推送 GitHub。Stage 3B1 已通过 10/10 定向回归并提交为 a3386e49，Stage 3B2 已通过 156/156 隔离离线定向回归；当前本地包含 Stage 3B1/3B2 待推送提交，Repo Ops 上次推送失败，需在 Stage 3B2 提交后统一推送并核对远端 HEAD。下一阶段为 Stage 3C：MCP 永久授权的配置指纹与信任生命周期绑定。
 
 ## 背景与当前行为
 
@@ -25,7 +25,7 @@
 
 - `PermissionRule`：id、projectRoot、effect、scope、matcher、createdAt、reason。
 - Effect：DENY、ASK、ALLOW。
-- Scope：TOOL、MCP_SERVER、COMMAND_PREFIX、PATH_PREFIX。
+- Scope：TOOL、MCP_SERVER、COMMAND_EXACT、COMMAND_PREFIX、PATH_EXACT、PATH_PREFIX。
 - `PermissionContext`：projectRoot、toolName、serverName、command、projectRelativePath。
 - 规则 matcher 必须在构造/加载时校验；未知版本、未知枚举、非法路径、空规则或危险命令前缀不得进入裁决器。
 
@@ -56,26 +56,40 @@
 
 1. 新增“仅本次批准 / 本会话允许 / 始终允许 / 拒绝并填写原因 / 跳过 / 修改参数”语义。
 2. “始终允许”必须先显示完整的拟保存规则：项目根、scope、matcher、影响范围；二次确认后才写入。
-3. 对 `execute_command` 只建议保存安全简单命令前缀；复杂 Shell 不提供 allow-prefix。
-4. 对文件写入只提供项目内路径前缀；路径必须经项目根规范化且不能逃逸。
+3. 对 `execute_command` 的 UI 永久授权只建议保存安全简单命令的精确匹配；不自动创建可附加任意参数的命令前缀。复杂 Shell 不提供永久授权候选。
+4. 对文件写入只建议保存项目内单文件精确路径；路径必须经项目根规范化且不能逃逸。更宽的 PATH_PREFIX 仅允许在显式规则管理能力扩展后人工管理。
 5. 对 MCP 提供精确工具或 server scope；敏感页面逐次审批不接受 allow。
 6. `HitlToolRegistry` 统一执行规则裁决；DENY 硬拒绝、ASK 强制人工确认、ALLOW 跳过 HITL 但不跳过硬策略；无匹配时保持现有默认策略。
 7. CLI / Plain / Inline / Lanterna / 其他 renderer 的语义一致；提供 `/permissions list|revoke|clear` 管理入口。
 8. 审计记录 matched rule id 与 decision，不记录额外敏感参数。
 
-### Stage 3B1 边界（当前实现待测试）
+### Stage 3B1 边界（已完成定向验证；本地已提交，待推送）
 
 - 新增 `PermissionRuleRuntime`，只从合法参数中提取真实项目路径、工具名、MCP server、简单命令与安全相对路径；PATH_PREFIX 仅用于 `write_file` / `edit_file`。
 - `HitlToolRegistry` 新增可选 `setPermissionRuleStore`：启用后 DENY 拒绝、ASK 清理既有会话广泛授权并要求人工确认、有限制的 ALLOW 仅跳过 HITL；父类的参数验证、路径约束、CommandGuard 和沙箱仍运行。规则存储读取失败直接拒绝危险调用并记录审计。
-- 暂时**不在 Main 启用**该存储；不改现有 `a` 的本会话含义，不让未完成的 UI 自动颁发永久授权。
+- Stage 3B1 本身未在 Main 启用存储；Stage 3B2 开始接入 Main 的用户级存储，只有逐次审批界面展示并二次确认后才可保存永久规则。
 - 对 `execute_command`、`write_file`、`edit_file` 的全工具 ALLOW 禁止直接跳过 HITL；只有简单命令前缀、项目内路径前缀允许自动命中。MCP server / MCP 工具的 DENY 与 ASK 生效，但永久 ALLOW 暂时不跳过审批：必须等 Stage 3B2 补足 MCP 配置指纹绑定及信任状态验证后才能启用。
-- 本阶段测试范围为 `HitlPermissionRuleIntegrationTest`（10 个测试，待执行）；覆盖 stored DENY/ASK/ALLOW、现有会话缓存优先级、存储损坏、命令多行拒绝、软链接逃逸、MCP 永久允许暂不启用、未配置时行为不变。该结果仅可作为定向验证，不替代全量测试。
+- `HitlPermissionRuleIntegrationTest` 已在禁网隔离副本通过 10/10，失败、错误、跳过均为 0；此结果仅为 Stage 3B1 定向验证，不代表全量测试通过。Commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8` 本地创建成功；两次 Repo Ops push 均失败，GitHub 远端 HEAD 仍为 `da497544`。
 
-### Stage 3B2 待办
+### Stage 3B2 完成（156/156 隔离离线定向回归通过）
 
-- 覆盖 Plain / Inline / Lanterna 的“始终允许”交互，先显示即将保存的项目、匹配器和作用范围，再二次确认。
-- 在 CLI 启动流程中加载并启用存储；增加 `/permissions list|revoke|clear` 等命令与审计规则命中记录。
-- 处理切换项目、恢复会话、MCP 配置变化和敏感页面等生命周期事件；验证完整交互及回归。
+- 新增 `COMMAND_EXACT` / `PATH_EXACT`：逐次审批时只建议精确命令或单个项目文件路径，避免把一次批准扩展成宽泛前缀授权。
+- `ApprovalRequest` 携带拟保存规则；Plain / Inline / Lanterna 均展示项目根、scope、matcher，用户选择 `p` 后还必须再次输入 `YES` 或在 Lanterna 二次确认对话框中确认。
+- `HitlToolRegistry` 仅在收到 `PERMANENTLY_ALLOWED` 且候选规则仍属于当前真实项目时写入存储；保存失败时拒绝执行。现有 `a` 仍是会话级授权。
+- Main 启动时加载 `~/.paicli/security/permissions.json`，安全检查失败时不启用；增加 `/permissions list`、`/permissions revoke <id>`、`/permissions clear --confirm`，清除操作只影响当前项目。
+- MCP 永久 ALLOW 仍关闭；未绑定 MCP 配置指纹和 trust 状态前不能跳过审批。敏感页面逐次确认保持原样。
+- 新增 `PermissionCommandTest`、精确 scope evaluator/store 测试、Plain/Inline 永久授权二次确认测试、永久授权执行链集成测试，以及 Lanterna lifecycle 测试。最终一次 Maven 离线禁网隔离定向回归：11 个测试类、156 项通过，失败/错误/跳过均为 0（BUILD SUCCESS）；这不是全量测试。Lanterna 的交互式对话框仍需在真实 TUI 终端做手工 smoke test。
+- 为隔离环境避免 Mockito Inline MockMaker 依赖动态代理附加，测试资源显式使用 Subclass MockMaker；Lanterna lifecycle 测试改为注入 `LanternaElicitation`，不再 mock final `LanternaWindow`。`LanternaRenderer.close()` 对注入式测试构造器的空 window 安全处理。
+- Stage 3B2 代码已完成，等待独立 commit/push；推送时同时带上此前因 Repo Ops 暂时失败而留在本地的 Stage 3B1 commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8`。
+
+### Stage 3C：MCP 永久授权生命周期（下一阶段）
+
+- 设计并实现 MCP server 配置指纹：基于规范化配置计算不可逆指纹，不把环境变量明文、token 或 secret 写入权限规则、审计或日志。
+- MCP `ALLOW` 规则必须同时绑定 server 名称、当前配置指纹和明确的 trust 状态；仅当配置未变化、server 仍受信任且规则 scope 精确时才可跳过 HITL。
+- 配置缺失、指纹无法计算、trust 状态未知/撤销、配置发生变化时一律 fail closed，退回逐次人工审批；不得因 server 名称相同就沿用旧授权。
+- 覆盖 server command/args/env 变化、trust revoke/re-enable、配置缺失/损坏、server rename、旧规则迁移、secret 不泄漏、DENY/ASK 优先级等测试。
+- 先只读审计现有 MCP 配置来源、McpServerManager trust API、OAuth/trust 存储及配置热更新生命周期，再制定实现边界；不得猜测 trust 语义。
+- 独立禁网离线定向回归通过后，独立提交并推送 GitHub；真实 TUI smoke test 与全量测试另行记录，不把定向测试冒充全量测试。
 
 ## 明确不做
 
@@ -89,4 +103,5 @@
 
 - 2026-11-04：基于现有 HITL / Renderer / MCP trust / OAuth store 代码完成只读架构审查。确认当前 allow-all 仅保存在 handler 内存集合；主 CLI 使用 `RendererHitlHandler`，因此 Plain / Inline / Lanterna UI 都必须覆盖，不能只改 `TerminalHitlHandler`。
 - 2026-11-04：Stage 3A 已新增 `PermissionRule`、`PermissionContext`、`CommandPrefixMatcher`、`PermissionRuleEvaluator` 和 `PermissionRuleStore`；增加裁决优先级、项目隔离、命令 token 边界、路径前缀边界、私有权限、文件锁、原子替换、损坏文件拒绝和符号链接拒绝测试。首次定向回归 16 项通过后，复核发现命令匹配器可归一化命令换行，违背保守匹配约束；现已拒绝含控制字符的命令并增加多行命令不匹配断言。隔离禁网副本重跑后，16/16 通过，失败、错误、跳过均为 0。通过本地 commit da497544 独立提交；2026-11-04 重试后已推送 GitHub 并核实远端 HEAD。此结果只覆盖 Stage 3A 定向测试，不代表全量测试通过。
-- 2026-11-04：Stage 3B1 先实现可选权限执行链、原路径 guard 和作用域限制，新增集成测试；提交或启用前须执行隔离离线定向回归，不能因为 Stage 3A 测试通过就视为本阶段完成。
+- 2026-11-04：Stage 3B1 实现可选权限执行链、原路径 guard 和作用域限制，10/10 禁网隔离定向回归通过；commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8` 本地创建成功，首次推送因 Repo Ops 服务失败未完成。
+- 2026-11-04：Stage 3B2 实现精确命令/文件永久授权候选、Plain/Inline/Lanterna 审批范围预览与二次确认、用户级存储启用和项目级 `/permissions` 管理命令。修正测试数据 ID 与 Mockito 隔离兼容问题，并将 Lanterna lifecycle 测试改为不依赖 final-class mock 的注入方式；最终 156/156 隔离离线定向回归通过。此结果不代表全量测试通过；真实 TUI 对话框 smoke test 尚待执行。

@@ -115,6 +115,8 @@ public final class PlainRenderer implements Renderer {
             out.println();
             if (sensitivePerCall) {
                 out.println("请选择操作：[y/Enter] 批准本次  [n] 拒绝  [s] 跳过  [m] 修改参数");
+            } else if (request.permanentAllowProposal() != null) {
+                out.println("请选择操作：[y/Enter] 批准本次  [p] 永久允许（需二次确认）  [a] 本会话全部放行  [n] 拒绝  [s] 跳过  [m] 修改参数");
             } else {
                 out.println("请选择操作：[y/Enter] 批准  [a] 全部放行  [n] 拒绝  [s] 跳过  [m] 修改参数");
             }
@@ -146,6 +148,13 @@ public final class PlainRenderer implements Renderer {
                     }
                     return promptApproveAllScope(request);
                 }
+                case "p" -> {
+                    if (request.permanentAllowProposal() == null || sensitivePerCall) {
+                        out.println("  当前操作不支持永久授权");
+                        continue;
+                    }
+                    if (confirmPermanentAllow(request)) return ApprovalResult.allowPermanently();
+                }
                 case "n" -> {
                     out.print("  拒绝原因（可直接回车跳过）：");
                     out.flush();
@@ -167,7 +176,7 @@ public final class PlainRenderer implements Renderer {
                         return modified;
                     }
                 }
-                default -> out.println("  ❓ 无法识别的选项：'" + encodeForDisplay(input) + "'，请输入 y/a/n/s/m 之一（Enter 等价于 y）");
+                default -> out.println("  ❓ 无法识别的选项：'" + encodeForDisplay(input) + "'，请输入 y/p/a/n/s/m 之一（Enter 等价于 y）");
             }
         }
         out.println("  [HITL] 连续多次无效输入，保守处理为拒绝");
@@ -210,6 +219,26 @@ public final class PlainRenderer implements Renderer {
         } catch (IOException | NumberFormatException e) {
             return -1;
         }
+    }
+
+    private boolean confirmPermanentAllow(ApprovalRequest request) {
+        out.println("\n  即将保存永久授权规则：");
+        out.println("  " + encodeForDisplay(ApprovalRequest.scopeDescription(request.permanentAllowProposal())));
+        out.println("  项目根目录：" + encodeForDisplay(request.permanentAllowProposal().projectRoot()));
+        out.println("  该规则仅适用于当前项目；请准确输入 YES 确认保存：");
+        out.print("  > ");
+        out.flush();
+        try {
+            String confirmation = in.readLine();
+            if (confirmation != null && confirmation.trim().equals("YES")) {
+                out.println("  已确认，将保存永久授权规则");
+                return true;
+            }
+        } catch (IOException ignored) {
+            // Fail closed: return to the approval menu without saving.
+        }
+        out.println("  未确认，永久授权未保存；请重新选择本次审批操作");
+        return false;
     }
 
     private ApprovalResult promptApproveAllScope(ApprovalRequest request) {

@@ -89,7 +89,7 @@ public final class LanternaRenderer implements Renderer {
         }
         closed = true;
         try {
-            window.close();
+            if (window != null) window.close();
         } catch (Exception ignored) {
         }
     }
@@ -157,24 +157,53 @@ public final class LanternaRenderer implements Renderer {
 
     private ApprovalResult doShowApprovalDialog(ApprovalRequest request) {
         String title = "⚠️ HITL 审批: " + request.toolName();
-        String body = request.toDisplayText() + "\n\n[Yes] 批准  [No] 拒绝  [Cancel] 跳过";
-        MessageDialogButton button = new MessageDialogBuilder()
+        String body = request.toDisplayText();
+        if (request.permanentAllowProposal() == null) {
+            MessageDialogButton button = new MessageDialogBuilder()
+                    .setTitle(title)
+                    .setText(body + "\n\n[Yes] 批准  [No] 拒绝  [Cancel] 跳过")
+                    .addButton(MessageDialogButton.Yes)
+                    .addButton(MessageDialogButton.No)
+                    .addButton(MessageDialogButton.Cancel)
+                    .build()
+                    .showDialog(gui);
+            if (button == null) return ApprovalResult.skip();
+            return switch (button) {
+                case Yes -> ApprovalResult.approve();
+                case No -> ApprovalResult.reject("Lanterna 模态框拒绝");
+                case Cancel -> ApprovalResult.skip();
+                default -> ApprovalResult.skip();
+            };
+        }
+
+        String permanentOption = "永久允许（需再次确认）："
+                + ApprovalRequest.scopeDescription(request.permanentAllowProposal());
+        ListSelectDialogBuilder<String> approvalChoices = new ListSelectDialogBuilder<String>()
                 .setTitle(title)
-                .setText(body)
+                .setDescription(body + "\n请选择本次操作的授权方式");
+        approvalChoices.addListItem("仅批准本次");
+        approvalChoices.addListItem(permanentOption);
+        approvalChoices.addListItem("拒绝");
+        approvalChoices.addListItem("跳过");
+        String selected = approvalChoices.build().showDialog(gui);
+        if (selected == null || selected.equals("跳过")) return ApprovalResult.skip();
+        if (selected.equals("拒绝")) return ApprovalResult.reject("Lanterna 模态框拒绝");
+        if (selected.equals("仅批准本次")) return ApprovalResult.approve();
+        if (!selected.equals(permanentOption)) return ApprovalResult.skip();
+
+        String confirmation = "将保存以下永久授权规则：\n"
+                + ApprovalRequest.scopeDescription(request.permanentAllowProposal())
+                + "\n项目根目录：" + request.permanentAllowProposal().projectRoot()
+                + "\n该规则仅对当前项目生效。确认保存吗？";
+        MessageDialogButton confirmed = new MessageDialogBuilder()
+                .setTitle("二次确认：永久授权")
+                .setText(confirmation)
                 .addButton(MessageDialogButton.Yes)
                 .addButton(MessageDialogButton.No)
-                .addButton(MessageDialogButton.Cancel)
                 .build()
                 .showDialog(gui);
-        if (button == null) {
-            return ApprovalResult.skip();
-        }
-        return switch (button) {
-            case Yes -> ApprovalResult.approve();
-            case No -> ApprovalResult.reject("Lanterna 模态框拒绝");
-            case Cancel -> ApprovalResult.skip();
-            default -> ApprovalResult.skip();
-        };
+        return confirmed == MessageDialogButton.Yes
+                ? ApprovalResult.allowPermanently() : ApprovalResult.skip();
     }
 
     @Override
