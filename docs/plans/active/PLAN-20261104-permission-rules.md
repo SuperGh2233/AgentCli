@@ -1,6 +1,6 @@
 # HITL 权限规则持久化
 
-状态：active；Stage 3A、Stage 3B1、Stage 3B2 均已推送 GitHub。Stage 3B2 代码 commit `85a2866d1fb197be76a713aa88b7432b18ab8287`、文档 commit `0672b49120bf6a39113059da51b3ddb32a2a370f` 已推送。Stage 3C1（MCP trust lifecycle 基础设施）已完成 156/156 隔离离线定向测试，当前代码待独立提交/推送；本地工作区有 Stage 3C1 改动。下一阶段 Stage 3C2 将把配置指纹与 trust binding 接入 MCP 永久 ALLOW 裁决。
+状态：active；Stage 3A、Stage 3B1、Stage 3B2、Stage 3C1 均已推送 GitHub。Stage 3B2 代码 commit `85a2866d1fb197be76a713aa88b7432b18ab8287`、文档 commit `0672b49120bf6a39113059da51b3ddb32a2a370f` 已推送。Stage 3C1 以 commit `1cf61154a4b48f7be3109ab048591516d3d31638` 推送成功，13 个测试类 156/156 隔离离线定向测试通过，推送后工作区干净。下一阶段 Stage 3C2 将把配置指纹与 trust binding 接入 MCP 永久 ALLOW 裁决。
 
 ## 背景与当前行为
 
@@ -102,7 +102,7 @@
 - 新增 `/mcp untrust <name>`：只支持撤销项目级 trust；先在当前会话标记撤销、停止 server、取消自动重启并注销该 server 的工具，再持久化撤销。若 trust 存储写入失败，当前会话仍阻止 restart，并明确提示 CLI 重启前必须修复/移除旧记录，否则旧信任可能恢复。用户级 MCP 配置继续按用户配置来源视为可信，可通过 disable 或移除配置停用。
 - `McpTrustStore` 已加固：0700 目录、0600 文件/锁文件、拒绝 symlink、进程锁+文件锁、随机临时文件、fsync+原子替换、最大文件大小、fingerprint 校验；损坏或不安全时按未信任处理，拒绝覆盖损坏文件。
 - 最终禁网隔离离线定向回归：13 个测试类、156 项通过，失败/错误/跳过均为 0，BUILD SUCCESS。覆盖 trust store 权限/损坏/symlink/untrust、配置指纹、runtime args 变更、server trust revoke、permission binding、存储撤销失败时的会话级阻断、CLI parser，并回归 Stage 3B 权限规则/UI。未运行需要 MockWebServer 的 `McpServerManagerTest` / `McpServerLifecycleTest`，也不是全量测试。
-- 使用此前成功的 `phase0-central-only` Maven settings，保留 Maven 默认 resources plugin 3.5.0；原 `~/.m2`、`_remote.repositories` 和工作区均未被测试任务改动。Stage 3C1 尚待独立 commit/push。
+- 使用此前成功的 `phase0-central-only` Maven settings，保留 Maven 默认 resources plugin 3.5.0；原 `~/.m2`、`_remote.repositories` 和工作区均未被测试任务改动。Stage 3C1 已提交为 `1cf61154a4b48f7be3109ab048591516d3d31638`（`feat: harden MCP trust lifecycle and revocation`）并推送成功；推送后工作区干净。
 
 ### Stage 3C2：MCP 永久 ALLOW 裁决集成（下一阶段）
 
@@ -136,4 +136,4 @@
 - 2026-11-04：Stage 3A 已新增 `PermissionRule`、`PermissionContext`、`CommandPrefixMatcher`、`PermissionRuleEvaluator` 和 `PermissionRuleStore`；增加裁决优先级、项目隔离、命令 token 边界、路径前缀边界、私有权限、文件锁、原子替换、损坏文件拒绝和符号链接拒绝测试。首次定向回归 16 项通过后，复核发现命令匹配器可归一化命令换行，违背保守匹配约束；现已拒绝含控制字符的命令并增加多行命令不匹配断言。隔离禁网副本重跑后，16/16 通过，失败、错误、跳过均为 0。通过本地 commit da497544 独立提交；2026-11-04 重试后已推送 GitHub 并核实远端 HEAD。此结果只覆盖 Stage 3A 定向测试，不代表全量测试通过。
 - 2026-11-04：Stage 3B1 实现可选权限执行链、原路径 guard 和作用域限制，10/10 禁网隔离定向回归通过；commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8` 本地创建成功，首次推送因 Repo Ops 服务失败未完成。
 - 2026-11-04：Stage 3B2 实现精确命令/文件永久授权候选、Plain/Inline/Lanterna 审批范围预览与二次确认、用户级存储启用和项目级 `/permissions` 管理命令。修正测试数据 ID 与 Mockito 隔离兼容问题，并将 Lanterna lifecycle 测试改为不依赖 final-class mock 的注入方式；最终 156/156 隔离离线定向回归通过。此结果不代表全量测试通过；真实 TUI 对话框 smoke test 尚待执行。
-- 2026-11-04：Stage 3C1 完成 MCP trust store 加固、用户/项目级配置指纹、runtime args override 指纹更新、permission binding snapshot 和 `/mcp untrust`；最终 13 个测试类 156/156 禁网隔离离线定向回归通过，BUILD SUCCESS。新增验证了 trust 文件损坏时仍先停止 server 并在当前会话阻止 restart。该结果不代表全量测试通过；Stage 3C1 尚待 commit/push。
+- 2026-11-04：Stage 3C1 完成 MCP trust store 加固、用户/项目级配置指纹、runtime args override 指纹更新、permission binding snapshot 和 `/mcp untrust`；最终 13 个测试类 156/156 禁网隔离离线定向回归通过，BUILD SUCCESS。新增验证了 trust 文件损坏时仍先停止 server 并在当前会话阻止 restart。该结果不代表全量测试通过。Commit `1cf61154a4b48f7be3109ab048591516d3d31638` 已推送 GitHub。
