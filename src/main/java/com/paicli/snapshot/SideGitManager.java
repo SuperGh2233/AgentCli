@@ -3,7 +3,7 @@ package com.paicli.snapshot;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
-import org.eclipse.jgit.lib.ObjectLoader;
+import org.eclipse.jgit.lib.FileMode;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
@@ -31,19 +31,28 @@ public class SideGitManager {
     private static final PersonIdent SNAPSHOT_IDENT = new PersonIdent("PaiCLI Snapshot", "snapshot@paicli.local");
 
     private final Path projectRoot;
+    private final Path snapshotIdentityRoot;
     private final SnapshotConfig config;
     private final Path gitDir;
+    private final RestoreFileOps restoreFileOps;
 
     public SideGitManager(Path projectRoot) {
         this(projectRoot, SnapshotConfig.fromEnvironment());
     }
 
     public SideGitManager(Path projectRoot, SnapshotConfig config) {
-        this.projectRoot = normalizeProjectRoot(projectRoot);
+        this(projectRoot, config, RestoreFileOps.NONE);
+    }
+
+    SideGitManager(Path projectRoot, SnapshotConfig config, RestoreFileOps restoreFileOps) {
+        Path requestedRoot = projectRoot == null ? Path.of(System.getProperty("user.dir")) : projectRoot;
+        this.snapshotIdentityRoot = requestedRoot.toAbsolutePath().normalize();
+        this.projectRoot = normalizeProjectRoot(requestedRoot);
         this.config = config == null ? SnapshotConfig.fromEnvironment() : config;
+        this.restoreFileOps = restoreFileOps;
         this.gitDir = this.config.snapshotsRoot()
-                .resolve(hash(parentKey(this.projectRoot)))
-                .resolve(hash(this.projectRoot.toString()))
+                .resolve(hash(parentKey(this.snapshotIdentityRoot)))
+                .resolve(hash(this.snapshotIdentityRoot.toString()))
                 .resolve(".git");
     }
 
@@ -113,13 +122,15 @@ public class SideGitManager {
         TurnSnapshot current = preRestoreSnapshot("restore-" + Instant.now().toEpochMilli(),
                 "Before restoring " + target.shortCommitId());
         try (Git git = openGit(); Repository repository = git.getRepository()) {
-            Map<String, ObjectId> targetTree = treeEntries(repository, ObjectId.fromString(target.commitId()));
-            Map<String, ObjectId> currentTree = current == null
-                    ? Map.of()
-                    : treeEntries(repository, ObjectId.fromString(current.commitId()));
-            List<String> removed = deleteTrackedFilesMissingFromTarget(currentTree, targetTree);
-            List<String> restored = writeTargetTree(repository, targetTree);
-            return RestoreResult.success(target.commitId(), restored, removed);
+            if (current == null) {
+                return RestoreResult.failure("恢复失败：未取得 pre-restore 回滚快照，未修改项目文件");
+            }
+            Map<String, TreeEntry> targetTree = treeEntries(repository, ObjectId.fromString(target.commitId()));
+            Map<String, TreeEntry> currentTree = treeEntries(repository, ObjectId.fromString(current.commitId()));
+            return new SnapshotRestorer(projectRoot, repository, restoreFileOps)
+                    .restore(target.commitId(), current.commitId(), currentTree, targetTree);
+        } catch (IOException | RuntimeException e) {
+            return RestoreResult.failure("恢复失败：" + e.getMessage());
         }
     }
 
@@ -224,8 +235,10 @@ public class SideGitManager {
         return SnapshotPhase.POST_TURN;
     }
 
-    private Map<String, ObjectId> treeEntries(Repository repository, ObjectId commitId) throws IOException {
-        Map<String, ObjectId> entries = new LinkedHashMap<>();
+    record TreeEntry(ObjectId objectId, FileMode mode) { }
+
+    private Map<String, TreeEntry> treeEntries(Repository repository, ObjectId commitId) throws IOException {
+        Map<String, TreeEntry> entries = new LinkedHashMap<>();
         try (RevWalk walk = new RevWalk(repository)) {
             RevCommit commit = walk.parseCommit(commitId);
             try (TreeWalk treeWalk = new TreeWalk(repository)) {
@@ -233,66 +246,15 @@ public class SideGitManager {
                 treeWalk.setRecursive(true);
                 while (treeWalk.next()) {
                     String path = treeWalk.getPathString();
+                    TreeEntry entry = new TreeEntry(treeWalk.getObjectId(0), treeWalk.getFileMode(0));
                     if (!isExcluded(path)) {
-                        entries.put(path, treeWalk.getObjectId(0));
+                        SnapshotRestorer.validateEntry(path, entry);
+                        entries.put(path, entry);
                     }
                 }
             }
         }
         return entries;
-    }
-
-    private List<String> deleteTrackedFilesMissingFromTarget(Map<String, ObjectId> currentTree,
-                                                             Map<String, ObjectId> targetTree) throws IOException {
-        List<String> removed = new ArrayList<>();
-        for (String path : currentTree.keySet()) {
-            if (targetTree.containsKey(path) || isExcluded(path)) {
-                continue;
-            }
-            Path file = projectRoot.resolve(path).normalize();
-            if (!file.startsWith(projectRoot) || !Files.exists(file) || Files.isDirectory(file)) {
-                continue;
-            }
-            Files.deleteIfExists(file);
-            removed.add(path);
-            pruneEmptyParents(file.getParent());
-        }
-        return removed;
-    }
-
-    private List<String> writeTargetTree(Repository repository, Map<String, ObjectId> targetTree) throws IOException {
-        List<String> restored = new ArrayList<>();
-        for (Map.Entry<String, ObjectId> entry : targetTree.entrySet()) {
-            String path = entry.getKey();
-            if (isExcluded(path)) {
-                continue;
-            }
-            Path file = projectRoot.resolve(path).normalize();
-            if (!file.startsWith(projectRoot)) {
-                continue;
-            }
-            Path parent = file.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            ObjectLoader loader = repository.open(entry.getValue());
-            Files.write(file, loader.getBytes());
-            restored.add(path);
-        }
-        return restored;
-    }
-
-    private void pruneEmptyParents(Path dir) throws IOException {
-        Path current = dir;
-        while (current != null && current.startsWith(projectRoot) && !current.equals(projectRoot)) {
-            try (var stream = Files.list(current)) {
-                if (stream.findAny().isPresent()) {
-                    return;
-                }
-            }
-            Files.deleteIfExists(current);
-            current = current.getParent();
-        }
     }
 
     private boolean isExcluded(String relative) {
@@ -333,7 +295,11 @@ public class SideGitManager {
 
     private static Path normalizeProjectRoot(Path path) {
         Path root = path == null ? Path.of(System.getProperty("user.dir")) : path;
-        return root.toAbsolutePath().normalize();
+        try {
+            return root.toRealPath();
+        } catch (IOException e) {
+            throw new IllegalArgumentException("项目根目录无法解析为真实路径", e);
+        }
     }
 
     private static String parentKey(Path path) {

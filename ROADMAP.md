@@ -697,8 +697,8 @@ E2 的原生观察接口已经接入：包括 13 类事件（角色、输入、�
 - ⬜ 项目级 `.paicli/mcp.json` 首次出现或内容变化时逐个 server 确认，禁止覆盖用户同名配置
 - ✅ HITL 默认开启（至少 `execute_command` 与 MCP 默认需确认）：2026-09-25 交互式 CLI 默认确认 `execute_command`、`revert_turn` 与全部 MCP 工具，`/hitl on|default` 切换；同日改为 auto 模式由轻量模型分类器审查 Shell 命令，低风险直接执行，移除 `/hitl off`
 - ✅ 会话模式切换（参考 Claude Code）：2026-09-25 Shift+Tab / `/mode` 在 auto、plan、ask 之间循环，状态栏显示当前模式；Lanterna TUI 待接入
-- ⬜ 审批框完整显示命令，转义控制字符与双向控制字符，防止伪装
-- ⬜ `revert_turn` 不跟随符号链接写到项目外，按文件模式恢复软链与可执行位，失败回滚
+- ✅ 审批框完整显示命令，转义控制字符与双向控制字符，防止伪装（七类 / 97 项离线定向回归通过）
+- ✅ `revert_turn` 安全恢复：最终修复后隔离离线定向回归 18/18 通过（SideGitManagerTest 4/4、SnapshotRestorerTest 14/14）；覆盖软链/执行位、父目录缺失、路径冲突、失败回滚；path-based NOFOLLOW 检查仍有已记录的并发 TOCTOU 窗口
 
 ### 第二批：体验与能力
 

@@ -2,6 +2,8 @@
 
 | 文件 | 状态 | 用途 |
 |---|---|---|
+| [HITL 显示修复](plans/active/PLAN-20261103-hitl-display.md) | completed | 审批显示编码、完整命令与七类 / 97 项离线回归记录 |
+| [Side-Git 恢复安全](plans/active/PLAN-20261103-sidegit-restore-safety.md) | completed | 最终修复后 18 项隔离离线定向回归通过；含已记录的 TOCTOU 边界 |
 | [agents-reference.md](agents-reference.md) | active | 项目行为和模块说明 |
 | [phase-11-mcp-advanced.md](phase-11-mcp-advanced.md) | legacy | 第 11 期范围与后续补充 |
 | [MCP OAuth 约定](specs/mcp-oauth.md) | completed | OAuth 配置、存储与安全边界 |
