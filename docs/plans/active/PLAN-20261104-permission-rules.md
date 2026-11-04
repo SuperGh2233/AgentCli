@@ -1,6 +1,6 @@
 # HITL 权限规则持久化
 
-状态：active；Stage 3A、Stage 3B1、Stage 3B2 均已推送 GitHub。Stage 3B1 定向回归 10/10 通过；Stage 3B2 隔离离线定向回归 156/156 通过，并于 2026-11-04 以 commit `85a2866d1fb197be76a713aa88b7432b18ab8287` 推送成功（同时补推此前暂留本地的 Stage 3B1 commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8`）。本地工作区干净。下一阶段为 Stage 3C：MCP 永久授权的配置指纹与信任生命周期绑定。
+状态：active；Stage 3A、Stage 3B1、Stage 3B2 均已推送 GitHub。Stage 3B1 定向回归 10/10 通过；Stage 3B2 隔离离线定向回归 156/156 通过，代码 commit `85a2866d1fb197be76a713aa88b7432b18ab8287` 已推送，文档同步 commit `0672b49120bf6a39113059da51b3ddb32a2a370f` 已推送。本地工作区干净。Stage 3C 正在进行只读架构审计，目标是安全地将 MCP 永久授权绑定到配置指纹和信任生命周期。
 
 ## 背景与当前行为
 
@@ -63,13 +63,13 @@
 7. CLI / Plain / Inline / Lanterna / 其他 renderer 的语义一致；提供 `/permissions list|revoke|clear` 管理入口。
 8. 审计记录 matched rule id 与 decision，不记录额外敏感参数。
 
-### Stage 3B1 边界（已完成定向验证；本地已提交，待推送）
+### Stage 3B1 边界（已完成定向验证并推送）
 
 - 新增 `PermissionRuleRuntime`，只从合法参数中提取真实项目路径、工具名、MCP server、简单命令与安全相对路径；PATH_PREFIX 仅用于 `write_file` / `edit_file`。
 - `HitlToolRegistry` 新增可选 `setPermissionRuleStore`：启用后 DENY 拒绝、ASK 清理既有会话广泛授权并要求人工确认、有限制的 ALLOW 仅跳过 HITL；父类的参数验证、路径约束、CommandGuard 和沙箱仍运行。规则存储读取失败直接拒绝危险调用并记录审计。
 - Stage 3B1 本身未在 Main 启用存储；Stage 3B2 开始接入 Main 的用户级存储，只有逐次审批界面展示并二次确认后才可保存永久规则。
 - 对 `execute_command`、`write_file`、`edit_file` 的全工具 ALLOW 禁止直接跳过 HITL；只有简单命令前缀、项目内路径前缀允许自动命中。MCP server / MCP 工具的 DENY 与 ASK 生效，但永久 ALLOW 暂时不跳过审批：必须等 Stage 3B2 补足 MCP 配置指纹绑定及信任状态验证后才能启用。
-- `HitlPermissionRuleIntegrationTest` 已在禁网隔离副本通过 10/10，失败、错误、跳过均为 0；此结果仅为 Stage 3B1 定向验证，不代表全量测试通过。Commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8` 本地创建成功；两次 Repo Ops push 均失败，GitHub 远端 HEAD 仍为 `da497544`。
+- `HitlPermissionRuleIntegrationTest` 已在禁网隔离副本通过 10/10，失败、错误、跳过均为 0；此结果仅为 Stage 3B1 定向验证，不代表全量测试通过。Commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8` 已随 Stage 3B2 的成功 push 上传 GitHub。
 
 ### Stage 3B2 完成（156/156 隔离离线定向回归通过）
 
@@ -80,16 +80,28 @@
 - MCP 永久 ALLOW 仍关闭；未绑定 MCP 配置指纹和 trust 状态前不能跳过审批。敏感页面逐次确认保持原样。
 - 新增 `PermissionCommandTest`、精确 scope evaluator/store 测试、Plain/Inline 永久授权二次确认测试、永久授权执行链集成测试，以及 Lanterna lifecycle 测试。最终一次 Maven 离线禁网隔离定向回归：11 个测试类、156 项通过，失败/错误/跳过均为 0（BUILD SUCCESS）；这不是全量测试。Lanterna 的交互式对话框仍需在真实 TUI 终端做手工 smoke test。
 - 为隔离环境避免 Mockito Inline MockMaker 依赖动态代理附加，测试资源显式使用 Subclass MockMaker；Lanterna lifecycle 测试改为注入 `LanternaElicitation`，不再 mock final `LanternaWindow`。`LanternaRenderer.close()` 对注入式测试构造器的空 window 安全处理。
-- Stage 3B2 已独立提交为 `85a2866d1fb197be76a713aa88b7432b18ab8287`（`feat: add confirmed project-scoped permanent permissions`）并推送成功；同一次 push 同步上传此前因 Repo Ops 暂时失败而留在本地的 Stage 3B1 commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8`。推送后本地工作区干净。
+- Stage 3B2 已独立提交为 `85a2866d1fb197be76a713aa88b7432b18ab8287`（`feat: add confirmed project-scoped permanent permissions`）并推送成功；同一次 push 同步上传此前因 Repo Ops 暂时失败而留在本地的 Stage 3B1 commit `a3386e49f5a4d0d9d1ea8bf613a9035d2675b3d8`。后续文档状态修正提交 `0672b49120bf6a39113059da51b3ddb32a2a370f` 也已推送；推送后本地工作区干净。
 
-### Stage 3C：MCP 永久授权生命周期（下一阶段）
+### Stage 3C：MCP 永久授权生命周期（只读审计已完成，待设计与实现）
 
-- 设计并实现 MCP server 配置指纹：基于规范化配置计算不可逆指纹，不把环境变量明文、token 或 secret 写入权限规则、审计或日志。
-- MCP `ALLOW` 规则必须同时绑定 server 名称、当前配置指纹和明确的 trust 状态；仅当配置未变化、server 仍受信任且规则 scope 精确时才可跳过 HITL。
-- 配置缺失、指纹无法计算、trust 状态未知/撤销、配置发生变化时一律 fail closed，退回逐次人工审批；不得因 server 名称相同就沿用旧授权。
-- 覆盖 server command/args/env 变化、trust revoke/re-enable、配置缺失/损坏、server rename、旧规则迁移、secret 不泄漏、DENY/ASK 优先级等测试。
-- 先只读审计现有 MCP 配置来源、McpServerManager trust API、OAuth/trust 存储及配置热更新生命周期，再制定实现边界；不得猜测 trust 语义。
-- 独立禁网离线定向回归通过后，独立提交并推送 GitHub；真实 TUI smoke test 与全量测试另行记录，不把定向测试冒充全量测试。
+**现有能力与只读审计发现（2026-11-04）**
+
+- `McpConfigLoader.fingerprint()` 已存在：使用稳定排序后的配置字段，对 protocolVersion、command、args、env、url、headers、oauth 计算 SHA-256；项目级配置在 load 时将该指纹写入 `McpServerConfig.projectFingerprint`。`McpOAuthConfig` 只包含 public clientId/scopes，不包含 client_secret。
+- `McpTrustStore` 当前按“项目配置绝对路径 + server 名 + fingerprint”判断信任；JSON 解析失败按空信任集处理，属于 fail closed。但写入尚无属主私有权限、符号链接拒绝、跨进程文件锁，且使用固定 `.tmp` 文件；需要按权限存储的安全标准加固。
+- `McpServerManager.isTrusted()` 目前是 private；项目级配置依赖 `McpTrustStore`，用户级 `~/.paicli/mcp.json` 则按用户配置来源默认视为可信。现有 `/mcp trust` 只有授信入口，没有 `/mcp untrust` 撤销入口。
+- `McpServerManager.restartWithArgs()` 会直接修改运行时 args 后重启，但 `McpServerConfig.projectFingerprint` 不随 args 变化更新；这是当前信任生命周期的重点风险，必须先修复并覆盖回归测试。
+- `McpServerManager` 启动时加载配置；普通 restart 使用内存中的配置对象，不会重新读取配置文件。需要明确配置文件运行中被外部修改时，reload/restart 的预期行为，不能把旧快照误认为磁盘当前配置。
+- `PermissionContext` 当前只有 projectRoot/toolName/serverName/command/projectRelativePath；`PermissionRuleRuntime` 无法取得 MCP 当前配置指纹或信任状态。`maySkipApproval()` 明确禁止 MCP_SERVER/TOOL ALLOW 跳过 HITL，因此当前 MCP 永久 ALLOW 尚未生效，安全默认仍是逐次审批。
+- `McpConfigLoader.fingerprint()` 在变量展开前对原始配置计算指纹，注释明确表示本机环境变量值变化不触发重新确认。需要评估此语义：尤其 command/args/env/url/headers 中 `${VAR}` 的有效值变化是否应使授权失效；不得将原始 env/header 值写入日志或权限文件。当前 SHA-256 指纹本身虽不含明文，但低熵 secret 可能被离线猜测，需评估 keyed digest/本地密钥方案的成本。
+
+**实现边界与验收**
+
+- 先定义统一 MCP permission binding（server 名、来源类型、配置指纹、当前 trust 状态、必要时配置路径）；无 server、配置缺失、fingerprint 缺失、信任状态不可读或 server 已撤销信任时，MCP ALLOW 一律不匹配并退回逐次 HITL。
+- MCP `ALLOW` 必须绑定精确 server/tool scope + 当前 fingerprint + trust；配置变化、`restartWithArgs` 修改 args、trust revoke、server rename 或 reload 后 fingerprint 变化时旧 ALLOW 自动失效。DENY/ASK 的优先级与 fail-closed 语义不得被削弱。
+- 明确用户级 server 的信任语义：沿用“用户配置来源即用户信任”还是增加显式 revoke；项目级 server 必须沿用已有 `/mcp trust` 授信并增加可撤销能力。不得仅凭 server 名相同复用旧授权。
+- 加固 `McpTrustStore`：私有目录/文件权限、拒绝 symlink、进程锁+文件锁、随机同目录临时文件与原子替换、损坏文件 fail closed；新增按 config path + server name 撤销信任的原子操作。
+- 覆盖 server command/args/env/url/headers/protocol/OAuth 配置变化、运行时 args override、trust revoke/re-trust、配置 reload、配置缺失/损坏、server rename、用户级/项目级来源、secret 不泄漏、DENY/ASK 优先级等测试。
+- 先完成只读设计审查，再按小阶段实现；每个阶段都禁网隔离离线定向回归、独立 commit 并推送 GitHub。真实 TUI smoke test 与全量测试另行记录，不把定向测试冒充全量测试。
 
 ## 明确不做
 
