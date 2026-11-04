@@ -7,6 +7,7 @@ import com.paicli.tool.ToolOutput;
 import com.paicli.tool.ToolRegistry;
 
 import java.util.concurrent.TimeUnit;
+import java.io.IOException;
 import java.util.List;
 import java.util.function.Function;
 
@@ -25,6 +26,8 @@ public class HitlToolRegistry extends ToolRegistry {
 
     private final HitlHandler hitlHandler;
     private volatile AutoApprovalReviewer autoApprovalReviewer;
+    /** Optional: enabled only for interactive sessions after the rules UI has been reviewed. */
+    private volatile PermissionRuleStore permissionRuleStore;
     /** auto 模式下同一轮连续被拦的次数；到阈值转人工，放行或新一轮输入时清零。 */
     private final java.util.concurrent.atomic.AtomicInteger consecutiveAutoDenials =
             new java.util.concurrent.atomic.AtomicInteger();
@@ -60,6 +63,11 @@ public class HitlToolRegistry extends ToolRegistry {
         this.autoApprovalReviewer = reviewer;
     }
 
+    /** Stage 3B runtime seam. Not enabled for unattended workers or normal CLI startup yet. */
+    public void setPermissionRuleStore(PermissionRuleStore store) {
+        this.permissionRuleStore = store;
+    }
+
     /** 每条顶层用户输入开始时调用，连续被拦的计数只在同一轮内累计。 */
     public void startAutoReviewTurn() {
         consecutiveAutoDenials.set(0);
@@ -72,6 +80,51 @@ public class HitlToolRegistry extends ToolRegistry {
 
     @Override
     public ToolOutput executeToolOutput(String name, String argumentsJson) {
+        // 参数验证始终先于规则裁决；包括未知/非法工具，不受用户保存的规则影响。
+        if (argumentError(name, argumentsJson) != null) {
+            return super.doExecuteTool(name, argumentsJson);
+        }
+        PermissionRuleStore store = permissionRuleStore;
+        if (store != null && ApprovalPolicy.requiresApproval(name)) {
+            long start = System.nanoTime();
+            PermissionRuleEvaluator.Evaluation decision;
+            try {
+                decision = PermissionRuleRuntime.evaluate(store, getProjectPath(), name, argumentsJson);
+            } catch (IOException | IllegalArgumentException error) {
+                String reason = "权限规则读取失败，已拒绝执行：" + error.getMessage();
+                getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
+                        reason, elapsedMillis(start)));
+                return ToolOutput.failure("[PERMISSION] " + reason);
+            }
+            if (decision.decision() == PermissionRuleEvaluator.Decision.DENY) {
+                String reason = "规则 " + decision.matchedRule().id() + " 拒绝该工具调用";
+                getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
+                        reason, elapsedMillis(start)));
+                return ToolOutput.failure("[PERMISSION] " + reason);
+            }
+            if (decision.decision() == PermissionRuleEvaluator.Decision.ASK) {
+                if (!hitlHandler.isConfirmationActive()) {
+                    String reason = "规则 " + decision.matchedRule().id() + " 要求人工审批，但当前没有可用的审批通道";
+                    getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
+                            reason, elapsedMillis(start)));
+                    return ToolOutput.failure("[PERMISSION] " + reason);
+                }
+                BrowserCheckResult browser = checkBrowserTool(name, argumentsJson, true);
+                if (browser.blocked()) return super.doExecuteTool(name, argumentsJson);
+                // Existing broad session grants cannot bypass an explicit ASK rule.
+                hitlHandler.clearApprovedAll();
+                return executeAfterExplicitApproval(name, argumentsJson,
+                        browser.requiresPerCallApproval() ? browser.sensitiveNotice() : null,
+                        "权限规则 " + decision.matchedRule().id() + " 要求逐次确认");
+            }
+            if (PermissionRuleRuntime.maySkipApproval(decision, name)) {
+                BrowserCheckResult browser = checkBrowserTool(name, argumentsJson, true);
+                if (!browser.requiresPerCallApproval()) {
+                    // Parent ToolRegistry still enforces all hard guards and sandbox policy.
+                    return super.doExecuteTool(name, argumentsJson);
+                }
+            }
+        }
         // 完整 HITL 确认全部危险工具；未开启时，默认只确认高危工具
         boolean needsApproval = hitlHandler.isEnabled()
                 ? ApprovalPolicy.requiresApproval(name)

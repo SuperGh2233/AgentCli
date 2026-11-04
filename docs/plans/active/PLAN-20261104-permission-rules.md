@@ -1,6 +1,6 @@
 # HITL 权限规则持久化
 
-状态：active；Stage 3A（规则模型、纯函数裁决与安全持久化）代码和 16 项隔离离线定向回归已通过，待独立提交、推送。Stage 3B 再接入审批 UI、授权预览和工具执行链。
+状态：active；Stage 3A 已完成 16/16 隔离离线定向回归，并通过 da497544 提交上传 GitHub。Stage 3B1（工具执行链的可选权限裁决接入）代码已写入，尚未复验、提交或推送；Stage 3B2（审批 UI 的授权预览/二次确认及规则管理）尚未实现。
 
 ## 背景与当前行为
 
@@ -17,7 +17,7 @@
 4. 提供用户级、版本化 JSON 持久化；安全目录、文件权限、文件锁和原子替换必须 fail closed。
 5. 只有后续 UI 明确展示并确认了规则范围，才能保存永久 allow；现有 `a` 继续代表会话级授权，不得悄悄改变语义。
 6. `allow` 只影响 HITL 是否弹框，不得绕过参数校验、CommandGuard、PathGuard、CommandSandbox、敏感页面逐次确认或其他硬策略。
-7. 持久化文件损坏、权限不安全或锁失败时，不得应用 allow 规则；给用户明确警告，保持默认确认行为。
+7. 持久化文件损坏、权限不安全或锁失败时，不得应用 allow 规则；Stage 3B1 的执行链选择直接拒绝危险调用并明确提示，而不是冒险自动通过。
 
 ## Stage 3A：规则核心与安全存储
 
@@ -63,6 +63,20 @@
 7. CLI / Plain / Inline / Lanterna / 其他 renderer 的语义一致；提供 `/permissions list|revoke|clear` 管理入口。
 8. 审计记录 matched rule id 与 decision，不记录额外敏感参数。
 
+### Stage 3B1 边界（当前实现待测试）
+
+- 新增 `PermissionRuleRuntime`，只从合法参数中提取真实项目路径、工具名、MCP server、简单命令与安全相对路径；PATH_PREFIX 仅用于 `write_file` / `edit_file`。
+- `HitlToolRegistry` 新增可选 `setPermissionRuleStore`：启用后 DENY 拒绝、ASK 清理既有会话广泛授权并要求人工确认、有限制的 ALLOW 仅跳过 HITL；父类的参数验证、路径约束、CommandGuard 和沙箱仍运行。规则存储读取失败直接拒绝危险调用并记录审计。
+- 暂时**不在 Main 启用**该存储；不改现有 `a` 的本会话含义，不让未完成的 UI 自动颁发永久授权。
+- 对 `execute_command`、`write_file`、`edit_file` 的全工具 ALLOW 禁止直接跳过 HITL；只有简单命令前缀、项目内路径前缀允许自动命中。MCP server / MCP 工具的 DENY 与 ASK 生效，但永久 ALLOW 暂时不跳过审批：必须等 Stage 3B2 补足 MCP 配置指纹绑定及信任状态验证后才能启用。
+- 本阶段测试范围为 `HitlPermissionRuleIntegrationTest`（10 个测试，待执行）；覆盖 stored DENY/ASK/ALLOW、现有会话缓存优先级、存储损坏、命令多行拒绝、软链接逃逸、MCP 永久允许暂不启用、未配置时行为不变。该结果仅可作为定向验证，不替代全量测试。
+
+### Stage 3B2 待办
+
+- 覆盖 Plain / Inline / Lanterna 的“始终允许”交互，先显示即将保存的项目、匹配器和作用范围，再二次确认。
+- 在 CLI 启动流程中加载并启用存储；增加 `/permissions list|revoke|clear` 等命令与审计规则命中记录。
+- 处理切换项目、恢复会话、MCP 配置变化和敏感页面等生命周期事件；验证完整交互及回归。
+
 ## 明确不做
 
 - 不实现 Shell AST / 通用 Bash 解析器（另列 roadmap）。
@@ -74,4 +88,5 @@
 ## 实施记录
 
 - 2026-11-04：基于现有 HITL / Renderer / MCP trust / OAuth store 代码完成只读架构审查。确认当前 allow-all 仅保存在 handler 内存集合；主 CLI 使用 `RendererHitlHandler`，因此 Plain / Inline / Lanterna UI 都必须覆盖，不能只改 `TerminalHitlHandler`。
-- 2026-11-04：Stage 3A 已新增 `PermissionRule`、`PermissionContext`、`CommandPrefixMatcher`、`PermissionRuleEvaluator` 和 `PermissionRuleStore`；增加裁决优先级、项目隔离、命令 token 边界、路径前缀边界、私有权限、文件锁、原子替换、损坏文件拒绝和符号链接拒绝测试。首次定向回归 16 项通过后，复核发现命令匹配器可归一化命令换行，违背保守匹配约束；现已拒绝含控制字符的命令并增加多行命令不匹配断言。隔离禁网副本重跑后，16/16 通过，失败、错误、跳过均为 0；真实 `~/.paicli` 访问受阻，原工作区 HEAD 与 Git 状态保持不变。此结果只覆盖 Stage 3A 定向测试，不代表全量测试通过。
+- 2026-11-04：Stage 3A 已新增 `PermissionRule`、`PermissionContext`、`CommandPrefixMatcher`、`PermissionRuleEvaluator` 和 `PermissionRuleStore`；增加裁决优先级、项目隔离、命令 token 边界、路径前缀边界、私有权限、文件锁、原子替换、损坏文件拒绝和符号链接拒绝测试。首次定向回归 16 项通过后，复核发现命令匹配器可归一化命令换行，违背保守匹配约束；现已拒绝含控制字符的命令并增加多行命令不匹配断言。隔离禁网副本重跑后，16/16 通过，失败、错误、跳过均为 0。通过本地 commit da497544 独立提交；2026-11-04 重试后已推送 GitHub 并核实远端 HEAD。此结果只覆盖 Stage 3A 定向测试，不代表全量测试通过。
+- 2026-11-04：Stage 3B1 先实现可选权限执行链、原路径 guard 和作用域限制，新增集成测试；提交或启用前须执行隔离离线定向回归，不能因为 Stage 3A 测试通过就视为本阶段完成。
