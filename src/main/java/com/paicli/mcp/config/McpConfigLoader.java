@@ -50,7 +50,9 @@ public class McpConfigLoader {
     public Map<String, McpServerConfig> load() throws IOException {
         Map<String, McpServerConfig> merged = new LinkedHashMap<>();
         if (Files.exists(userConfig)) {
-            merged.putAll(read(userConfig));
+            Map<String, McpServerConfig> userServers = read(userConfig);
+            userServers.values().forEach(config -> config.markUserScoped(fingerprint(config)));
+            merged.putAll(userServers);
         }
         if (Files.exists(projectConfig) && !isSameFile(projectConfig, userConfig)) {
             Map<String, McpServerConfig> projectServers = read(projectConfig);
@@ -72,8 +74,8 @@ public class McpConfigLoader {
     }
 
     /**
-     * 配置内容指纹：命令、参数、env、url、headers 都算进去（env 里的 NODE_OPTIONS 一样能执行代码，
-     * url / headers 里的 ${VAR} 展开后会把密钥发出去）。用展开前的原文计算，用户本机变量变化不影响确认结果。
+     * 配置内容指纹：命令、参数、env、url、headers 都算进去。使用展开前的配置原文，
+     * 因此用户本机环境变量值变化不会改变项目配置确认记录。
      */
     public static String fingerprint(McpServerConfig config) {
         ObjectNode node = MAPPER.createObjectNode();
@@ -91,6 +93,24 @@ public class McpConfigLoader {
             return HexFormat.of().formatHex(digest);
         } catch (Exception e) {
             throw new IllegalStateException("计算 MCP 配置指纹失败", e);
+        }
+    }
+
+    /** Runtime-only argument overrides are chained to the immutable source fingerprint. */
+    public static String fingerprintWithRuntimeArgs(String sourceFingerprint, List<String> args) {
+        if (sourceFingerprint == null || !sourceFingerprint.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("MCP 源配置指纹非法");
+        }
+        ObjectNode node = MAPPER.createObjectNode();
+        node.put("sourceFingerprint", sourceFingerprint);
+        ArrayNode override = node.putArray("runtimeArgs");
+        if (args != null) args.forEach(override::add);
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest(MAPPER.writeValueAsBytes(node));
+            return HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            throw new IllegalStateException("计算 MCP 运行时配置指纹失败", e);
         }
     }
 
@@ -123,6 +143,7 @@ public class McpConfigLoader {
         McpServerConfig config = new McpServerConfig();
         config.setUrl(STEP_SEARCH_URL);
         config.setHeaders(Map.of("Authorization", "Bearer " + apiKey.trim()));
+        config.markUserScoped(fingerprint(config));
         merged.put(STEP_SEARCH_SERVER, config);
     }
 

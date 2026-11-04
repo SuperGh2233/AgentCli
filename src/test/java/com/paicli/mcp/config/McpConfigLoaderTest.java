@@ -5,6 +5,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -139,9 +140,11 @@ class McpConfigLoaderTest {
         Map<String, McpServerConfig> configs = new McpConfigLoader(user, project, tempDir).load();
 
         assertFalse(configs.get("fs").projectScoped());
+        assertNotNull(configs.get("fs").configFingerprint(), "用户级配置也必须具有稳定的权限绑定指纹");
         assertTrue(configs.get("git").projectScoped(), "同名覆盖后按项目级处理，不能沿用用户级的信任");
         assertEquals(project.toAbsolutePath().normalize(), configs.get("git").projectConfigFile());
         assertNotNull(configs.get("git").projectFingerprint());
+        assertEquals(configs.get("git").projectFingerprint(), configs.get("git").configFingerprint());
     }
 
     @Test
@@ -163,6 +166,21 @@ class McpConfigLoaderTest {
         httpWithHeader.setUrl("https://example.com/mcp");
         httpWithHeader.setHeaders(Map.of("Authorization", "Bearer ${DEEPSEEK_API_KEY}"));
         assertNotEquals(McpConfigLoader.fingerprint(http), McpConfigLoader.fingerprint(httpWithHeader));
+    }
+
+    @Test
+    void runtimeArgsFingerprintIsStableAndChangesWithOverride() {
+        McpServerConfig config = new McpServerConfig();
+        config.setCommand("npx");
+        config.setArgs(List.of("server"));
+        String source = McpConfigLoader.fingerprint(config);
+        String first = McpConfigLoader.fingerprintWithRuntimeArgs(source, List.of("--inspect"));
+        String same = McpConfigLoader.fingerprintWithRuntimeArgs(source, List.of("--inspect"));
+        String changed = McpConfigLoader.fingerprintWithRuntimeArgs(source, List.of("--inspect-brk"));
+
+        assertEquals(first, same);
+        assertNotEquals(source, first);
+        assertNotEquals(first, changed);
     }
 
     @Test

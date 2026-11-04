@@ -906,6 +906,11 @@ public class Main {
                         renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
                         continue;
                     }
+                    case MCP_UNTRUST -> {
+                        printMcpCommandResult(ui, mcpServerManager.untrust(command.payload()));
+                        renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
+                        continue;
+                    }
                     case MCP_RESOURCES -> {
                         printMcpCommandResult(ui, mcpServerManager.resources(command.payload()));
                         continue;
@@ -2027,6 +2032,7 @@ public class Main {
                 new SlashCommandHint("/mcp disable ", "/mcp disable <name>", "禁用 MCP server"),
                 new SlashCommandHint("/mcp enable ", "/mcp enable <name>", "启用 MCP server"),
                 new SlashCommandHint("/mcp trust ", "/mcp trust <name>", "确认并启动项目级 MCP server"),
+                new SlashCommandHint("/mcp untrust ", "/mcp untrust <name>", "撤销项目级 MCP server 信任并停止服务"),
                 new SlashCommandHint("/mcp resources ", "/mcp resources <name>", "查看 MCP resources"),
                 new SlashCommandHint("/mcp prompts ", "/mcp prompts <name>", "查看 MCP prompts"),
                 new SlashCommandHint("/policy", "/policy", "查看安全策略状态"),

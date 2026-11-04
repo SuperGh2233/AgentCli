@@ -129,7 +129,7 @@ class McpServerManagerTest {
                 new McpConfigLoader(trustDir.resolve("user.json"), trustDir.resolve("project.json"), trustDir),
                 trustStore, new McpPidFile(trustDir.resolve("mcp-pids.json")));
         Path projectConfig = trustDir.resolve("project.json");
-        trustStore.trust(projectConfig, "repo", "old-fingerprint");
+        trustStore.trust(projectConfig, "repo", "0".repeat(64));
         McpServerConfig config = httpConfig(webServer);
         config.markProjectScoped(projectConfig, McpConfigLoader.fingerprint(config));
         loadServersFromMap(Map.of("repo", config));

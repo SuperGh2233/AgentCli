@@ -33,6 +33,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Queue;
@@ -70,6 +71,7 @@ public class McpServerManager implements AutoCloseable {
     private boolean orphansCleaned;
     private boolean heartbeatStarted;
     private final Map<String, McpServer> servers = new ConcurrentHashMap<>();
+    private final Set<String> sessionRevokedTrust = ConcurrentHashMap.newKeySet();
     private final McpResourceCache resourceCache = new McpResourceCache();
     private volatile McpElicitationHandler elicitationHandler = McpElicitationHandler.CANCEL;
 
@@ -249,7 +251,7 @@ public class McpServerManager implements AutoCloseable {
         if (server == null) {
             return "未找到 MCP server: " + name;
         }
-        server.config().setArgs(args);
+        server.config().overrideArgs(args);
         return restart(name);
     }
 
@@ -355,12 +357,16 @@ public class McpServerManager implements AutoCloseable {
         if (!config.projectScoped()) {
             return "ℹ️ " + name + " 来自你自己的 ~/.paicli/mcp.json，无需确认";
         }
+        if (trustStore == null || config.projectConfigFile() == null || config.projectFingerprint() == null) {
+            return "❌ MCP trust 存储或配置指纹不可用，拒绝授信。";
+        }
         if (isTrusted(server) && server.status() != McpServerStatus.UNTRUSTED) {
             return "ℹ️ 项目级 MCP server " + name + " 的当前配置已确认";
         }
         try {
             trustStore.trust(config.projectConfigFile(), name, config.projectFingerprint());
-        } catch (IOException e) {
+            sessionRevokedTrust.remove(trustKey(config, name));
+        } catch (IOException | RuntimeException e) {
             return "❌ 保存确认记录失败: " + e.getMessage();
         }
         server.cancelAutoRestart();
@@ -373,6 +379,36 @@ public class McpServerManager implements AutoCloseable {
             return prefix + "⏸️ 配置里是 disabled，未启动";
         }
         return prefix + "❌ 启动失败: " + server.errorMessage();
+    }
+
+    /** 撤销项目级 server 的信任，并立即停止进程、移除其工具。 */
+    public synchronized String untrust(String name) {
+        if (name == null || name.isBlank()) return "❌ 请提供 MCP server 名称，例如 /mcp untrust filesystem";
+        McpServer server = servers.get(name);
+        if (server == null) return "未找到 MCP server: " + name;
+        McpServerConfig config = server.config();
+        if (!config.projectScoped()) {
+            return "ℹ️ " + name + " 来自你自己的 ~/.paicli/mcp.json；该来源默认由用户信任，请使用 /mcp disable 或移除配置。";
+        }
+        // 先在当前进程中撤销并停止，再持久化；即使存储写入失败，也不能让 server 在本会话中重新启动。
+        sessionRevokedTrust.add(trustKey(config, name));
+        server.cancelAutoRestart();
+        unregisterTools(server);
+        server.close();
+        server.status(McpServerStatus.UNTRUSTED);
+        server.errorMessage(null);
+        if (trustStore == null) {
+            return "⚠️ 当前会话已停止并阻止该 server 重启，但无法持久化撤销；重启 CLI 前必须修复或移除 trust 存储中的对应记录。";
+        }
+        try {
+            boolean removed = trustStore.untrust(config.projectConfigFile(), name);
+            return removed
+                    ? "🔒 已撤销项目级 MCP server 信任并停止服务: " + name
+                    : "ℹ️ 该 MCP server 当前没有持久信任记录，已确保停止服务: " + name;
+        } catch (IOException | RuntimeException error) {
+            return "⚠️ 当前会话已停止并阻止该 server 重启，但持久撤销写入失败；重启 CLI 前必须修复或移除 trust 存储中的对应记录，否则旧信任可能恢复: "
+                    + error.getMessage();
+        }
     }
 
     /** 启动时提示：项目配置里有哪些 server 因为没确认而没有启动。 */
@@ -390,11 +426,34 @@ public class McpServerManager implements AutoCloseable {
 
     private boolean isTrusted(McpServer server) {
         McpServerConfig config = server.config();
-        if (!config.projectScoped()) {
-            return true;
-        }
-        return trustStore != null
+        if (!config.projectScoped()) return true;
+        if (sessionRevokedTrust.contains(trustKey(config, server.name()))) return false;
+        return trustStore != null && config.projectFingerprint() != null
                 && trustStore.isTrusted(config.projectConfigFile(), server.name(), config.projectFingerprint());
+    }
+
+    private static String trustKey(McpServerConfig config, String serverName) {
+        Path configFile = config.projectConfigFile();
+        String path = configFile == null ? "" : configFile.toAbsolutePath().normalize().toString();
+        return path.length() + ":" + path + serverName;
+    }
+
+    /** Read-only MCP trust/config snapshot for permission-rule evaluation. */
+    public McpPermissionBinding permissionBinding(String serverName) {
+        if (serverName == null || serverName.isBlank()) return null;
+        McpServer server = servers.get(serverName);
+        if (server == null) return null;
+        McpServerConfig config = server.config();
+        String fingerprint = config.configFingerprint();
+        if (fingerprint == null) {
+            try {
+                fingerprint = McpConfigLoader.fingerprint(config);
+            } catch (RuntimeException ignored) {
+                fingerprint = null;
+            }
+        }
+        return new McpPermissionBinding(serverName, fingerprint, isTrusted(server),
+                server.status() == McpServerStatus.READY, config.projectScoped());
     }
 
     private static String untrustedMessage(McpServer server) {

@@ -30,6 +30,9 @@ public class McpServerConfig {
     // 来源只能由 McpConfigLoader 标记；不用 getter/setter 命名，避免配置文件里写同名字段把自己伪装成用户级
     private Path projectConfigFile;
     private String projectFingerprint;
+    private String sourceFingerprint;
+    private String configFingerprint;
+    private List<String> sourceArgs = List.of();
 
     public String getCommand() {
         return command;
@@ -89,7 +92,34 @@ public class McpServerConfig {
 
     public void markProjectScoped(Path configFile, String fingerprint) {
         this.projectConfigFile = configFile;
+        markSourceFingerprint(fingerprint);
         this.projectFingerprint = fingerprint;
+    }
+
+    /** User-level configuration is trusted by its owner, but still needs a stable binding fingerprint. */
+    public void markUserScoped(String fingerprint) {
+        this.projectConfigFile = null;
+        this.projectFingerprint = null;
+        markSourceFingerprint(fingerprint);
+    }
+
+    private void markSourceFingerprint(String fingerprint) {
+        this.sourceFingerprint = fingerprint;
+        this.configFingerprint = fingerprint;
+        this.sourceArgs = List.copyOf(args);
+    }
+
+    /** Runtime argument overrides must invalidate any previous project trust and permission binding. */
+    public void overrideArgs(List<String> args) {
+        List<String> nextArgs = args == null ? List.of() : List.copyOf(args);
+        if (sourceFingerprint == null) {
+            markSourceFingerprint(McpConfigLoader.fingerprint(this));
+        }
+        this.args = new ArrayList<>(nextArgs);
+        this.configFingerprint = nextArgs.equals(sourceArgs)
+                ? sourceFingerprint
+                : McpConfigLoader.fingerprintWithRuntimeArgs(sourceFingerprint, nextArgs);
+        if (projectScoped()) this.projectFingerprint = configFingerprint;
     }
 
     /** 来自项目目录 .paicli/mcp.json 的 server：随仓库分发，启动前要用户确认。 */
@@ -103,6 +133,10 @@ public class McpServerConfig {
 
     public String projectFingerprint() {
         return projectFingerprint;
+    }
+
+    public String configFingerprint() {
+        return configFingerprint;
     }
 
     public String transportName() {
