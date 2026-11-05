@@ -545,7 +545,7 @@ public class AgentOrchestrator {
                     ReviewDecision.ERROR, reviewResult.content(), null);
             log.warn("Reviewer failed for step {}: {}", step.id(), reviewResult.content());
             // A completed worker invocation is not a verified step. Block dependent DAG nodes.
-            updateStep(steps, step.id(), step.withFailed("审查调用失败，结果未获批准：" + reviewResult.content()));
+            updateStep(steps, step.id(), step.withFailed(result.content()));
             out.println("❌ 步骤 [" + step.id() + "] 审查调用失败，标记失败并阻止依赖步骤继续执行\n");
             return;
         }
@@ -604,7 +604,7 @@ public class AgentOrchestrator {
                         reviewerActivation, ReviewDecision.ERROR, retryReview.content(), null);
                 log.warn("Reviewer failed for step {} retry {}: {}", step.id(), retries, retryReview.content());
                 // Do not promote an unverified retry to COMPLETED when the reviewer is unavailable.
-                updateStep(steps, step.id(), step.withFailed("重试后审查调用失败，结果未获批准：" + retryReview.content()));
+                updateStep(steps, step.id(), step.withFailed(acceptedResult));
                 out.println("❌ 步骤 [" + step.id() + "] 重试后审查调用失败，标记失败并阻止依赖步骤\n");
                 return;
             }
@@ -622,8 +622,7 @@ public class AgentOrchestrator {
             out.println("✅ 步骤 [" + step.id() + "] 重试后审查通过\n");
         } else {
             // Exhausting the review budget is a failed verification, not a successful step.
-            updateStep(steps, step.id(), step.withFailed(
-                    "审查重试 " + retries + " 次仍未通过：" + issues));
+            updateStep(steps, step.id(), step.withFailed(acceptedResult));
             out.println("❌ 步骤 [" + step.id() + "] 达到审查重试上限，标记失败并阻止依赖步骤\n");
         }
     }
