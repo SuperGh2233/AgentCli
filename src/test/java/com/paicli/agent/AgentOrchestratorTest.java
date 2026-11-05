@@ -289,6 +289,76 @@ class AgentOrchestratorTest {
     }
 
     @Test
+    void shouldBlockDependentWhenReviewerRejectsAfterAllRetries(@TempDir Path tempDir) {
+        StubGLMClient llmClient = new StubGLMClient(List.of(
+                response(twoStepReviewPlan()),
+                response("第一次执行结果"),
+                response("{\"approved\":false,\"issues\":[\"缺少验证\"]}"),
+                response("第二次执行结果"),
+                response("{\"approved\":false,\"issues\":[\"仍未验证\"]}"),
+                response("第三次执行结果"),
+                response("{\"approved\":false,\"issues\":[\"最终审查未通过\"]}")
+        ));
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                llmClient, new ToolRegistry(), new NoOpMemoryManager(tempDir.toFile()));
+
+        String finalResult = orchestrator.run("验证审查不通过时的依赖阻断");
+
+        assertTrue(finalResult.contains("未完全完成"));
+        assertTrue(finalResult.contains("[step_1] ❌ 第一步"));
+        assertTrue(finalResult.contains("[step_2] ⏳ 第二步"));
+        assertFalse(finalResult.contains("✅ 多 Agent 协作任务完成"));
+        assertEquals(7, llmClient.toolSnapshots.size(), "下游 Worker 不应在审查失败后继续执行");
+    }
+
+    @Test
+    void shouldBlockDependentWhenFirstReviewCallFails(@TempDir Path tempDir) {
+        // No third response: the reviewer's LLM request throws IOException.
+        StubGLMClient llmClient = new StubGLMClient(List.of(
+                response(twoStepReviewPlan()),
+                response("第一步已执行，但结果未获审查")
+        ));
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                llmClient, new ToolRegistry(), new NoOpMemoryManager(tempDir.toFile()));
+
+        String finalResult = orchestrator.run("验证 Reviewer 不可用的阻断行为");
+
+        assertTrue(finalResult.contains("未完全完成"));
+        assertTrue(finalResult.contains("[step_1] ❌ 第一步"));
+        assertTrue(finalResult.contains("[step_2] ⏳ 第二步"));
+        assertEquals(3, llmClient.toolSnapshots.size(), "调用失败不能自动放行后续任务");
+    }
+
+    @Test
+    void shouldBlockDependentWhenRetryReviewCallFails(@TempDir Path tempDir) {
+        // Retry worker returns data, then reviewer request fails instead of approving.
+        StubGLMClient llmClient = new StubGLMClient(List.of(
+                response(twoStepReviewPlan()),
+                response("第一次执行结果"),
+                response("{\"approved\":false,\"issues\":[\"需要重试\"]}"),
+                response("第二次执行结果")
+        ));
+        AgentOrchestrator orchestrator = new AgentOrchestrator(
+                llmClient, new ToolRegistry(), new NoOpMemoryManager(tempDir.toFile()));
+
+        String finalResult = orchestrator.run("验证重试后 Reviewer 失败的依赖阻断");
+
+        assertTrue(finalResult.contains("未完全完成"));
+        assertTrue(finalResult.contains("[step_1] ❌ 第一步"));
+        assertTrue(finalResult.contains("[step_2] ⏳ 第二步"));
+        assertEquals(5, llmClient.toolSnapshots.size(), "重试审查失败不能算作批准");
+    }
+
+    private static String twoStepReviewPlan() {
+        return """
+                {"summary":"待审查的依赖任务","steps":[
+                  {"id":"s1","description":"第一步","type":"ANALYSIS","dependencies":[]},
+                  {"id":"s2","description":"第二步","type":"ANALYSIS","dependencies":["s1"]}
+                ]}
+                """;
+    }
+
+    @Test
     void shouldRunIndependentStepsInParallel(@TempDir Path tempDir) throws Exception {
         // 两个互相独立的步骤同属一个依赖批次。若并行执行生效，两个 worker 应同时在 chat() 内等待。
         CountDownLatch workersInFlight = new CountDownLatch(2);
