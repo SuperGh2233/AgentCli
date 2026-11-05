@@ -191,45 +191,45 @@ class TeamExecutionObservationTest {
     }
 
     @ParameterizedTest @ValueSource(ints = {1, 2})
-    void reviewerIoErrorIsNotApprovalEvenWhenNativeProductRetainsCompletedResult(int attempt) throws Exception {
+    void reviewerIoErrorFailsStepWhileRetainingWorkerOutput(int attempt) throws Exception {
         var failure = new IOException("REVIEW_ERROR_PRIVATE_DETAIL");
         ScriptClient client = attempt == 1 ? new ScriptClient(text(singlePlan()), text("retained-one"), failure)
                 : new ScriptClient(text(singlePlan()), text("rejected-one"), review(false), text("retained-two"), failure);
         var events = new CopyOnWriteArrayList<Event>();
         String result = observed(client, new ToolRegistry(), events::add).runExplicitTask(GOAL, GOAL);
-        assertTrue(result.startsWith("✅ 多 Agent 协作任务完成")); assertTrue(result.contains(attempt == 1 ? "retained-one" : "retained-two"));
+        assertTrue(result.startsWith("⚠️ 多 Agent 协作任务未完全完成")); assertTrue(result.contains(attempt == 1 ? "retained-one" : "retained-two"));
         var reviews = select(events, ReviewEvaluated.class);
         assertEquals(attempt, reviews.size()); assertEquals(ReviewDecision.ERROR, reviews.get(attempt - 1).decision());
         assertTrue(reviews.stream().noneMatch(event -> event.decision() == ReviewDecision.APPROVED));
         StepExited exit = only(events, StepExited.class);
-        assertEquals(ProductStatus.COMPLETED, exit.productStatus()); assertEquals(StepExitReason.REVIEW_ERROR_RETAINED, exit.reason());
-        assertEquals(RunExitReason.COMPLETED, only(events, RunExited.class).reason());
+        assertEquals(ProductStatus.FAILED, exit.productStatus()); assertEquals(StepExitReason.REVIEW_ERROR_RETAINED, exit.reason());
+        assertEquals(RunExitReason.INCOMPLETE, only(events, RunExited.class).reason());
         assertTrue(select(events, ActivationExited.class).stream().anyMatch(event -> event.activation().role() == AgentRole.REVIEWER && event.kind() == ExitKind.ERROR));
         assertNoRaw(events, "REVIEW_ERROR_PRIVATE_DETAIL");
     }
 
-    @Test void finalReviewerRejectionRemainsSeparateFromProductCompletion() throws Exception {
+    @Test void finalReviewerRejectionFailsStepButPreservesWorkerResult() throws Exception {
         var client = new ScriptClient(text(singlePlan()), text("first"), review(false), text("second"), review(false), text("third"), review(false));
         var events = new CopyOnWriteArrayList<Event>();
-        assertTrue(observed(client, new ToolRegistry(), events::add).runExplicitTask(GOAL, GOAL).startsWith("✅"));
+        assertTrue(observed(client, new ToolRegistry(), events::add).runExplicitTask(GOAL, GOAL).startsWith("⚠️"));
         assertEquals(3, activations(events, AgentRole.WORKER).size());
         assertTrue(select(events, ReviewEvaluated.class).stream().allMatch(event -> event.decision() == ReviewDecision.REJECTED));
         assertEquals(3, select(events, ReviewEvaluated.class).size());
-        assertEquals(ProductStatus.COMPLETED, only(events, StepExited.class).productStatus());
+        assertEquals(ProductStatus.FAILED, only(events, StepExited.class).productStatus());
         assertEquals(StepExitReason.RETRIES_EXHAUSTED_RETAINED, only(events, StepExited.class).reason());
         assertEquals(TextFingerprint.of("third"), only(events, StepExited.class).result());
     }
 
-    @Test void failedWorkerRetriesDoNotReplaceTheIdentityOfTheRetainedEarlierResult() throws Exception {
+    @Test void failedWorkerRetriesPreserveEvidenceButFailTheStep() throws Exception {
         var client = new ScriptClient(text(singlePlan()), text("retained-original-worker"), review(false),
                 new IOException("PRIVATE_RETRY_ERROR_ONE"), new IOException("PRIVATE_RETRY_ERROR_TWO"));
         var events = new CopyOnWriteArrayList<Event>();
         String result = observed(client, new ToolRegistry(), events::add).runExplicitTask(GOAL, GOAL);
-        assertTrue(result.startsWith("✅")); assertTrue(result.contains("retained-original-worker"));
+        assertTrue(result.startsWith("⚠️")); assertTrue(result.contains("retained-original-worker"));
         var workers = activations(events, AgentRole.WORKER); assertEquals(3, workers.size());
         assertEquals(1, select(events, ReviewEvaluated.class).size());
         var exit = only(events, StepExited.class);
-        assertEquals(ProductStatus.COMPLETED, exit.productStatus());
+        assertEquals(ProductStatus.FAILED, exit.productStatus());
         assertEquals(StepExitReason.RETRIES_EXHAUSTED_RETAINED, exit.reason());
         assertEquals(workers.get(0).activation().activationId(), exit.acceptedWorkerActivationId());
         assertEquals(TextFingerprint.of("retained-original-worker"), exit.result());
