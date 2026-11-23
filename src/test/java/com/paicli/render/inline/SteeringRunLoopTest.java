@@ -76,7 +76,9 @@ class SteeringRunLoopTest {
         var input = new PipedInputStream();
         var terminalOutput = new ByteArrayOutputStream();
         try (var keys = new PipedOutputStream(input);
-             var terminal = TerminalBuilder.builder().system(false).dumb(true)
+             // 必须显式指定 dumb 类型：dumb(true) 不会覆盖环境变量 TERM，宽度为 0 的 xterm/ansi 终端
+             // 会把提示符缩成 ">...."，下面按提示文字等待就永远等不到
+             var terminal = TerminalBuilder.builder().system(false).dumb(true).type("dumb")
                      .streams(input, terminalOutput).build()) {
             var reader = new WakeableLineReader(terminal, "steering-approval-test");
             var manager = new TurnInputManager(SESSION, true, TurnInputManager.Limits.defaults());
@@ -88,7 +90,7 @@ class SteeringRunLoopTest {
             Thread producer = new Thread(() -> {
                 try {
                     assertTrue(taskStarted.await(3, TimeUnit.SECONDS));
-                    await(() -> terminalOutput.toString(StandardCharsets.UTF_8).contains("审批选项 y/a/n/s/m"));
+                    await(() -> terminalOutput.toString(StandardCharsets.UTF_8).contains("审批选项 y/p/a/n/s/m"));
                     keys.write("n\n".getBytes(StandardCharsets.UTF_8));
                     keys.flush();
                     await(() -> terminalOutput.toString(StandardCharsets.UTF_8).contains("拒绝原因（可直接回车跳过）"));

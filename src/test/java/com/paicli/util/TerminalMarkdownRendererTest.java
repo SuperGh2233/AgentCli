@@ -100,8 +100,9 @@ class TerminalMarkdownRendererTest {
 
         assertTrue(rendered.contains("| 特性"));
         assertFalse(rendered.contains("https://api.deepseek.com/chat/completions |"));
+        // 边框和表头带颜色控制符，中文占两列，所以按屏幕显示宽度量，不能用 String.length()
         for (String line : rendered.split("\\R")) {
-            assertTrue(line.length() <= 72, "line exceeds table width: " + line);
+            assertTrue(TerminalTable.width(line) <= 72, "line exceeds table width: " + line);
         }
     }
 }

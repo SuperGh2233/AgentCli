@@ -43,7 +43,7 @@ mvn test -DskipTests=false                  # 全量
 
 交互命令：`/plan`、`/team`、`/mode auto|plan|ask`（Shift+Tab 轮流切换）、`/hitl on|default`、`/save`、`/memory`、`/compact`、`/context`、`/init`、`/export`、`/resume`、`/better-harness`、`/wechat`。不认识的 `/xxx` 由命令行直接报“未知命令”，不交给模型处理。
 
-`mvn test -Pquick` 原本就失败的测试（2026-11-23 Linux 实测）：`TerminalMarkdownRendererTest` 1 个；`AgentConversationLedgerTest.planModeWritesIntoTheSharedLedgerWithTaskActor` 和 `SteeringRunLoopTest.hitlChoiceAndRejectionReasonUseTheSameUiReader`。评测包测试已从 quick 移到 `-Pbenchmark`（91 个已知失败）；`CodeIndexTest` 连不上本机 Ollama 时跳过；`ToolRegistryTest.macSandboxAllowsDevelopmentRuntimesAndDevNull` 在较新的 macOS 上，JVM 在 Seatbelt 沙箱里会以 139 退出。CI（`.github/workflows/ci.yml`）跑 quick 加 `ToolRegistryTest` 等安全策略测试。判断有没有引入新问题，要对比改动前后失败的测试名单，不要只看失败总数。
+`mvn test -Pquick` 之前登记的已知失败已在 2026-11-24 全部修复，现在出现失败就是新问题。终端相关测试用 JLine 建测试终端时要显式 `.type("dumb")`，否则会跟着环境变量 `TERM` 变，换台机器或在 CI 上结果就不一样。评测包测试已从 quick 移到 `-Pbenchmark`（91 个已知失败）；`CodeIndexTest` 连不上本机 Ollama 时跳过；`ToolRegistryTest.macSandboxAllowsDevelopmentRuntimesAndDevNull` 在较新的 macOS 上，JVM 在 Seatbelt 沙箱里会以 139 退出。CI（`.github/workflows/ci.yml`）跑 quick 加 `ToolRegistryTest` 等安全策略测试。判断有没有引入新问题，要对比改动前后失败的测试名单，不要只看失败总数。
 
 ## 架构
 
