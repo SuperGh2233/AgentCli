@@ -398,6 +398,25 @@ class ToolRegistryTest {
     }
 
     @Test
+    void writeFileRejectsDanglingSymlinkPointingOutsideProject(@TempDir Path tempDir) throws Exception {
+        Path workspace = Files.createDirectory(tempDir.resolve("workspace"));
+        Path outside = tempDir.resolve("outside-new.txt");
+        try {
+            Files.createSymbolicLink(workspace.resolve("link"), outside);
+        } catch (UnsupportedOperationException | java.io.IOException e) {
+            assumeTrue(false, "symbolic links unsupported: " + e.getMessage());
+        }
+        ToolRegistry registry = new ToolRegistry();
+        registry.setProjectPath(workspace.toString());
+
+        ToolOutput result = registry.executeToolOutput("write_file", MAPPER.writeValueAsString(Map.of(
+                "path", "link", "content", "escaped")));
+
+        assertFalse(result.successful());
+        assertFalse(Files.exists(outside));
+    }
+
+    @Test
     void editFileRejectsOverlappingMatches(@TempDir Path tempDir) throws Exception {
         Path file = tempDir.resolve("overlap.txt");
         Files.writeString(file, "aaa");

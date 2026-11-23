@@ -3,6 +3,7 @@ package com.paicli.cli;
 import com.paicli.agent.Agent;
 import com.paicli.history.ConversationLedger;
 import com.paicli.history.SessionResume;
+import com.paicli.hitl.HitlHandler;
 import com.paicli.hitl.SwitchableHitlHandler;
 import com.paicli.llm.LlmClient;
 import com.paicli.tool.ToolRegistry;
@@ -29,6 +30,14 @@ class StartupSessionResumeTest {
         return agent;
     }
 
+    /**
+     * SwitchableHitlHandler 是 final 类，测试统一用的 mock-maker-subclass 不能直接 mock 它；
+     * 这里用真实的包装类包一个 mock 的 HitlHandler，验证都落在 delegate 上。
+     */
+    private static SwitchableHitlHandler hitlWrapping(HitlHandler delegate) {
+        return new SwitchableHitlHandler(delegate);
+    }
+
     private ConversationLedger session(String id, String project, boolean complete, long modified) throws Exception {
         ConversationLedger ledger = ConversationLedger.open(temp.resolve("history"), id);
         if (project != null) SessionResume.recordSessionStart(ledger, temp.resolve(project).toString());
@@ -48,11 +57,11 @@ class StartupSessionResumeTest {
         ConversationLedger current = ConversationLedger.open(temp.resolve("history"), "current");
         Agent agent = agent(current);
         current.appendMessage("react", "agent", "llm_response", LlmClient.Message.assistant("current answer"));
-        SwitchableHitlHandler hitl = mock(SwitchableHitlHandler.class);
-        var result = ResumeCommandHandler.handleStartup(agent, new CliStartupOptions(true, null), hitl);
+        HitlHandler delegate = mock(HitlHandler.class);
+        var result = ResumeCommandHandler.handleStartup(agent, new CliStartupOptions(true, null), hitlWrapping(delegate));
         assertTrue(result.restored(), result.output());
         assertEquals("latest", agent.getConversationHistory().get(1).content());
-        verify(hitl).clearApprovedAll();
+        verify(delegate).clearApprovedAll();
         var checkpoint = current.readAll().stream()
                 .filter(e -> ConversationLedger.VIEW_CHECKPOINT_EVENT.equals(e.event())).findFirst().orElseThrow();
         assertEquals("latest", checkpoint.metadata().get("resumedFrom"));
@@ -67,7 +76,7 @@ class StartupSessionResumeTest {
         session("newest", "project", true, 5000);
         Agent agent = agent(ConversationLedger.open(temp.resolve("history"), "current"));
         var result = ResumeCommandHandler.handleStartup(agent, CliStartupOptions.parse(new String[]{"--session", "123"}),
-                mock(SwitchableHitlHandler.class));
+                hitlWrapping(mock(HitlHandler.class)));
         assertTrue(result.restored(), result.output());
         assertEquals(List.of("123", "answer-123"), agent.getConversationHistory().subList(1, 3).stream()
                 .map(LlmClient.Message::content).toList());
@@ -82,25 +91,27 @@ class StartupSessionResumeTest {
         session("empty", "project", false, 1000);
         Agent agent = agent(ConversationLedger.open(temp.resolve("history"), "current"));
         List<LlmClient.Message> before = List.copyOf(agent.getConversationHistory());
-        SwitchableHitlHandler hitl = mock(SwitchableHitlHandler.class);
+        HitlHandler delegate = mock(HitlHandler.class);
+        SwitchableHitlHandler hitl = hitlWrapping(delegate);
         for (String id : List.of("foreign", "headless", "missing", "empty", "current")) {
             var result = ResumeCommandHandler.handleStartup(agent, new CliStartupOptions(false, id), hitl);
             assertFalse(result.restored(), id);
             assertTrue(result.output().contains("❌"));
             assertEquals(before, agent.getConversationHistory());
         }
-        verifyNoInteractions(hitl);
+        verifyNoInteractions(delegate);
     }
 
     @Test
     void noPriorSessionOrUnavailableLedgerFailsClearly() throws Exception {
         Agent agent = agent(ConversationLedger.open(temp.resolve("history"), "current"));
-        var hitl = mock(SwitchableHitlHandler.class);
+        HitlHandler delegate = mock(HitlHandler.class);
+        var hitl = hitlWrapping(delegate);
         assertFalse(ResumeCommandHandler.handleStartup(agent, new CliStartupOptions(true, null), hitl).restored());
         agent.setConversationLedger(ConversationLedger.disabled());
         var result = ResumeCommandHandler.handleStartup(agent, new CliStartupOptions(true, null), hitl);
         assertFalse(result.restored());
         assertTrue(result.output().contains("不可用"));
-        verifyNoInteractions(hitl);
+        verifyNoInteractions(delegate);
     }
 }

@@ -176,8 +176,10 @@ public class ToolRegistry {
             configureCommandSandbox(sandboxMode, Path.of(projectPath));
         }
         if (!customSnapshotService) {
-            this.snapshotService.close();
+            // 先建好新的再关旧的，避免中途出错时留下一个已关闭的快照服务
+            SnapshotService previous = this.snapshotService;
             this.snapshotService = SnapshotService.forProject(Path.of(projectPath));
+            previous.close();
         }
     }
 

@@ -34,7 +34,8 @@ cp .env.example .env
 mvn clean package                           # 默认跳过测试（pom 中 skipTests=true）
 java -jar target/paicli-1.0-SNAPSHOT.jar
 java -jar target/paicli-1.0-SNAPSHOT.jar wechat setup|start
-mvn test -Pquick                            # 常规回归
+mvn test -Pquick                            # 常规回归（不含评测包和几个慢测试）
+mvn test -Pbenchmark                        # 只跑评测包（eval.benchmark）测试
 mvn test -Pphase16-smoke                    # TUI 相关
 mvn test -Dtest=XxxTest -DskipTests=false   # 针对性（必须带 -DskipTests=false）
 mvn test -DskipTests=false                  # 全量
@@ -42,7 +43,7 @@ mvn test -DskipTests=false                  # 全量
 
 交互命令：`/plan`、`/team`、`/mode auto|plan|ask`（Shift+Tab 轮流切换）、`/hitl on|default`、`/save`、`/memory`、`/compact`、`/context`、`/init`、`/export`、`/resume`、`/better-harness`、`/wechat`。不认识的 `/xxx` 由命令行直接报“未知命令”，不交给模型处理。
 
-`mvn test -Pquick` 目前有一批原本就失败的测试：评测包（`eval.benchmark.*`）和 `TerminalMarkdownRendererTest`；`ToolRegistryTest.macSandboxAllowsDevelopmentRuntimesAndDevNull` 在较新的 macOS 上，JVM 在 Seatbelt 沙箱里会以 139 退出。判断有没有引入新问题，要对比改动前后失败的测试名单，不要只看失败总数。
+`mvn test -Pquick` 原本就失败的测试（2026-11-23 Linux 实测）：`TerminalMarkdownRendererTest` 1 个；`AgentConversationLedgerTest.planModeWritesIntoTheSharedLedgerWithTaskActor` 和 `SteeringRunLoopTest.hitlChoiceAndRejectionReasonUseTheSameUiReader`。评测包测试已从 quick 移到 `-Pbenchmark`（91 个已知失败）；`CodeIndexTest` 连不上本机 Ollama 时跳过；`ToolRegistryTest.macSandboxAllowsDevelopmentRuntimesAndDevNull` 在较新的 macOS 上，JVM 在 Seatbelt 沙箱里会以 139 退出。CI（`.github/workflows/ci.yml`）跑 quick 加 `ToolRegistryTest` 等安全策略测试。判断有没有引入新问题，要对比改动前后失败的测试名单，不要只看失败总数。
 
 ## 架构
 

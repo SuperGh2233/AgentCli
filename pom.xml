@@ -234,7 +234,31 @@
                                 <exclude>**/mcp/transport/StreamableHttpTransportTest.java</exclude>
                                 <exclude>**/tool/ToolRegistryTest.java</exclude>
                                 <exclude>**/web/WebFetcherTest.java</exclude>
+                                <!-- 评测包测试单独用 mvn test -Pbenchmark 跑：评测已暂停，里面有一批已知失败，不混进日常回归。 -->
+                                <exclude>**/eval/benchmark/**</exclude>
                             </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>benchmark</id>
+            <properties>
+                <skipTests>false</skipTests>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <version>3.2.5</version>
+                        <configuration>
+                            <argLine>-Dfile.encoding=UTF-8</argLine>
+                            <includes>
+                                <include>**/eval/benchmark/**/*Test.java</include>
+                            </includes>
                         </configuration>
                     </plugin>
                 </plugins>

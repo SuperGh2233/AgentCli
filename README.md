@@ -44,8 +44,11 @@ Day2-D 使用工具实现传递的明确失败码识别 old_text 未找到，不
 # 第 16 期终端 / TUI / inline renderer 冒烟
 mvn test -Pphase16-smoke
 
-# 常规快速回归，跳过外部进程 / 网络超时 / 命令超时类慢测试
+# 常规快速回归，跳过外部进程 / 网络超时 / 命令超时类慢测试和评测包测试
 mvn test -Pquick
+
+# 评测包（eval.benchmark）测试，单独跑
+mvn test -Pbenchmark
 
 # 代码搜索 deterministic golden set
 mvn test -Dtest=CodeSearchGoldenSetTest -DskipTests=false

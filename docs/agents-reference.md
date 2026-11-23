@@ -206,7 +206,7 @@ OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 202
 
 ### HITL 增强（策略层）
 
-- `PathGuard`：路径必须在项目根内（拦截用绝对路径跑出项目、用 `..` 跳出目录、用符号链接指向项目外）
+- `PathGuard`：路径必须在项目根内（拦截用绝对路径跑出项目、用 `..` 跳出目录、用符号链接指向项目外）。悬空软链（链接在、目标不存在）也会展开后再检查，返回的路径里不含软链，写入时不会再被系统带到项目外；循环链接、解析出错一律拒绝
 - `CommandGuard`：命中就立即拒绝的黑名单（sudo、rm -rf、mkfs、dd、fork bomb、curl|sh 等）
 - `ResourceLimit`：write_file 最大 5MB；execute_command 最长 60s，输出最多 8KB
 - `AuditLog`：JSONL 格式，字段有 timestamp、tool、args、outcome、reason、approver、durationMs
@@ -335,6 +335,7 @@ OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 202
 - side-git 在 ~/.paicli/snapshots/ 下维护独立的仓库（用 JGit，不依赖系统 git）
 - 每轮开始前同步打快照，每轮结束后异步打快照
 - revert_turn 纳入 HITL 和 AuditLog，恢复前先建一个 pre-restore 快照
+- 项目根目录不存在或无法解析成真实路径时，`SnapshotService.forProject` 不抛异常，返回一个快照功能关闭的服务（`available()=false`）：每轮快照直接跳过，`revert_turn` 返回“快照功能不可用”，其他功能照常。`SideGitManager` 本身仍然要求项目根真实存在
 
 ### Prompt 分层（第 19 期）
 
