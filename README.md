@@ -10,9 +10,9 @@
   <img alt="Agent Harness" src="https://img.shields.io/badge/Architecture-Agent%20Harness-6D28D9">
 </p>
 
-PaiCLI 是一个以 Java 构建的终端 Agent 项目，用于实践 Coding Agent 的 Harness 机制：将模型推理、上下文管理、任务规划、工具执行、安全审批和可恢复工作流组织成一个可观察的开发环境。
+Hao CLI 是一个以 Java 构建的终端 Agent 项目，用于实践 Coding Agent 的 Harness 机制：将模型推理、上下文管理、任务规划、工具执行、安全审批和可恢复工作流组织成一个可观察的开发环境。
 
-项目从 ReAct 单 Agent 循环逐步扩展到 Plan-and-Execute、Multi-Agent、MCP、代码检索、记忆管理、终端交互和外部接入。**项目目标是学习和验证 Agent 工程方法，不宣称复刻或替代 Claude Code。**
+项目从 ReAct 单 Agent 循环逐步扩展到 Plan-and-Execute、Multi-Agent、MCP、代码检索、记忆管理、终端交互和外部接入。**项目方向：以可嵌入 JVM 的轻量 Agent Runtime 为长期目标，以可复现的 Harness 工程评测为技术特色，以 Coding CLI 为验证场景。当前仍处于迭代开发阶段，不宣称复刻或替代 Claude Code。**
 
 
 Build. Execute. Evolve.
