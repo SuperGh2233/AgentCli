@@ -208,7 +208,10 @@ public final class LoadedSkillMessages {
 
     private static ToolRegistry.ToolExecutionResult withResult(ToolRegistry.ToolExecutionResult result,
                                                                String text, boolean successful) {
+        // 成败没变时保留原来的细分状态（比如 DENIED），变了才按 true / false 记 SUCCESS / FAILED。
+        ToolStatus status = successful == result.successful() ? result.status()
+                : successful ? ToolStatus.SUCCESS : ToolStatus.FAILED;
         return new ToolRegistry.ToolExecutionResult(result.id(), result.name(), result.argumentsJson(), text,
-                result.elapsedMillis(), result.timedOut(), result.imageParts(), successful, result.discoveredUrls(), result.failureCode());
+                result.elapsedMillis(), result.timedOut(), result.imageParts(), status, result.discoveredUrls(), result.failureCode());
     }
 }

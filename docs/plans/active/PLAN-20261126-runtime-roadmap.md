@@ -111,6 +111,106 @@ mvn test -DskipTests=false -Dtest='*Steering*Test,TurnInputManagerTest,InputCoor
 9. 独立 Java 示例：只用进程内入口，注册一个自定义工具和一个上下文提供者，跑一个假模型任务
 10. 验收：18 个内置工具都实现 `Tool` 接口；`looksLikeFailureText` 删除；示例能跑；依赖测试通过；`HarnessScenarioSuiteTest` 的场景结果不变（预期变化的要在提交说明里列出）
 
+#### 甲阶段设计（2026-11-26，用户已确认：3 件事都按推荐）
+
+现状（按代码核对）：
+- 工具是 `ToolRegistry` 里的嵌套记录 `Tool(name, description, parameters, ToolExecutor)`，`ToolExecutor` 收 `Map<String,String>`、返回 `String`；只有 `web_search`、`execute_command` 直接返回 `ToolOutput`。嵌套的 `ToolRegistry.Tool` 在类外没有人用
+- 调度在 `doExecuteToolLocked`：参数校验 → 浏览器检查 → 启动闸门 → 执行 → 审计；`PolicyException` 变成“🛡️ 策略拒绝”，其他异常变成“工具执行失败”；返回纯文字的工具由 `classifyTextOutput` 按前缀猜成败
+- 拒绝已经是 `ToolOutput.failure`：`HitlToolRegistry` 的 `[PERMISSION]`、`[AUTO]`、`[HITL]`，`HeadlessToolRegistry` 的“无界面模式策略拒绝”。只是没和普通失败区分开
+- 读 `successful()` 的有 20 来个类，一半以上在评测包里（`BenchmarkFailureClassifier`、`F3ToolResultAudit` 等）
+
+数据类型：
+
+```java
+public enum ToolStatus { SUCCESS, FAILED, DENIED, TIMEOUT, CANCELLED, SKIPPED, UNKNOWN }
+
+// 已有的 ToolOutput 演进，不另起新类型；successful() 改成按状态算：status == SUCCESS
+public record ToolOutput(String text, List<ContentPart> imageParts, ToolStatus status,
+                         List<String> discoveredUrls, FailureCode failureCode, boolean retryable) {
+    // 旧的 boolean 构造函数全部保留：true → SUCCESS，false → FAILED
+    public static ToolOutput text(String text);                       // SUCCESS
+    public static ToolOutput failure(FailureCode code, String text);  // FAILED
+    public static ToolOutput denied(String text);                     // DENIED
+    public static ToolOutput skipped(String text);                    // SKIPPED
+    ...
+}
+```
+
+`ToolExecutionResult`、事件 `ToolCallFinished` 同样加 `status`，旧构造函数保留；`-p` / Runtime API 的 JSON 在 `success` 旁边加 `"status"`（只加字段）。`FailureCode` 按迁移需要逐个加（比如 `NOT_FOUND`、`INVALID_ARGUMENT`），不一次列全。
+
+谁定哪个状态：
+
+| 状态 | 来源 |
+|---|---|
+| `DENIED` | 调度层的 `PolicyException`；HITL 拒绝、权限规则拒绝、auto 审查未放行；无界面白名单拒绝；本轮工具策略拒绝 |
+| `SKIPPED` | 用户在确认框里选“跳过”；回复被截断时不执行的调用 |
+| `CANCELLED` | 用户取消（ESC、取消令牌） |
+| `TIMEOUT` / `UNKNOWN` | 超时：只读工具记 `TIMEOUT`；可能有副作用的工具（写文件、命令、MCP 等）记 `UNKNOWN`，表示“不知道副作用发生没有”，不能盲目重试（见决定 2） |
+| `FAILED` | 其余失败；迁移过的工具自己返回，没迁移的仍由前缀兜底 |
+| `SUCCESS` | 工具自己报告 |
+
+`successful()` 的含义不变：除 `SUCCESS` 以外都是失败。拒绝、超时这些今天本来就算失败，所以评测包读到的成败不变，只是多了一个更细的状态。
+
+`Tool` 接口（也是 SDK 里自定义工具用的接口，放 `com.paicli.tool`）：
+
+```java
+public interface Tool {
+    String name();
+    String description();
+    JsonNode parameters();                      // JSON Schema，调度层照旧先校验
+    default boolean readOnly() { return false; } // true 才能并行（取代按名字查 PARALLEL_SAFE_TOOLS）
+    ToolOutput execute(ToolArguments args, ToolContext context) throws Exception;
+}
+
+// 包着校验后的 Map<String,String>，单值参数仍由工具自己解析（评测复算依赖这套语义）
+public final class ToolArguments { String string(String name); int integer(String name, int fallback);
+                                   boolean bool(String name, boolean fallback); boolean has(String name); }
+
+public interface ToolContext {
+    Path projectRoot();
+    Path resolvePath(String raw);   // 走 PathGuard，越界抛 PolicyException → DENIED
+    boolean cancelled();
+}
+```
+
+- 嵌套记录 `ToolRegistry.Tool` 改名 `LegacyTool`，做成 `Tool` 的适配器：执行结果仍走前缀兜底。迁一个工具删一条 `LegacyTool`
+- 调度层不变：参数校验、浏览器检查、启动闸门、审计、不可信数据包装、大结果落盘都还在 `ToolRegistry`；工具抛 `PolicyException` → `DENIED`，抛别的异常 → `FAILED`
+- 新工具类放 `com.paicli.tool.builtin`（比如 `ReadFileTool`）；它们需要的依赖（PathGuard、LSP、快照）通过 `ToolContext` 或构造参数传入，不反向依赖 `ToolRegistry`
+- 给模型看的文字一律不改，只改状态；这样提示词和评测里按文字比对的地方都不受影响
+
+提交顺序（每个提交用户跑一次测试）：
+1. 甲-1 状态：`ToolStatus`，`ToolOutput` / `ToolExecutionResult` / `ToolCallFinished` 加状态，调度层和 HITL / 无界面拒绝改成显式状态，JSON 加 `status`。不搬任何工具
+2. 甲-2 `read_file` 切片：`Tool`、`ToolArguments`、`ToolContext`、`LegacyTool` 适配器、`ToolRegistry.register(Tool)`、`ReadFileTool`
+3. 甲-3 及以后：只读工具 → 写文件工具 → 命令 → 网络和浏览器 → 其余；最后删 `looksLikeFailureText`
+4. 然后：运行结果类型、事件 `schema_version` / `sequence`、模型接口、`HaoRuntime`、依赖测试、示例
+
+#### 甲-1 进展（2026-11-27，代码已写、等用户本机运行）
+
+- 新增 `tool/ToolStatus`；`ToolOutput` 的 `successful` 字段换成 `status`（再加 `retryable`），`successful()` 按状态算，旧的 boolean 构造函数全部保留；新增 `denied` / `skipped` / `cancelled` / `unknown` / `of` / `withText` / `withStatus`；`FailureCode` 加 `INVALID_ARGUMENT`
+- `ToolExecutionResult` 同样换成 `status`，带 boolean 的旧构造函数保留；新增 `withResult`（大结果落盘时不丢状态）
+- 调度层：取消 → `CANCELLED`；`PolicyException` 和 MCP 注册变化 → `DENIED`；参数校验失败 → `FAILED` + `INVALID_ARGUMENT`；启动闸门拦下 → `SKIPPED`；命令超时被强制终止 → `UNKNOWN`；并行批次超时按工具是否只读分 `TIMEOUT` / `UNKNOWN`
+- 没迁移的工具：`legacyStatus` 按前缀推断（`🛡️` / `[HITL]` / `[AUTO]` → `DENIED`，`[HITL] 操作已被跳过` → `SKIPPED`，“用户取消了” → `CANCELLED`，“工具执行超时” → `TIMEOUT`，其余失败前缀 → `FAILED`）
+- `HitlToolRegistry` 的 `[PERMISSION]`（17 处）、`[AUTO]`、`[HITL] 操作已被拒绝` → `ToolOutput.denied`，`[HITL] 操作已被跳过` → `ToolOutput.skipped`；`HeadlessToolRegistry` 白名单拒绝、`TurnToolPolicy` 本轮策略拒绝 → `DENIED`；`LoadedSkillMessages` 成败没变时保留原状态
+- 事件 `ToolCallFinished` 加 `status`（4 参数旧构造函数保留）；`-p` / Runtime API JSON 的 `tool_call_finished` 加 `"status"`
+- 给模型看的文字一个字都没改；`successful()` 对所有已有路径的结果和以前一样（拒绝、超时、取消、跳过本来就算失败）
+- 测试：新增 `ToolStatusTest`（5 个：旧构造函数映射、前缀推断、超时分两种、调度层越界 → `DENIED` 且文字不变 / 缺参数 → `INVALID_ARGUMENT` / 取消 → `CANCELLED` 且文字不变、落盘保留状态）；`HeadlessRunnerTest` 断言 JSON 的 `status`（成功 → `success`，本轮策略拒绝 → `denied`）
+
+用户本机要做的事（JDK 21；新增了类，要 clean）：
+
+```bash
+git rev-parse --short HEAD
+mvn clean test -DskipTests=false -Dtest='ToolStatusTest,HeadlessRunnerTest,AgentLoopTest,TerminalEventRendererTest,HarnessScenarioSuiteTest,RuntimeApiServerTest,ToolRegistryTest,UnexecutedToolCallNoticeTest,AgentRunawayReminderTest'
+mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
+mvn test -DskipTests=false -Dtest='com.paicli.hitl.*Test,PermissionCommandTest,SessionModeControllerTest'   # HITL
+mvn test -DskipTests=false -Dtest='ToolRegistryTest,PathGuardTest,CommandGuardTest,AuditLogTest'           # 安全专项
+mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              # 评测包：对比改动前的 91 个已知失败，不能多
+```
+
+需要用户决定的 3 件事（已决定）：
+1. 沿用并演进 `ToolOutput`，还是新建 `ToolResult` 类型（推荐演进：它已经带图片、网址来源和失败码，新建要在所有调用处换类型）
+2. 超时分两种状态：只读工具 `TIMEOUT`、可能有副作用的工具 `UNKNOWN`（推荐：和 ADR-0002 的定义一致，`UNKNOWN` 提醒“先核实再重试”）
+3. `read_file` 的 `offset` 超过文件行数，今天算成功（文字是“offset 超出范围”），迁移后改成 `FAILED` / `INVALID_ARGUMENT`（推荐改：如实报告是这一阶段的目的；给模型的文字不变）。这会让少数场景的成功 / 失败计数变化，会在提交说明里列出
+
 ### 丙 统一执行
 
 1. 丙 1 等价迁移：Plan 的每个任务节点、Team 的每个 worker 改为调用 `AgentLoop`，删掉各自的循环。先补等价回放测试再改。必须保住：

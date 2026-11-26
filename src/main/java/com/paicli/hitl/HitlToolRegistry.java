@@ -122,13 +122,13 @@ public class HitlToolRegistry extends ToolRegistry {
                     : super.doExecuteToolWithBeforeInvoke(name, argumentsJson, beforeInvoke);
         }
         if (mcpToolSnapshot == null || !isCurrentMcpToolRegistration(name, mcpToolSnapshot)) {
-            return ToolOutput.failure("[PERMISSION] MCP 工具注册已变化或不可用，未执行；请重新审批");
+            return ToolOutput.denied("[PERMISSION] MCP 工具注册已变化或不可用，未执行；请重新审批");
         }
         if (mcpPermissionBindingProvider != null) {
             McpPermissionBinding current = currentMcpBinding(name);
             if (expectedBinding == null || !expectedBinding.usableForPermanentAllow()
                     || !expectedBinding.equals(current)) {
-                return ToolOutput.failure("[PERMISSION] MCP 配置、信任或运行状态已变化，未执行；请重新审批");
+                return ToolOutput.denied("[PERMISSION] MCP 配置、信任或运行状态已变化，未执行；请重新审批");
             }
         }
         return super.doExecuteMcpToolBound(name, argumentsJson, mcpToolSnapshot, beforeInvoke);
@@ -168,20 +168,20 @@ public class HitlToolRegistry extends ToolRegistry {
                 String reason = "权限规则读取失败，已拒绝执行：" + error.getMessage();
                 getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                         reason, elapsedMillis(start)));
-                return ToolOutput.failure("[PERMISSION] " + reason);
+                return ToolOutput.denied("[PERMISSION] " + reason);
             }
             if (decision.decision() == PermissionRuleEvaluator.Decision.DENY) {
                 String reason = "规则 " + decision.matchedRule().id() + " 拒绝该工具调用";
                 getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                         reason, elapsedMillis(start)));
-                return ToolOutput.failure("[PERMISSION] " + reason);
+                return ToolOutput.denied("[PERMISSION] " + reason);
             }
             if (decision.decision() == PermissionRuleEvaluator.Decision.ASK) {
                 if (!hitlHandler.isConfirmationActive()) {
                     String reason = "规则 " + decision.matchedRule().id() + " 要求人工审批，但当前没有可用的审批通道";
                     getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                             reason, elapsedMillis(start)));
-                    return ToolOutput.failure("[PERMISSION] " + reason);
+                    return ToolOutput.denied("[PERMISSION] " + reason);
                 }
                 BrowserCheckResult browser = checkBrowserTool(name, argumentsJson, true);
                 if (browser.blocked()) return executeParentTool(name, argumentsJson, mcpToolSnapshot, mcpBinding);
@@ -279,7 +279,7 @@ public class HitlToolRegistry extends ToolRegistry {
         getAuditLog().record(AuditLog.AuditEntry.denyByAutoClassifier(
                 name, argumentsJson, reason, elapsedMillis(start)));
         hitlHandler.onAutoDenied(name, reason);
-        return ToolOutput.failure("[AUTO] 自动审查未放行：" + reason
+        return ToolOutput.denied("[AUTO] 自动审查未放行：" + reason
                 + "。请换一种更安全、只读的做法；如果确实必须执行，请在回复里向用户说明原因，"
                 + "由用户按 Shift+Tab 切到 ask 模式后再执行。");
     }
@@ -302,7 +302,7 @@ public class HitlToolRegistry extends ToolRegistry {
             String reason = "MCP 工具注册已变化或不可用，已阻止审批";
             getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                     reason, elapsedMillis(start)));
-            return ToolOutput.failure("[PERMISSION] " + reason);
+            return ToolOutput.denied("[PERMISSION] " + reason);
         }
         boolean bindingManaged = mcpCall && mcpPermissionBindingProvider != null;
         McpPermissionBinding approvalBinding = bindingManaged ? currentMcpBinding(name) : null;
@@ -311,14 +311,14 @@ public class HitlToolRegistry extends ToolRegistry {
             String reason = "MCP server 当前配置、信任或运行状态不可用于审批，已阻止执行";
             getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                     reason, elapsedMillis(start)));
-            return ToolOutput.failure("[PERMISSION] " + reason);
+            return ToolOutput.denied("[PERMISSION] " + reason);
         }
         if (bindingManaged && permanentAllowProposal != null
                 && !permanentAllowProposal.bindingFingerprint().equals(approvalBinding.configFingerprint())) {
             String reason = "MCP 配置在生成永久授权候选后发生变化，已阻止执行";
             getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                     reason, elapsedMillis(start)));
-            return ToolOutput.failure("[PERMISSION] " + reason + "；请重新审批");
+            return ToolOutput.denied("[PERMISSION] " + reason + "；请重新审批");
         }
         ApprovalRequest request = ApprovalRequest.of(name, argumentsJson, reviewNote, null, sensitiveNotice,
                 permanentAllowProposal, forcePerCall);
@@ -330,7 +330,7 @@ public class HitlToolRegistry extends ToolRegistry {
             String reason = "当前操作要求逐次确认，不允许会话级或永久放行";
             getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                     reason, elapsedMillis(start)));
-            return ToolOutput.failure("[PERMISSION] " + reason);
+            return ToolOutput.denied("[PERMISSION] " + reason);
         }
 
         if (result.isRejected()) {
@@ -339,45 +339,45 @@ public class HitlToolRegistry extends ToolRegistry {
                     : "用户拒绝了此操作";
             getAuditLog().record(AuditLog.AuditEntry.denyByHitl(
                     name, argumentsJson, reason, elapsedMillis(start)));
-            return ToolOutput.failure("[HITL] 操作已被拒绝：" + reason);
+            return ToolOutput.denied("[HITL] 操作已被拒绝：" + reason);
         }
 
         if (result.isSkipped()) {
             getAuditLog().record(AuditLog.AuditEntry.denyByHitl(
                     name, argumentsJson, "用户跳过", elapsedMillis(start)));
-            return ToolOutput.failure("[HITL] 操作已被跳过");
+            return ToolOutput.skipped("[HITL] 操作已被跳过");
         }
 
         if (mcpCall && !isCurrentMcpToolRegistration(name, mcpToolSnapshot)) {
             String reason = "MCP 工具在审批期间被替换，本次操作未执行";
             getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                     reason, elapsedMillis(start)));
-            return ToolOutput.failure("[PERMISSION] " + reason + "；请重新审批");
+            return ToolOutput.denied("[PERMISSION] " + reason + "；请重新审批");
         }
         if (bindingManaged && !approvalBinding.equals(currentMcpBinding(name))) {
             String reason = "MCP 配置、信任或运行状态在审批期间发生变化，本次操作未执行";
             getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                     reason, elapsedMillis(start)));
-            return ToolOutput.failure("[PERMISSION] " + reason + "；请重新审批");
+            return ToolOutput.denied("[PERMISSION] " + reason + "；请重新审批");
         }
 
         if (result.decision() == ApprovalResult.Decision.PERMANENTLY_ALLOWED) {
             PermissionRuleStore store = permissionRuleStore;
             PermissionRule proposal = request.permanentAllowProposal();
             if (store == null || proposal == null || proposal.effect() != PermissionRule.Effect.ALLOW) {
-                return ToolOutput.failure("[PERMISSION] 当前操作没有有效的永久授权候选，未保存规则");
+                return ToolOutput.denied("[PERMISSION] 当前操作没有有效的永久授权候选，未保存规则");
             }
             try {
                 String realProject = java.nio.file.Path.of(getProjectPath()).toRealPath().toString();
                 if (!realProject.equals(proposal.projectRoot())) {
-                    return ToolOutput.failure("[PERMISSION] 项目路径已变化，永久授权未保存；请重新审批");
+                    return ToolOutput.denied("[PERMISSION] 项目路径已变化，永久授权未保存；请重新审批");
                 }
                 store.requireOutsideProject(java.nio.file.Path.of(realProject));
                 if (ApprovalPolicy.isMcpTool(name) && !isCurrentMcpProposal(proposal)) {
                     String reason = "MCP 配置、信任或运行状态在审批期间发生变化，永久授权未保存，本次操作未执行";
                     getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                             reason, elapsedMillis(start)));
-                    return ToolOutput.failure("[PERMISSION] " + reason + "；请重新审批");
+                    return ToolOutput.denied("[PERMISSION] " + reason + "；请重新审批");
                 }
                 if (mcpCall) {
                     boolean saved = store.addIf(proposal, () -> isCurrentMcpProposal(proposal)
@@ -387,7 +387,7 @@ public class HitlToolRegistry extends ToolRegistry {
                         String reason = "MCP 配置、信任或工具注册在规则发布期间发生变化，永久授权未保存，本次操作未执行";
                         getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                                 reason, elapsedMillis(start)));
-                        return ToolOutput.failure("[PERMISSION] " + reason + "；请重新审批");
+                        return ToolOutput.denied("[PERMISSION] " + reason + "；请重新审批");
                     }
                 } else {
                     store.add(proposal);
@@ -399,12 +399,12 @@ public class HitlToolRegistry extends ToolRegistry {
                     String reason = "MCP 配置、信任或工具注册在保存期间发生变化，永久授权已撤销，本次操作未执行";
                     getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                             reason, elapsedMillis(start)));
-                    return ToolOutput.failure("[PERMISSION] " + reason + "；请重新审批");
+                    return ToolOutput.denied("[PERMISSION] " + reason + "；请重新审批");
                 }
             } catch (IOException | IllegalArgumentException error) {
                 getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson,
                         "永久授权保存失败：" + error.getMessage(), elapsedMillis(start)));
-                return ToolOutput.failure("[PERMISSION] 永久授权保存失败，操作未执行：" + error.getMessage());
+                return ToolOutput.denied("[PERMISSION] 永久授权保存失败，操作未执行：" + error.getMessage());
             }
         }
 

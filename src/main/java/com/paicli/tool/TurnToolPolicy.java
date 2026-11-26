@@ -554,7 +554,10 @@ public final class TurnToolPolicy {
                 "🛡️ 工具调用已拒绝 [" + decision.code() + "]: " + decision.message(),
                 0,
                 false,
-                List.of());
+                List.of(),
+                ToolStatus.DENIED,
+                List.of(),
+                ToolOutput.FailureCode.NONE);
     }
 
     private static ToolExecutionResult missingResult(ToolInvocation invocation) {

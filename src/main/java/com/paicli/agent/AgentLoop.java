@@ -241,7 +241,7 @@ final class AgentLoop {
                             executeToolCalls(turn, response.toolCalls(), iteration, toolExposure);
                     for (ToolExecutionResult executed : executedResults) {
                         emit(turn, new AgentEvent.ToolCallFinished(executed.id(), executed.name(),
-                                executed.successful(), executed.result()));
+                                executed.successful(), executed.result(), executed.status()));
                     }
                     resourceFailureObserver.observe(executedResults).ifPresent(notice ->
                             log.info("Resource failure observation: {}", notice));

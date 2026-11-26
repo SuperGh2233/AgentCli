@@ -117,6 +117,7 @@ class HeadlessRunnerTest {
         JsonNode finishedTool = run.jsonLines().get(4);
         assertEquals("call_1", finishedTool.path("id").asText());
         assertTrue(finishedTool.path("success").asBoolean());
+        assertEquals("success", finishedTool.path("status").asText());
         assertTrue(finishedTool.path("output").asText().contains("content-a"));
     }
 
@@ -138,6 +139,7 @@ class HeadlessRunnerTest {
                 .filter(node -> "tool_call_finished".equals(node.path("type").asText()))
                 .findFirst().orElseThrow();
         assertFalse(finishedTool.path("success").asBoolean());
+        assertEquals("denied", finishedTool.path("status").asText(), "被拒绝和执行失败要分开");
         // 没暴露的工具先被本轮工具策略（TurnToolPolicy）拒绝；无界面白名单本身由 denialReason 单独测。
         assertTrue(finishedTool.path("output").asText().contains("未向本轮模型开放"), finishedTool.toString());
     }

@@ -1,5 +1,7 @@
 package com.paicli.agent.event;
 
+import com.paicli.tool.ToolStatus;
+
 /**
  * Agent 一轮执行过程中对外发出的事件，所有前端（交互终端、无界面模式、Runtime API、微信）都可以只消费它。
  *
@@ -53,8 +55,20 @@ public sealed interface AgentEvent permits AgentEvent.TurnStarted, AgentEvent.Re
         }
     }
 
-    /** 工具执行结束。output 是还给模型之前的原始结果文字（未加不可信标记）。 */
-    record ToolCallFinished(String id, String name, boolean success, String output) implements AgentEvent {
+    /**
+     * 工具执行结束。output 是还给模型之前的原始结果文字（未加不可信标记）；status 是细分状态，
+     * success 等于 {@code status == SUCCESS}（两者不一致时以 status 为准）。
+     */
+    record ToolCallFinished(String id, String name, boolean success, String output, ToolStatus status)
+            implements AgentEvent {
+        public ToolCallFinished {
+            status = status == null ? (success ? ToolStatus.SUCCESS : ToolStatus.FAILED) : status;
+            success = status.successful();
+        }
+
+        public ToolCallFinished(String id, String name, boolean success, String output) {
+            this(id, name, success, output, null);
+        }
     }
 
     /** 工具调用没有执行，比如参数被长度截断。 */

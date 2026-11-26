@@ -1531,7 +1531,7 @@ public class ToolRegistry {
     private ToolOutput doExecuteToolLocked(String name, String argumentsJson,
                                             McpRegisteredTool expectedMcpTool, Runnable beforeInvoke) {
         if (CancellationContext.isCancelled()) {
-            return ToolOutput.failure("用户取消了此次工具调用");
+            return ToolOutput.cancelled("用户取消了此次工具调用");
         }
         Tool tool = tools.get(name);
         if (tool == null) {
@@ -1544,7 +1544,7 @@ public class ToolRegistry {
 
         McpRegisteredTool mcpTool = mcpTools.get(name);
         if (expectedMcpTool != null && mcpTool != expectedMcpTool) {
-            return ToolOutput.failure("[PERMISSION] MCP 工具注册已变化，未执行；请重新审批");
+            return ToolOutput.denied("[PERMISSION] MCP 工具注册已变化，未执行；请重新审批");
         }
         if (name != null && name.startsWith("mcp__") && mcpTool == null) {
             return ToolOutput.failure("未知工具: " + name);
@@ -1555,7 +1555,7 @@ public class ToolRegistry {
                 auditLog.record(AuditLog.AuditEntry.error(
                         name, argumentsJson, "参数校验失败", elapsedMillis(start), auditMetadata));
             }
-            return ToolOutput.failure(checked.error());
+            return ToolOutput.failure(ToolOutput.FailureCode.INVALID_ARGUMENT, checked.error());
         }
 
         try {
@@ -1566,7 +1566,7 @@ public class ToolRegistry {
                     throw new PolicyException(browserCheck.reason());
                 }
                 String rejection = claimPendingToolStart();
-                if (rejection != null) return ToolOutput.failure(rejection);
+                if (rejection != null) return ToolOutput.skipped(rejection);
                 if (beforeInvoke != null) beforeInvoke.run();
                 ToolOutput output = mcpTool.invoker().apply(argumentsJson);
                 if (output == null) {
@@ -1580,11 +1580,7 @@ public class ToolRegistry {
                     String safeText = browserGuard.sanitizeResult(
                             name, argumentsJson, rawText, output.successful());
                     if (!safeText.equals(rawText)) {
-                        output = new ToolOutput(
-                                safeText,
-                                output.imageParts(),
-                                output.successful(),
-                                output.discoveredUrls(), output.failureCode());
+                        output = output.withText(safeText);
                     }
                 }
                 if (shouldAudit) {
@@ -1597,7 +1593,7 @@ public class ToolRegistry {
             checked.arguments().fields().forEachRemaining(entry ->
                     argMap.put(entry.getKey(), entry.getValue().asText()));
             String rejection = claimPendingToolStart();
-            if (rejection != null) return ToolOutput.failure(rejection);
+            if (rejection != null) return ToolOutput.skipped(rejection);
             if (beforeInvoke != null) beforeInvoke.run();
             ToolOutput output;
             if ("web_search".equals(name)) {
@@ -1616,7 +1612,7 @@ public class ToolRegistry {
                 auditLog.record(AuditLog.AuditEntry.denyByPolicy(
                         name, argumentsJson, e.getMessage(), elapsedMillis(start), auditMetadata));
             }
-            return ToolOutput.failure("🛡️ 策略拒绝: " + e.getMessage());
+            return ToolOutput.denied("🛡️ 策略拒绝: " + e.getMessage());
         } catch (Exception e) {
             if (shouldAudit) {
                 auditLog.record(AuditLog.AuditEntry.error(
@@ -1647,18 +1643,43 @@ public class ToolRegistry {
     }
 
     private static ToolOutput classifyTextOutput(String text) {
-        return looksLikeFailureText(text) ? ToolOutput.failure(text) : ToolOutput.text(text);
+        ToolStatus status = legacyStatus(text);
+        return status == ToolStatus.SUCCESS ? ToolOutput.text(text) : ToolOutput.of(status, text);
     }
 
     private static ToolOutput classifyOutput(ToolOutput output) {
         if (output == null) {
             return ToolOutput.text("");
         }
-        if (!output.successful() || !looksLikeFailureText(output.text())) {
+        if (!output.successful()) {
             return output;
         }
-        return new ToolOutput(output.text(), output.imageParts(), false,
-                List.of(), output.failureCode());
+        ToolStatus status = legacyStatus(output.text());
+        return status == ToolStatus.SUCCESS ? output : output.withStatus(status);
+    }
+
+    /**
+     * 还没迁移到 {@code Tool} 接口的工具只返回文字，这里按前缀推断状态（甲阶段迁完后删除）。
+     * 不像失败的一律算 SUCCESS。
+     */
+    static ToolStatus legacyStatus(String text) {
+        if (!looksLikeFailureText(text)) {
+            return ToolStatus.SUCCESS;
+        }
+        String value = text.stripLeading();
+        if (value.startsWith("[HITL] 操作已被跳过")) {
+            return ToolStatus.SKIPPED;
+        }
+        if (value.startsWith("🛡️") || value.startsWith("[HITL]") || value.startsWith("[AUTO]")) {
+            return ToolStatus.DENIED;
+        }
+        if (value.startsWith("用户取消了")) {
+            return ToolStatus.CANCELLED;
+        }
+        if (value.startsWith("工具执行超时")) {
+            return ToolStatus.TIMEOUT;
+        }
+        return ToolStatus.FAILED;
     }
 
     private static boolean looksLikeFailureText(String text) {
@@ -1736,7 +1757,7 @@ public class ToolRegistry {
         }
         if (CancellationContext.isCancelled()) {
             return invocations.stream()
-                    .map(invocation -> ToolExecutionResult.failed(invocation, "用户取消了此次工具调用"))
+                    .map(ToolExecutionResult::cancelled)
                     .toList();
         }
         if (invocations.size() == 1
@@ -1770,6 +1791,11 @@ public class ToolRegistry {
         return toolName != null && PARALLEL_SAFE_TOOLS.contains(toolName);
     }
 
+    /** 超时的状态：只读工具没有副作用记 TIMEOUT，其余记 UNKNOWN（不知道副作用发生没有）。 */
+    static ToolStatus timeoutStatus(String toolName) {
+        return isParallelSafeTool(toolName) ? ToolStatus.TIMEOUT : ToolStatus.UNKNOWN;
+    }
+
     private List<ToolExecutionResult> flushReadOnlyRun(List<ToolInvocation> readOnlyRun, ToolStartGate startGate) {
         if (readOnlyRun.isEmpty()) {
             return List.of();
@@ -1795,7 +1821,7 @@ public class ToolRegistry {
         List<ToolExecutionResult> results = new ArrayList<>(invocations.size());
         for (ToolInvocation invocation : invocations) {
             if (CancellationContext.isCancelled()) {
-                results.add(ToolExecutionResult.failed(invocation, "用户取消了此次工具调用"));
+                results.add(ToolExecutionResult.cancelled(invocation));
                 continue;
             }
             long startedAt = System.nanoTime();
@@ -1817,7 +1843,7 @@ public class ToolRegistry {
             List<Callable<ToolExecutionResult>> tasks = invocations.stream()
                     .<Callable<ToolExecutionResult>>map(invocation -> () -> {
                         if (CancellationContext.isCancelled()) {
-                            return ToolExecutionResult.failed(invocation, "用户取消了此次工具调用");
+                            return ToolExecutionResult.cancelled(invocation);
                         }
                         long startedAt = System.nanoTime();
                         ToolOutput output = executeInvocation(invocation, startGate);
@@ -1875,9 +1901,7 @@ public class ToolRegistry {
         if (text == null || text.equals(result.result())) {
             return result;
         }
-        return new ToolExecutionResult(result.id(), result.name(), result.argumentsJson(), text,
-                result.elapsedMillis(), result.timedOut(), result.imageParts(), result.successful(),
-                result.discoveredUrls(), result.failureCode());
+        return result.withResult(text);
     }
 
     private long elapsedMillis(long startedAtNanos) {
@@ -1968,7 +1992,8 @@ public class ToolRegistry {
                 process.destroyForcibly();
                 process.waitFor(2, TimeUnit.SECONDS);
                 outputFuture.cancel(true);
-                ToolOutput result = ToolOutput.failure(
+                // 命令已经跑了一段时间，副作用发生没有不确定：记 UNKNOWN，提醒先核实再重试。
+                ToolOutput result = ToolOutput.unknown(
                         "命令执行超时（" + commandTimeoutSeconds + "秒），已强制终止");
                 if (observation != null && !process.isAlive()) observation.exitCode = process.exitValue();
                 observeCommand(observation, CommandExecutionObserver.Phase.FINISHED,
@@ -2121,17 +2146,35 @@ public class ToolRegistry {
 
     public record ToolInvocation(String id, String name, String argumentsJson) {}
 
+    /**
+     * 调度层对一次调用的记录。{@code status} 见 {@link ToolStatus}；{@link #successful()} 按状态算。
+     * 带 boolean 的旧构造函数保留：true 记 SUCCESS，false 记 FAILED（超时记 TIMEOUT）。
+     */
     public record ToolExecutionResult(String id, String name, String argumentsJson,
                                       String result, long elapsedMillis, boolean timedOut,
                                       List<com.paicli.llm.LlmClient.ContentPart> imageParts,
-                                      boolean successful,
+                                      ToolStatus status,
                                       List<String> discoveredUrls,
                                       ToolOutput.FailureCode failureCode) {
         public ToolExecutionResult {
             failureCode = failureCode == null ? ToolOutput.FailureCode.NONE : failureCode;
             imageParts = imageParts == null ? List.of() : List.copyOf(imageParts);
             discoveredUrls = discoveredUrls == null ? List.of() : List.copyOf(discoveredUrls);
-            successful = successful && !timedOut;
+            status = status == null ? ToolStatus.FAILED : status;
+            if (timedOut && status.successful()) {
+                status = ToolStatus.TIMEOUT;
+            }
+        }
+
+        public ToolExecutionResult(String id, String name, String argumentsJson,
+                                   String result, long elapsedMillis, boolean timedOut,
+                                   List<com.paicli.llm.LlmClient.ContentPart> imageParts,
+                                   boolean successful,
+                                   List<String> discoveredUrls,
+                                   ToolOutput.FailureCode failureCode) {
+            this(id, name, argumentsJson, result, elapsedMillis, timedOut, imageParts,
+                    timedOut ? ToolStatus.TIMEOUT : successful ? ToolStatus.SUCCESS : ToolStatus.FAILED,
+                    discoveredUrls, failureCode);
         }
 
         public ToolExecutionResult(String id, String name, String argumentsJson,
@@ -2142,12 +2185,22 @@ public class ToolRegistry {
                     successful, discoveredUrls, ToolOutput.FailureCode.NONE);
         }
 
-        /** Backward-compatible constructor for existing registries and tests. */
+        /** Backward-compatible constructor for existing registries and tests：状态按文字前缀推断。 */
         public ToolExecutionResult(String id, String name, String argumentsJson,
                                    String result, long elapsedMillis, boolean timedOut,
                                    List<com.paicli.llm.LlmClient.ContentPart> imageParts) {
             this(id, name, argumentsJson, result, elapsedMillis, timedOut, imageParts,
-                    !timedOut && !looksLikeFailureText(result), List.of());
+                    timedOut ? ToolStatus.TIMEOUT : legacyStatus(result), List.of(), ToolOutput.FailureCode.NONE);
+        }
+
+        public boolean successful() {
+            return status.successful();
+        }
+
+        /** 换正文，其余不变（大结果落盘后换成预览）。 */
+        public ToolExecutionResult withResult(String newResult) {
+            return new ToolExecutionResult(id, name, argumentsJson, newResult, elapsedMillis, timedOut,
+                    imageParts, status, discoveredUrls, failureCode);
         }
 
         private static ToolExecutionResult completed(ToolInvocation invocation, ToolOutput output, long elapsedMillis) {
@@ -2159,7 +2212,7 @@ public class ToolRegistry {
                     elapsedMillis,
                     false,
                     output == null ? List.of() : output.imageParts(),
-                    output != null && output.successful(),
+                    output == null ? ToolStatus.FAILED : output.status(),
                     output == null ? List.of() : output.discoveredUrls(),
                     output == null ? ToolOutput.FailureCode.NONE : output.failureCode());
         }
@@ -2172,6 +2225,12 @@ public class ToolRegistry {
             return completed(invocation, "工具执行失败: " + message, 0);
         }
 
+        /** 文字和以前一样（“工具执行失败: 用户取消了此次工具调用”），状态记 CANCELLED。 */
+        private static ToolExecutionResult cancelled(ToolInvocation invocation) {
+            return completed(invocation, ToolOutput.cancelled("工具执行失败: 用户取消了此次工具调用"), 0);
+        }
+
+        /** 只读工具超时没有副作用，记 TIMEOUT；其他工具记 UNKNOWN（目前只有只读工具会并行，所以实际都是 TIMEOUT）。 */
         private static ToolExecutionResult timedOut(ToolInvocation invocation, long timeoutSeconds) {
             return new ToolExecutionResult(
                     invocation.id(),
@@ -2181,8 +2240,9 @@ public class ToolRegistry {
                     timeoutSeconds * 1000,
                     true,
                     List.of(),
-                    false,
-                    List.of()
+                    timeoutStatus(invocation.name()),
+                    List.of(),
+                    ToolOutput.FailureCode.NONE
             );
         }
 

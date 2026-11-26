@@ -90,7 +90,7 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 | `text_delta` | `text` | 回答正文增量 |
 | `usage` | `input_tokens`、`output_tokens`、`cached_input_tokens`、`reported` | 每次模型请求一条；`reported=false` 表示供应商没给完整用量，数字不可信 |
 | `tool_call_started` | `id`、`name`、`arguments` | 模型请求调用工具（参数原文） |
-| `tool_call_finished` | `id`、`name`、`success`、`output` | 工具执行结束；`output` 是还给模型之前的原始结果 |
+| `tool_call_finished` | `id`、`name`、`success`、`status`、`output` | 工具执行结束；`output` 是还给模型之前的原始结果。`status`（2026-11-27 起）是细分状态：`success` / `failed` / `denied`（被策略、权限、确认或白名单拒绝）/ `timeout`（只读工具超时）/ `cancelled` / `skipped`（没执行）/ `unknown`（执行了但结果不确定，比如命令超时被强制终止，先核实再重试）；`success` 等于 `status == "success"`，见 `docs/adr/ADR-0002-result-semantics.md` |
 | `tool_call_skipped` | `id`、`name`、`reason` | 没有执行；目前只有 `output_truncated`（模型输出被长度截断，参数不完整） |
 | `notice` | `text` | 提示，比如上下文压缩、重复调用提醒、预算触发 |
 | `turn_finished` | `turn_id`、`status`、`answer`、`model_requests`、`duration_ms`、`input_tokens`、`output_tokens`、`cached_input_tokens` | 一轮结束，Token 是本轮累计 |

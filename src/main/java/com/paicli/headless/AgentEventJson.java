@@ -35,7 +35,7 @@ public final class AgentEventJson {
                     .put("arguments", e.argumentsJson());
         } else if (event instanceof AgentEvent.ToolCallFinished e) {
             node.put("type", "tool_call_finished").put("id", e.id()).put("name", e.name())
-                    .put("success", e.success()).put("output", e.output());
+                    .put("success", e.success()).put("status", e.status().wireName()).put("output", e.output());
         } else if (event instanceof AgentEvent.ToolCallSkipped e) {
             node.put("type", "tool_call_skipped").put("id", e.id()).put("name", e.name()).put("reason", e.reason());
         } else if (event instanceof AgentEvent.Notice e) {
