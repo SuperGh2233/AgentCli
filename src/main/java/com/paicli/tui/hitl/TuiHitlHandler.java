@@ -50,13 +50,14 @@ public class TuiHitlHandler implements HitlHandler {
     }
 
     @Override
-    public ApprovalResult requestApproval(ApprovalRequest request) {
+    public synchronized ApprovalResult requestApproval(ApprovalRequest request) {
         if (!enabled) {
             return ApprovalResult.approve();
         }
 
         String mcpServer = com.paicli.hitl.ApprovalPolicy.mcpServerName(request.toolName());
-        boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
+        boolean sensitivePerCall = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
 
         // 检查是否已全部放行
         if (!sensitivePerCall && isApprovedAllByTool(request.toolName())) {
@@ -97,12 +98,13 @@ public class TuiHitlHandler implements HitlHandler {
     }
 
     /**
-     * 清除指定 MCP server 的"全部放行"记录。
+     * 清除指定 MCP server 的整体授权及其各个工具的授权。
      */
     @Override
-    public void clearApprovedAllForServer(String serverName) {
+    public synchronized void clearApprovedAllForServer(String serverName) {
         if (serverName != null) {
             approvedAllByServer.remove(serverName);
+            approvedAllByTool.removeIf(name -> name.startsWith("mcp__" + serverName + "__"));
         }
     }
 }

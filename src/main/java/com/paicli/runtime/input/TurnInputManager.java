@@ -38,6 +38,8 @@ public final class TurnInputManager {
 
     public enum Finalization { CONTINUE, FINALIZE }
 
+    public enum ToolStartClaim { ALLOWED, DISABLED, INVALID_ID, NOT_RUNNING, DUPLICATE }
+
     public record Snapshot(String turnId, TurnState state, int pendingCount,
                            int reservedCount, int queuedCount, boolean queuePaused) {
     }
@@ -67,6 +69,7 @@ public final class TurnInputManager {
     private final ArrayDeque<RuntimeInput> queued = new ArrayDeque<>();
     private final Map<String, InputView> messages = new HashMap<>();
     private final Set<String> usedTurnIds = new HashSet<>();
+    private final Set<String> claimedToolIds = new HashSet<>();
     private String turnId;
     private TurnState state = TurnState.IDLE;
     private long sequence;
@@ -88,6 +91,16 @@ public final class TurnInputManager {
     }
 
     public boolean enabled() { return enabled; }
+
+    /** 与 accept(INTERRUPT) 共用锁。领取成功就是启动边界；不持锁执行工具或等待审批。 */
+    public synchronized ToolStartClaim claimToolStart(String expectedTurnId, String invocationId) {
+        if (!enabled) return ToolStartClaim.DISABLED;
+        if (blank(expectedTurnId) || blank(invocationId)) return ToolStartClaim.INVALID_ID;
+        if (!Objects.equals(turnId, expectedTurnId) || state != TurnState.RUNNING) {
+            return ToolStartClaim.NOT_RUNNING;
+        }
+        return claimedToolIds.add(invocationId) ? ToolStartClaim.ALLOWED : ToolStartClaim.DUPLICATE;
+    }
 
     public synchronized Snapshot snapshot() {
         return new Snapshot(turnId, state, pending.size(),
@@ -193,6 +206,19 @@ public final class TurnInputManager {
         return Optional.of(reserved);
     }
 
+    /** proceed=false 表示当前任务不能继续请求；delivery=null 表示没有待交付消息。 */
+    public record RequestReservation(boolean proceed, Delivery delivery) { }
+
+    /** 检查任务状态与预留共用同一把锁，取消先到时不抛状态异常，也不允许继续请求。 */
+    public synchronized RequestReservation reserveIfRunning(String expectedTurnId) {
+        requireEnabled();
+        requireText(expectedTurnId, "expectedTurnId");
+        if (!Objects.equals(turnId, expectedTurnId) || state != TurnState.RUNNING) {
+            return new RequestReservation(false, null);
+        }
+        return new RequestReservation(true, reserveForRequest(expectedTurnId).orElse(null));
+    }
+
     /**
      * 调用方确认请求已提交后调用。中断请求不会抹掉已经提交的事实。
      * INCLUDED_IN_REQUEST 不表示模型已经执行；发送结果不明时不得 requeue 来重发。
@@ -277,6 +303,7 @@ public final class TurnInputManager {
 
     private void begin(String newTurnId) {
         usedTurnIds.add(newTurnId);
+        claimedToolIds.clear();
         turnId = newTurnId;
         acceptedSteers = 0;
         state = TurnState.STARTING;

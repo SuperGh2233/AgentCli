@@ -46,6 +46,8 @@ ReAct、Plan 单任务和 SubAgent 共用 `AgentBudget`。优先级：系统属�
 
 设计取舍：交互式 Agent 默认在模型不再调用工具时自然结束，不设固定的 50 轮上限；长上下文模型也不再把 80% × window 当作执行的硬上限。
 
+文件重复失败观察器 `ResourceFailureObserver` 已接入 ReAct、Plan 单任务及 SubAgent 每次执行。只有 `-Dpaicli.stagnation.resource.observer.enabled=true` 才启用（默认 false），运行开始时读取开关，每个任务持有独立实例和项目根目录。它在工具批次返回后、Skill 处理前观察原始结果；已知项目内普通文件的 `edit_file old_text` 不存在连续三批时，忽略 `new_text` 变化，只记录一次固定 INFO 日志 `Resource failure observation: REPEATED_EDIT_SOURCE_NOT_FOUND`。事件无用户文本、路径、内容或 worker 标识。混合成功、取消、拒绝和未知结果打断计数；不修改模型输入、返回值、工具顺序、策略、预算或原有提醒。只识别现有固定错误前缀，未知失败保守跳过。
+
 默认先由 `RunawayGuard` 提醒：同一动作（工具名 + 按键名排序后的参数）或同一类错误（超时、限流、网络、鉴权、权限、找不到、参数、退出码等；归不进这些类别时按错误文本区分）连续出现 3 步，就在工具结果后面注入一条 `[runaway guard]` user 消息。每个任务最多提醒一次，不拦截工具；被策略或 HITL 拒绝的调用不计数，还会打断连续计数。
 
 真正起保护作用的是：停滞（stagnation）检测（连续 5 轮相同的工具调用；默认窗口必须大于提醒阈值）、上下文压缩、取消和 LLM 超时。CI、Runtime API、微信无人值守或需要严格控制成本的场景，可以用 `-Dpaicli.react.hard.max.iterations=N` 显式设一个正整数轮数上限，也可以用 `-Dpaicli.react.token.budget=N` 设 Token 上限。
@@ -95,14 +97,26 @@ stdio server 的子进程不继承 PaiCLI 的全部环境变量，只带过去�
 stdio server 的进程管理：
 
 - 子进程意外退出时（`Process.onExit()`），正在等回复的请求立即失败，之后的新请求也直接失败；server 标成 ERROR、工具移除，然后按 1s、2s、4s 退避自动重启。重启后稳定运行超过 60 秒再出问题，计数从头算；连续 3 次没救回来就停下，提示用户 `/mcp logs` 和 `/mcp restart`。用户手动 restart / enable / disable / trust 会取消排期中的自动重启
-- 每 30 秒 ping 一次本地 stdio server（`PAICLI_MCP_PING_INTERVAL_SECONDS`，设成 0 关闭），超时 10 秒；连续 2 次不回判定卡死，按上面的流程结束并重启。server 正在处理请求时跳过这一轮，免得把忙着跑长工具调用的单线程 server 误杀；回 `-32601` 也算活着。HTTP server 不 ping，避免给远程服务增加负担
+- 每 30 秒 ping 一次旧协议本地 stdio server（`PAICLI_MCP_PING_INTERVAL_SECONDS`，设成 0 关闭），超时 10 秒；连续 2 次不回判定卡死，按上面的流程结束并重启。server 正在处理请求时跳过这一轮，免得把忙着跑长工具调用的单线程 server 误杀；回 `-32601` 也算活着。HTTP server 不 ping，避免给远程服务增加负担
 - 崩溃、重启、放弃的提示放进队列，主循环在显示下一个输入框前打印，不从后台线程直接写终端
 - 关闭时先记下整棵进程树再关 stdin，等 1 秒后从深到浅给还活着的进程发 SIGTERM，2 秒后还在的强制结束。不能只结束根进程：npx 拉起的 node 进程会被留下
 - 拉起的进程（包括后来发现的子进程）记在 `~/.paicli/mcp-pids.json`，带所属 PaiCLI 的 PID 和启动时间、进程自己的启动时间和命令；正常关闭时删掉。下次启动时只清理“所属 PaiCLI 已经退出”且启动时间、命令都对得上的进程（PID 会被复用），读写这个文件要先拿 `.lock` 文件锁
 
-stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日志）记进 `/mcp logs` 并跳过，读线程继续。server 主动发来的请求（带 `id` 和 `method`）和我们请求的回复分开处理：`ping` 回空结果，其他方法回 `-32601`（Method not found），回复原样带回 server 的 id。
+stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日志）记进 `/mcp logs` 并跳过，读线程继续。旧协议 server 主动发来的请求（带 `id` 和 `method`）和我们请求的回复分开处理：`ping` 回空结果，其他方法回 `-32601`（Method not found），回复原样带回 server 的 id。
 
 检测到 `STEP_API_KEY` 时，会自动内置一个 `step_search` 远程 MCP（如果显式配置了同名 server，以显式配置为准），Step 3.7 Flash 的 `web_search` / `web_fetch` 会优先转给它处理。
+
+### HTTP OAuth 登录（Day3-B）
+
+Streamable HTTP 使用预注册公共客户端的 Authorization Code + PKCE S256。授权服务器元数据必须声明 `response_types_supported` 包含 `code`；若提供 `grant_types_supported`，必须包含 `authorization_code`。同时必须明确声明 `token_endpoint_auth_methods_supported` 包含 `none`；缺失时按 RFC 8414 默认 `client_secret_basic` 拒绝。配置只有 `oauth.clientId` 与可选 `oauth.scopes`（允许范围），拒绝未知 OAuth 字段以及静态 Authorization 混用；clientId/scopes 都进入项目信任指纹。`/mcp login <name>` 是唯一打开浏览器的入口，未信任的项目配置不能登录；停用的 server 只有完成登录后才恢复启动。`/mcp logout` 先关闭会话，再撤销内存提供器并清除资源/clientId 下全部 issuer 凭证，保留停用状态。
+
+发现用未认证的 POST（旧版 initialize，现代版带 _meta 的 server/discover），解析 401 Bearer challenge 的 resource_metadata；缺失时按 endpoint-path → root 查询 RFC9728。AS 发现按 RFC8414 → OIDC path insertion → OIDC path append；只有 404/405 继续候选，网络错误、429、5xx、跳转直接失败。issuer 与选中 AS URL 精确比较，S256 必须显式声明；授权响应中声明支持 iss 时必填，任何出现的 iss 都精确比较后才能使用 code/error。服务端 challenge scope 优先，其次 PRM scopes_supported；都没有就省略。配置 scopes 是允许范围：挑战必须完整满足，没有挑战时取元数据与配置的交集。
+
+OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 2026-07-28。AS issuer、授权及令牌端点强制 HTTPS；HTTP 仅允许本地 MCP resource 与 127.0.0.1 redirect。发现客户端没有 MCP headers 或 Bearer，不跟随跳转。令牌按 resource/issuer/client ID 绑定，authorization/code/refresh 请求都带规范化 resource；403 不重试，401 刷新后只重试一次。`invalid_grant` 只清除对应 issuer 的凭证。
+
+凭证文件默认 `~/.paicli/oauth/mcp-oauth-tokens.json`，系统属性 `paicli.mcp.oauth.tokens` 可改到项目以外的私有目录；不写进 mcp.json。进程锁和文件锁保护读改写，新文件原子替换。新建目录 0700、文件 0600；现有父目录只检查不 chmod，权限太宽就拒绝。非 POSIX 用仅属主 ACL，否则拒绝并要求换本地存储路径。回调只绑定 127.0.0.1、精确路径，限制头/目标总计 16 KiB，单请求 2 秒，总等待 180 秒。错误不回显远端正文、code、verifier 或 token。
+
+限制：只选资源元数据中的第一个 AS；需预注册公共客户端并允许随机端口 loopback 回调；不支持 confidential client secrets、client credentials、DCR、CIMD、step-up scope、device-code、远程撤销和 sampling。资源不接受 query/fragment，授权/token endpoint 不接受预置 query。规范和测试入口见 [OAuth 配置与存储](specs/mcp-oauth.md)、[实施记录](plans/active/PLAN-20261103-mcp-oauth.md)。
 
 ---
 
@@ -192,7 +206,7 @@ stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日
 
 ### HITL 增强（策略层）
 
-- `PathGuard`：路径必须在项目根内（拦截用绝对路径跑出项目、用 `..` 跳出目录、用符号链接指向项目外）
+- `PathGuard`：路径必须在项目根内（拦截用绝对路径跑出项目、用 `..` 跳出目录、用符号链接指向项目外）。悬空软链（链接在、目标不存在）也会展开后再检查，返回的路径里不含软链，写入时不会再被系统带到项目外；循环链接、解析出错一律拒绝
 - `CommandGuard`：命中就立即拒绝的黑名单（sudo、rm -rf、mkfs、dd、fork bomb、curl|sh 等）
 - `ResourceLimit`：write_file 最大 5MB；execute_command 最长 60s，输出最多 8KB
 - `AuditLog`：JSONL 格式，字段有 timestamp、tool、args、outcome、reason、approver、durationMs
@@ -230,6 +244,13 @@ stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日
 
 ### MCP 协议
 
+- 每个 server 的 protocolVersion 只接受 2025-03-26 或 2026-07-28；省略为旧版，版本参与信任指纹。现代模式首个请求 server/discover，校验 supportedProtocolVersions；不协商、不降级。
+- 现代请求和通知统一补 params._meta（版本、空客户端能力、当前应用 clientInfo），完整结果要求 resultType=complete；仅 tools/call、resources/read、prompts/get 可处理 input_required，其他入口拒绝，缺失/未知类型报错。
+- 现代 HTTP 带版本、方法和适用的非空主名称头，无 session/DELETE；现代 stdio 无 ping。现代资源订阅明确拒绝，服务端主动消息丢弃，无变化通知监听。工具、资源读取和 prompts 列表正常。
+- OAuth 探测按固定版本选择请求，其他 OAuth 安全行为不变。详见 [双协议约定](specs/mcp-protocol-eras.md)。
+- MRTR-1 交互层：`McpElicitationHandler` 与 Renderer/HITL 分离接入；表单支持受限 flat schema，URL 必须明确选择 open 才调用默认浏览器；拒绝/取消均 fail-closed。补充输入不受 `/hitl` 开关或会话批量批准影响。
+- Plain/Inline renderer 提供 elicitation UI；Lanterna 全屏 renderer 也已接入表单/URL 模态框，但只在 GUI 主循环运行时声明 form/url，关闭或不可用时为空能力。WeChat 和无人值守路径仍默认 cancel。MRTR-2 已接通最多 4 轮、每轮 8 项的协议往返与 requestState 当轮原样回传。MRTR-3 只在这三种现代 MRTR 操作发送时查询当前 UI 的 form/url，保留其他元数据和自定义能力，清除陈旧 elicitation。Main 只在 System.console() 非空时传入 SwitchableHitlHandler 对象；manager 不用 lambda 包装，client 的 supplier 逐次查询当前 delegate，失败或 null 为空。普通请求、通知和无控制台 CLI 不声明 elicitation。本轮 43 类/387 项完整离线回归全部通过（覆盖 MRTR-1/2/3/4、OAuth、双协议及 Lanterna）；真实终端手工验收仍待执行。详见 [MRTR 约定](specs/mcp-mrtr.md)。
+
 - 支持 stdio 和 Streamable HTTP 两种传输方式
 - 工具注册为 `mcp__{server}__{tool}`
 - McpSchemaSanitizer 清洗 inputSchema（工具的参数说明）再交给模型：删掉 `$schema` / `$id` / `$ref`，超长 description 截到 1000 字符；`anyOf` / `oneOf`（“几种写法任选其一”）按真实类型收起来，不再一律写成 `type: object`
@@ -241,7 +262,8 @@ stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日
 - 所有 mcp__ 工具默认都走 HITL + AuditLog
 - resources 有两种用法：作为虚拟工具调用，或在输入里用 @ 引用
 - CLI 首屏默认最多等 MCP 启动 8 秒，慢的 server 在后台继续初始化，状态保持 `starting`，可以用 `/mcp`、`/mcp logs <name>` 查看
-- 通知处理：tools/list_changed → 整体替换工具列表；resources 变化 → 缓存失效
+- 旧协议通知处理：tools/list_changed → 整体替换工具列表；resources 变化 → 缓存失效
+- stdio server 自动重启：意外退出或连续 2 次 ping 不回（判定卡死）时，移除工具、结束整棵进程树，按 1s/2s/4s 重启，连续 3 次没救回来就停下等用户 `/mcp restart`。ping 只发给旧协议本地 stdio server，server 正在处理请求时跳过。HTTP server 不做断线重连
 
 ### Chrome DevTools MCP
 
@@ -314,6 +336,7 @@ stdio 的 stdout 按行处理：不是 JSON 的行（server 往 stdout 打的日
 - side-git 在 ~/.paicli/snapshots/ 下维护独立的仓库（用 JGit，不依赖系统 git）
 - 每轮开始前同步打快照，每轮结束后异步打快照
 - revert_turn 纳入 HITL 和 AuditLog，恢复前先建一个 pre-restore 快照
+- 项目根目录不存在或无法解析成真实路径时，`SnapshotService.forProject` 不抛异常，返回一个快照功能关闭的服务（`available()=false`）：每轮快照直接跳过，`revert_turn` 返回“快照功能不可用”，其他功能照常。`SideGitManager` 本身仍然要求项目根真实存在
 
 ### Prompt 分层（第 19 期）
 
@@ -477,8 +500,9 @@ TuiBootstrap、LanternaWindow、TuiSessionController、pane/、hitl/、history/�
 - `/model <provider>/<id>` 支持指定供应商，也支持 ID 本身带 `/`；裸 ID 匹配到多个供应商时报歧义。补全读取当前配置，新添加的条目不用重启就能出现。
 
 ### LLM 客户端
+- 和厂商无关的新接口在 `llm/core/`（升级计划第 1 阶段，Agent 还没切过去）：`ChatMessage`（角色 + 内容块：文字、思考、图片、工具调用；工具结果单独一种角色）、`StreamEvent`（思考 / 正文增量 → 每个工具调用一条完成事件 → 用量 → 结束）、`StopReason`（正常答完、要调工具、被长度截断、被审核拦下、不明）、`ModelClient`。`LegacyModelClient` 把现有 `LlmClient` 包成新接口，`LegacyMessageCodec` 负责两种消息格式互转。停止原因来自 `StreamListener.onFinishReason`（只在请求成功返回前回调一次），包装 listener 的类要转发它；被长度截断时即使有工具调用也报 MAX_TOKENS，DeepSeek 的 DSML 调用报 TOOL_USE。工具调用事件要等整条回复结束才发，避免重试或 DSML 解析造成重复或错误的调用显示
 - GLMClient：glm-5.3-flash 是 1M 的 Coding 模型，glm-5.1 是 200k，glm-5v 开头的切到多模态接口；用 `/model glm-5.3-flash` 明确切换
-- DeepSeekClient：默认 deepseek-flash（V4.1 Flash），1M 多模态模型；用 `/model deepseek-flash` 明确切换，思考模式调工具时带回 reasoning_content。旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 由官方转到新版，同样支持图片；deepseek-v4-pro 仍按文本模型处理。显式配置的模型不会被默认值覆盖。
+- DeepSeekClient：默认 deepseek-flash（V4.1 Flash），1M 多模态模型；用 `/model deepseek-flash` 明确切换，思考模式调工具时带回 reasoning_content。旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 由官方转到新版，同样支持图片；deepseek-v4-pro 仍按文本模型处理。显式配置的模型不会被默认值覆盖。旧名只写成兼容说明，不作为单独的内置模型，刷新时也不新增；用户已有的选择和手动配置保留并注明对应关系。
 - HunyuanClient：hy4-preview，默认 `https://tokenhub.tencentmaas.com/v1`，Bearer 鉴权、1M 文本模型，支持流式 tools 和 prompt cache；用 `/model hy4-preview` 明确切换，`/model hunyuan` 读取 provider 配置
 - StepClient：step-3.5-flash，可以通过 STEP_BASE_URL 切换通道
 - KimiClient：kimi-k2.6，思考模式调工具时带回 reasoning_content
@@ -658,7 +682,7 @@ Seatbelt profile 额外放行了对根目录 "/" 本身的读取（literal，只
 
 - 已交付 23 期（ReAct → Plan+DAG → Memory → RAG → Multi-Agent → HITL → 并行工具 → 多模型 → 联网 → MCP 核心 → MCP 高级 → 长上下文 → Chrome DevTools → CDP 会话复用 → Skill → TUI → LSP 诊断 → Side-Git 快照 → Prompt 分层 → Runtime API → 图片输入 → 微信 iLink 通道文本 MVP）
 
-核心内置工具见 AGENTS.md 里的 18 个清单。`edit_file` 默认只替换唯一匹配的 `old_text`，`replace_all=true` 时全部替换；匹配规则由 `TextEditMatcher` 实现（精确匹配 → 逐行归一化后模糊匹配 → 剥掉 read_file 行号前缀再试一次），有多处匹配时报告出现次数和起始行，局部修改时模型不用输出整个文件；它和 `write_file` 一样受路径限制、HITL 审批和审计约束。
+核心内置工具见 AGENTS.md 里的 18 个清单。`edit_file` 默认只替换唯一匹配的 `old_text`，`replace_all=true` 时全部替换；匹配规则由 `TextEditMatcher` 实现（精确匹配 → 逐行统一写法后再匹配（NFKC、行尾空白、引号、横线、特殊空格）→ 片段每行都带 read_file 行号前缀时，剥掉前缀再试一次），CRLF 文件保留原来的换行符，有多处匹配时报告出现次数和起始行，局部修改时模型不用输出整个文件；它和 `write_file` 一样受路径限制、HITL 审批和审计约束。
 
 代码库理解默认走 Claude Code 那种实时探索：`glob_files` 找候选文件，`grep_code` 精确定位符号或字符串，`read_file` 按需读取具体行段。`grep_code` 优先用本机的 `ripgrep`，没有时退回 Java 扫描；结果受 `max_results` / `head_limit` / `max_chars` 上限约束，返回 `partial: true` 或 `suggested_reads` 时，应继续缩小搜索范围，或按建议读取行段。`search_code` 是 RAG 语义辅助，适合自然语言描述模糊、关键词不明确、常规搜索没结果、代码量巨大或需要跨知识检索的场景，不作为精确定位代码的首选。
 

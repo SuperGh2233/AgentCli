@@ -14,6 +14,7 @@ import com.paicli.prompt.PromptContext;
 import com.paicli.prompt.PromptMode;
 import com.paicli.prompt.ProjectMemoryLoader;
 import com.paicli.runtime.CancellationContext;
+import com.paicli.runtime.input.TurnInputManager;
 import com.paicli.skill.SkillIndexFormatter;
 import com.paicli.skill.SkillRegistry;
 import com.paicli.util.AnsiStyle;
@@ -126,6 +127,7 @@ public class PlanExecuteAgent {
     private SkillRegistry skillRegistry;
     private TurnToolPolicy turnToolPolicy = TurnToolPolicy.forExplicitTask("");
     private String submittedPolicyInput = "";
+    private PlanSteeringSafePoint planSteeringSafePoint;
     private volatile PlanExecutionObserver executionObserver;
     private final AtomicLong executionObservationFailures = new AtomicLong();
     private final PromptAssembler promptAssembler = PromptAssembler.createDefault();
@@ -197,6 +199,15 @@ public class PlanExecuteAgent {
 
     public void setSkillRegistry(SkillRegistry skillRegistry) {
         this.skillRegistry = skillRegistry;
+    }
+
+    /** 调用方先启动并标记 Turn 为 RUNNING；默认不安装，不涉及终端接线。 */
+    public void configurePlanSteeringSafePoint(TurnInputManager manager, String turnId) {
+        this.planSteeringSafePoint = new PlanSteeringSafePoint(manager, turnId);
+    }
+
+    public void clearPlanSteeringSafePoint() {
+        this.planSteeringSafePoint = null;
     }
 
     public void setConversationLedger(ConversationLedger conversationLedger) {
@@ -330,7 +341,7 @@ public class PlanExecuteAgent {
                 "plan", "plan-agent", "user_input", LlmClient.Message.user(userInput));
         StreamState streamState = new StreamState();
         try {
-            if (CancellationContext.isCancelled()) {
+            if (planCancelled()) {
                 conversationLedger.appendEvent(
                         "run_cancelled", "plan", "plan-agent", "before_planning", Map.of());
                 return CANCELLED_PLAN_MESSAGE;
@@ -363,6 +374,8 @@ public class PlanExecuteAgent {
                     "run_error",
                     LlmClient.Message.assistant(errorMessage));
             return errorMessage;
+        } finally {
+            if (planSteeringSafePoint != null) planSteeringSafePoint.stopIfActive();
         }
     }
 
@@ -381,7 +394,9 @@ public class PlanExecuteAgent {
                                                 boolean explicitTaskEnvelope,
                                                 int replansUsed) throws IOException {
         while (true) {
+            if (planCancelled()) return PlanRunOutcome.canceled(CANCELLED_PLAN_MESSAGE);
             PlanReviewDecision decision = reviewHandler.review(plan.getGoal(), plan);
+            if (planCancelled()) return PlanRunOutcome.canceled(CANCELLED_PLAN_MESSAGE);
             if (decision == null || decision.action() == PlanReviewAction.EXECUTE) {
                 return PlanRunOutcome.executed(executePlan(plan, streamState, explicitTaskEnvelope, replansUsed));
             }
@@ -398,6 +413,9 @@ public class PlanExecuteAgent {
             out.println("📝 已收到补充要求，正在修改计划...\n");
             submittedPolicyInput = submittedPolicyInput + "\n补充要求：" + feedback;
             turnToolPolicy = policyFor(submittedPolicyInput, explicitTaskEnvelope);
+            if (planSteeringSafePoint != null) {
+                turnToolPolicy.tightenWithUserInput(planSteeringSafePoint.includedFeedback());
+            }
             plan = planner.revisePlan(plan, feedback);
         }
     }
@@ -436,13 +454,25 @@ public class PlanExecuteAgent {
         Map<String, TurnToolPolicy.TrustedUrlContext> taskTrustedUrls = new HashMap<>();
         boolean stopAfterBatch = false;
 
-        while (!stopAfterBatch) {
-            if (CancellationContext.isCancelled()) {
+        while (true) {
+            if (planCancelled()) {
                 plan.markCancelled();
                 return CANCELLED_PLAN_MESSAGE;
             }
             List<Task> executableTasks = getExecutableTasksInOrder(plan);
-            if (executableTasks.isEmpty()) {
+            if (stopAfterBatch || executableTasks.isEmpty()) {
+                String steeringStop = processPlanSteering(plan);
+                if (steeringStop != null) return steeringStop;
+                if (!stopAfterBatch && !getExecutableTasksInOrder(plan).isEmpty()) continue;
+                if (planSteeringSafePoint != null) {
+                    var decision = planSteeringSafePoint.finalizeOrContinue();
+                    if (decision == PlanSteeringSafePoint.FinalizationDecision.CONTINUE) continue;
+                    if (decision == PlanSteeringSafePoint.FinalizationDecision.CANCELLED) {
+                        plan.markCancelled();
+                        return CANCELLED_PLAN_MESSAGE;
+                    }
+                    planSteeringSafePoint.completeTurn();
+                }
                 break;
             }
 
@@ -453,6 +483,8 @@ public class PlanExecuteAgent {
                 plan.markCancelled();
                 return CANCELLED_PLAN_MESSAGE;
             }
+            String replanReason = null;
+            List<Task> failedTasks = new ArrayList<>();
             for (TaskExecutionResult batchResult : batchResults) {
                 Task task = batchResult.task();
 
@@ -477,14 +509,14 @@ public class PlanExecuteAgent {
                 out.println("❌ 失败 [" + task.getId() + "]: " + errorMessage + "\n");
 
                 failureLines.add("任务 " + task.getId() + " 失败: " + errorMessage);
+                failedTasks.add(task);
 
-                if (!stopAfterBatch && plan.getProgress() < 0.5) {
+                if (!stopAfterBatch && replanReason == null && plan.getProgress() < 0.5) {
                     int maxReplans = maxReplans();
                     if (replansUsed < maxReplans) {
-                        out.println("🔄 尝试重新规划（第 " + (replansUsed + 1) + "/" + maxReplans + " 次）...\n");
-                        ExecutionPlan replanned = planner.replan(plan, errorMessage);
-                        return reviewAndExecutePlan(replanned, streamState, explicitTaskEnvelope, replansUsed + 1)
-                                .result();
+                        // 保留原来触发重规划的时机，但必须先写回整批结果。
+                        replanReason = errorMessage;
+                        continue;
                     }
                     // 与重规划触发点保持一致：不再启动任何新任务，只收完本批已返回的结果
                     String stopNotice = "已达到重新规划上限（" + maxReplans + " 次），停止执行剩余任务";
@@ -493,16 +525,28 @@ public class PlanExecuteAgent {
                     stopAfterBatch = true;
                     continue;
                 }
-
-                for (Task skipped : plan.skipDependentsOf(task.getId())) {
-                    failureLines.add("任务 " + skipped.getId() + " 已跳过: 依赖的任务 " + task.getId() + " 失败");
+            }
+            if (stopAfterBatch) {
+                for (Task skipped : plan.skipAllPending()) {
+                    failureLines.add("任务 " + skipped.getId() + " 已跳过: 已达到重新规划上限");
+                }
+            } else if (replanReason == null) {
+                for (Task task : failedTasks) {
+                    for (Task skipped : plan.skipDependentsOf(task.getId())) {
+                        failureLines.add("任务 " + skipped.getId() + " 已跳过: 依赖的任务 " + task.getId() + " 失败");
+                    }
                 }
             }
-        }
-
-        if (stopAfterBatch) {
-            for (Task skipped : plan.skipAllPending()) {
-                failureLines.add("任务 " + skipped.getId() + " 已跳过: 已达到重新规划上限");
+            String steeringStop = processPlanSteering(plan);
+            if (steeringStop != null) return steeringStop;
+            if (replanReason != null) {
+                out.println("🔄 尝试重新规划（第 " + (replansUsed + 1) + "/" + maxReplans() + " 次）...\n");
+                if (planSteeringSafePoint != null && !planSteeringSafePoint.includedFeedback().isBlank()) {
+                    replanReason += "\n用户在执行中补充的要求（重规划仍须遵守）：\n"
+                            + planSteeringSafePoint.includedFeedback();
+                }
+                ExecutionPlan replanned = planner.replan(plan, replanReason);
+                return reviewAndExecutePlan(replanned, streamState, explicitTaskEnvelope, replansUsed + 1).result();
             }
         }
 
@@ -523,6 +567,58 @@ public class PlanExecuteAgent {
             return "✅ 计划执行完成！";
         }
         return "✅ 计划执行完成！\n" + planSummary;
+    }
+
+    private boolean planCancelled() {
+        return CancellationContext.isCancelled()
+                || (planSteeringSafePoint != null && !planSteeringSafePoint.isRunning());
+    }
+
+    /** 只在所有批次结果写回后或最终收尾前调用；返回非空表示不得再启动任务。 */
+    private String processPlanSteering(ExecutionPlan plan) {
+        if (planSteeringSafePoint == null) return null;
+        while (true) {
+            var prepared = planSteeringSafePoint.reserve();
+            if (!prepared.proceed() || CancellationContext.isCancelled()) {
+                if (prepared.delivery() != null) planSteeringSafePoint.requeue(prepared);
+                plan.markCancelled();
+                return CANCELLED_PLAN_MESSAGE;
+            }
+            if (prepared.delivery() == null) return null;
+            if (planCancelled()) {
+                planSteeringSafePoint.requeue(prepared);
+                plan.markCancelled();
+                return CANCELLED_PLAN_MESSAGE;
+            }
+            turnToolPolicy.tightenWithUserInput(prepared.feedback());
+            List<ExecutionPlan.PendingTaskRevision> revisions;
+            try {
+                revisions = planner.revisePendingTasks(plan, prepared.feedback());
+            } catch (Planner.RevisionResponseException e) {
+                planSteeringSafePoint.commit(prepared, conversationLedger);
+                plan.markFailed();
+                return "⚠️ 计划修订未应用，已停止后续任务：" + failureMessage(e);
+            } catch (IOException | RuntimeException e) {
+                planSteeringSafePoint.uncertain(prepared);
+                conversationLedger.appendEvent("steering_delivery_uncertain", "plan", "plan-agent",
+                        "runtime_steer", Map.of("requestId", prepared.requestId(), "feedback", prepared.feedback()));
+                plan.markFailed();
+                return "⚠️ 无法确认补充要求是否送达模型，已停止后续任务，不自动重发：" + failureMessage(e);
+            }
+            if (planCancelled()) {
+                planSteeringSafePoint.commit(prepared, conversationLedger);
+                plan.markCancelled();
+                return CANCELLED_PLAN_MESSAGE;
+            }
+            try {
+                if (!revisions.isEmpty()) plan.revisePendingTasks(revisions);
+            } catch (RuntimeException e) {
+                planSteeringSafePoint.commit(prepared, conversationLedger);
+                plan.markFailed();
+                return "⚠️ 计划修订未应用，已保留原 DAG 并停止后续任务：" + failureMessage(e);
+            }
+            planSteeringSafePoint.commit(prepared, conversationLedger);
+        }
     }
 
     private List<Task> getExecutableTasksInOrder(ExecutionPlan plan) {
@@ -703,6 +799,8 @@ public class PlanExecuteAgent {
         TaskStreamRenderer streamRenderer = new TaskStreamRenderer(task.getId(), streamState, out);
         AgentBudget budget = AgentBudget.fromSystemProperties();
         RunawayGuard runawayGuard = new RunawayGuard();
+        ResourceFailureObserver resourceFailureObserver =
+                new ResourceFailureObserver(Path.of(toolRegistry.getProjectPath()));
 
         while (true) {
             if (CancellationContext.isCancelled()) {
@@ -793,9 +891,12 @@ public class PlanExecuteAgent {
             // 被 HITL 提示"跨过"导致 🧠 / 🤖 标题与内容错位
             streamRenderer.resetBetweenIterations();
 
+            List<ToolExecutionResult> executedResults = executeToolCalls(
+                    task.getId(), iteration, response.toolCalls(), taskToolPolicy, toolExposure, observation);
+            resourceFailureObserver.observe(executedResults).ifPresent(notice ->
+                    log.info("Resource failure observation: {}", notice));
             LoadedSkillMessages.Injection skills = LoadedSkillMessages.prepare(
-                    executeToolCalls(task.getId(), iteration, response.toolCalls(), taskToolPolicy,
-                            toolExposure, observation),
+                    executedResults,
                     toolRegistry.getSkillRegistry(),
                     messages);
             List<ToolExecutionResult> toolResults = skills.results();

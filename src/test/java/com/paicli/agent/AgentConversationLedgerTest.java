@@ -127,7 +127,13 @@ class AgentConversationLedgerTest {
     @Test
     void planModeWritesIntoTheSharedLedgerWithTaskActor(@TempDir Path tempDir)
             throws Exception {
+        // 第一条是规划回复：所有 /plan 目标都要先让模型生成计划，不按关键词跳过规划
         QueueClient llm = new QueueClient(List.of(
+                new LlmClient.ChatResponse("assistant", """
+                        {"summary":"列出当前目录","tasks":[
+                          {"id":"task_1","description":"列出当前目录","type":"FILE_READ","dependencies":[]}
+                        ]}
+                        """, null, 10, 2),
                 new LlmClient.ChatResponse(
                         "assistant", "目录读取完成", "plan task reasoning", null, 10, 2)
         ));

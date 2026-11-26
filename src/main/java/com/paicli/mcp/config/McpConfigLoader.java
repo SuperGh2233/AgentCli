@@ -49,13 +49,15 @@ public class McpConfigLoader {
      */
     public Map<String, McpServerConfig> load() throws IOException {
         Map<String, McpServerConfig> merged = new LinkedHashMap<>();
-        if (Files.exists(userConfig)) {
-            merged.putAll(read(userConfig));
+        if (!Files.notExists(userConfig)) {
+            Map<String, McpServerConfig> userServers = read(userConfig);
+            userServers.values().forEach(config -> config.markUserScoped(null));
+            merged.putAll(userServers);
         }
-        if (Files.exists(projectConfig) && !isSameFile(projectConfig, userConfig)) {
+        if (!Files.notExists(projectConfig) && !isSameFile(projectConfig, userConfig)) {
             Map<String, McpServerConfig> projectServers = read(projectConfig);
             projectServers.values().forEach(config ->
-                    config.markProjectScoped(projectConfig.toAbsolutePath().normalize(), fingerprint(config)));
+                    config.markProjectScoped(projectConfig.toAbsolutePath().normalize(), null));
             merged.putAll(projectServers);
         }
         addBuiltInStepSearchIfAvailable(merged);
@@ -67,28 +69,75 @@ public class McpConfigLoader {
      * 失败抛 {@link IllegalArgumentException}，调用方负责把单个失败转成该 server 的 ERROR 状态。
      */
     public void prepare(McpServerConfig config) {
+        config.restoreSource();
         expand(config);
         validate(config);
     }
 
     /**
-     * 配置内容指纹：命令、参数、env、url、headers 都算进去（env 里的 NODE_OPTIONS 一样能执行代码，
-     * url / headers 里的 ${VAR} 展开后会把密钥发出去）。用展开前的原文计算，用户本机变量变化不影响确认结果。
+     * 固定字段顺序的 JSON 字节，env / headers 按 key 排序；供 source 和 effective HMAC 共用。
      */
-    public static String fingerprint(McpServerConfig config) {
+    public static byte[] fingerprintPayload(McpServerConfig config) {
         ObjectNode node = MAPPER.createObjectNode();
+        node.put("disabled", config.isDisabled());
+        if (config.getProtocolVersion() != null) node.put("protocolVersion", config.getProtocolVersion());
         node.put("command", config.getCommand());
         ArrayNode args = node.putArray("args");
         config.getArgs().forEach(args::add);
         node.set("env", MAPPER.valueToTree(new TreeMap<>(config.getEnv())));
         node.put("url", config.getUrl());
         node.set("headers", MAPPER.valueToTree(new TreeMap<>(config.getHeaders())));
+        if (config.getOauth() != null) node.set("oauth", MAPPER.valueToTree(config.getOauth()));
+        try {
+            return MAPPER.writeValueAsBytes(node);
+        } catch (Exception e) {
+            throw new IllegalStateException("计算 MCP 配置指纹失败", e);
+        }
+    }
+
+    static McpServerConfig fromPayload(byte[] payload) {
+        try {
+            return MAPPER.readValue(payload, McpServerConfig.class);
+        } catch (IOException e) {
+            throw new IllegalStateException("MCP 原始配置不可读取");
+        }
+    }
+
+    static byte[] runtimeSourcePayload(byte[] rawSource, List<String> args) {
+        try {
+            ObjectNode node = MAPPER.createObjectNode();
+            node.set("source", MAPPER.readTree(rawSource));
+            node.set("runtimeArgs", MAPPER.valueToTree(args));
+            return MAPPER.writeValueAsBytes(node);
+        } catch (IOException e) {
+            throw new IllegalStateException("MCP 运行时源配置不可读取");
+        }
+    }
+
+    /** Compatibility helper only; never used for trust or permission bindings. */
+    public static String fingerprint(McpServerConfig config) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(fingerprintPayload(config)));
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** Runtime-only argument overrides are chained to the immutable source fingerprint. */
+    public static String fingerprintWithRuntimeArgs(String sourceFingerprint, List<String> args) {
+        if (sourceFingerprint == null || !sourceFingerprint.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("MCP 源配置指纹非法");
+        }
+        ObjectNode node = MAPPER.createObjectNode();
+        node.put("sourceFingerprint", sourceFingerprint);
+        ArrayNode override = node.putArray("runtimeArgs");
+        if (args != null) args.forEach(override::add);
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(MAPPER.writeValueAsBytes(node));
             return HexFormat.of().formatHex(digest);
         } catch (Exception e) {
-            throw new IllegalStateException("计算 MCP 配置指纹失败", e);
+            throw new IllegalStateException("计算 MCP 运行时配置指纹失败", e);
         }
     }
 
@@ -121,6 +170,7 @@ public class McpConfigLoader {
         McpServerConfig config = new McpServerConfig();
         config.setUrl(STEP_SEARCH_URL);
         config.setHeaders(Map.of("Authorization", "Bearer " + apiKey.trim()));
+        config.markUserScoped(null);
         merged.put(STEP_SEARCH_SERVER, config);
     }
 
@@ -174,6 +224,13 @@ public class McpConfigLoader {
     }
 
     private void validate(McpServerConfig config) {
+        config.protocolVersion();
+        if (config.getOauth() != null) {
+            if (!config.isHttp() || config.isStdio()) throw new IllegalArgumentException("OAuth 仅支持 MCP HTTP server");
+            config.getOauth().validate();
+            if (config.getHeaders().keySet().stream().anyMatch("Authorization"::equalsIgnoreCase))
+                throw new IllegalArgumentException("OAuth 不能与静态 Authorization header 同时配置");
+        }
         if (config.isStdio() == config.isHttp()) {
             throw new IllegalArgumentException("MCP server 必须且只能配置 command 或 url");
         }
@@ -200,7 +257,7 @@ public class McpConfigLoader {
     }
 
     private static String readFromDotEnv(Path file, String key) {
-        if (file == null || !Files.exists(file)) {
+        if (file == null || Files.notExists(file)) {
             return null;
         }
         try (BufferedReader reader = new BufferedReader(new FileReader(file.toFile()))) {
@@ -214,7 +271,8 @@ public class McpConfigLoader {
                     return stripOptionalQuotes(line.substring((key + "=").length()).trim());
                 }
             }
-        } catch (IOException ignored) {
+        } catch (IOException error) {
+            throw new IllegalArgumentException("MCP 环境配置不可读取");
         }
         return null;
     }

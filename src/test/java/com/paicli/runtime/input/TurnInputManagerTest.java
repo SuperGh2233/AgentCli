@@ -39,6 +39,54 @@ class TurnInputManagerTest {
     }
 
     @Test
+    void toolClaimsRequireRunningTurnAndAreNeverReplayed() {
+        var manager = manager();
+        assertEquals(TurnInputManager.ToolStartClaim.INVALID_ID, manager.claimToolStart(TURN, " "));
+        assertEquals(TurnInputManager.ToolStartClaim.NOT_RUNNING, manager.claimToolStart("old", "call"));
+        assertEquals(TurnInputManager.ToolStartClaim.ALLOWED, manager.claimToolStart(TURN, "call"));
+        assertEquals(TurnInputManager.ToolStartClaim.DUPLICATE, manager.claimToolStart(TURN, "call"));
+        manager.waitForApproval(TURN);
+        assertEquals(TurnInputManager.ToolStartClaim.NOT_RUNNING, manager.claimToolStart(TURN, "next"));
+        manager.markRunning(TURN);
+        manager.finalizeOrContinue(TURN);
+        assertEquals(TurnInputManager.ToolStartClaim.NOT_RUNNING, manager.claimToolStart(TURN, "next"));
+        manager.completeTurn(TURN);
+        manager.startTurn("turn-2");
+        assertEquals(TurnInputManager.ToolStartClaim.NOT_RUNNING, manager.claimToolStart("turn-2", "call"));
+        manager.markRunning("turn-2");
+        assertEquals(TurnInputManager.ToolStartClaim.ALLOWED, manager.claimToolStart("turn-2", "call"));
+        assertEquals(TurnInputManager.ToolStartClaim.DISABLED,
+                new TurnInputManager(SESSION, false, TurnInputManager.Limits.defaults()).claimToolStart(TURN, "call"));
+    }
+
+    @Test
+    void interruptAndClaimHaveBothDeterministicLockOrders() throws Exception {
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            for (boolean cancelFirst : List.of(true, false)) {
+                var manager = manager();
+                var firstDone = new CountDownLatch(1);
+                var first = executor.submit(() -> {
+                    try {
+                        if (cancelFirst) assertTrue(accept(manager, "esc", INTERRUPT).accepted());
+                        else assertEquals(TurnInputManager.ToolStartClaim.ALLOWED, manager.claimToolStart(TURN, "call"));
+                    } finally { firstDone.countDown(); }
+                });
+                await(firstDone);
+                first.get(3, TimeUnit.SECONDS);
+                if (!cancelFirst) assertTrue(accept(manager, "esc", INTERRUPT).accepted());
+                assertEquals(TurnInputManager.ToolStartClaim.NOT_RUNNING, manager.claimToolStart(TURN, "call"));
+                assertEquals(TurnInputManager.ToolStartClaim.NOT_RUNNING, manager.claimToolStart(TURN, "new"));
+                manager.finishCancellation(TURN);
+                assertEquals(TurnInputManager.ToolStartClaim.NOT_RUNNING, manager.claimToolStart(TURN, "new"));
+            }
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(3, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     void steersUseFifoAndManagerAssignedMonotonicSequence() {
         TurnInputManager manager = manager();
         assertEquals(1, accept(manager, "z", STEER).input().sequence());

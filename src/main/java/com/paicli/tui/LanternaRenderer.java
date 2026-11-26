@@ -38,6 +38,7 @@ public final class LanternaRenderer implements Renderer {
     private final WindowBasedTextGUI gui;
     private final PrintStream stream;
     private volatile boolean closed;
+    private final LanternaElicitation elicitation;
 
     public LanternaRenderer(LanternaWindow window) {
         this.window = Objects.requireNonNull(window);
@@ -45,6 +46,35 @@ public final class LanternaRenderer implements Renderer {
         this.statusPane = window.getRootPane().getStatusPane();
         this.gui = window.getGui();
         this.stream = new PrintStream(new CenterPaneSink(), true, StandardCharsets.UTF_8);
+        this.elicitation = new LanternaElicitation(new LanternaElicitation.Dialogs() {
+            public boolean available() { return !closed && gui != null && window.isGuiRunning(); }
+            public boolean isGuiThread() { return window.isGuiThread(); }
+            public void dispatch(Runnable task) { window.runOnGuiThread(task); }
+            public Runnable show(String text, LanternaElicitation.Step step, java.util.function.Consumer<String> answer) {
+                ElicitationDialog dialog = new ElicitationDialog(text, step, window.getScreen().getTerminalSize(), answer);
+                gui.addWindow(dialog);
+                return dialog::close;
+            }
+        }, com.paicli.mcp.elicitation.ElicitationPrompter.desktopBrowser(), java.time.Duration.ofMinutes(5));
+    }
+
+    // Deterministic dialog bridge for tests; no terminal is constructed.
+    LanternaRenderer(LanternaElicitation elicitation) {
+        this.window = null;
+        this.centerPane = null;
+        this.statusPane = null;
+        this.gui = null;
+        this.stream = new PrintStream(OutputStream.nullOutputStream());
+        this.elicitation = elicitation;
+    }
+
+    @Override public java.util.Set<String> supportedElicitationModes() {
+        return closed ? java.util.Set.of() : elicitation.supportedModes();
+    }
+
+    @Override public com.paicli.mcp.elicitation.ElicitationResponse promptElicitation(
+            com.paicli.mcp.elicitation.ElicitationRequest request) {
+        return closed ? com.paicli.mcp.elicitation.ElicitationResponse.cancel() : elicitation.prompt(request);
     }
 
     @Override
@@ -59,7 +89,7 @@ public final class LanternaRenderer implements Renderer {
         }
         closed = true;
         try {
-            window.close();
+            if (window != null) window.close();
         } catch (Exception ignored) {
         }
     }
@@ -127,24 +157,57 @@ public final class LanternaRenderer implements Renderer {
 
     private ApprovalResult doShowApprovalDialog(ApprovalRequest request) {
         String title = "⚠️ HITL 审批: " + request.toolName();
-        String body = request.toDisplayText() + "\n\n[Yes] 批准  [No] 拒绝  [Cancel] 跳过";
-        MessageDialogButton button = new MessageDialogBuilder()
+        String body = request.toDisplayText();
+        boolean perCallOnly = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
+        if (request.permanentAllowProposal() == null || perCallOnly) {
+            MessageDialogButton button = new MessageDialogBuilder()
+                    .setTitle(title)
+                    .setText(body + "\n\n[Yes] 批准  [No] 拒绝  [Cancel] 跳过")
+                    .addButton(MessageDialogButton.Yes)
+                    .addButton(MessageDialogButton.No)
+                    .addButton(MessageDialogButton.Cancel)
+                    .build()
+                    .showDialog(gui);
+            if (button == null) return ApprovalResult.skip();
+            return switch (button) {
+                case Yes -> ApprovalResult.approve();
+                case No -> ApprovalResult.reject("Lanterna 模态框拒绝");
+                case Cancel -> ApprovalResult.skip();
+                default -> ApprovalResult.skip();
+            };
+        }
+
+        String permanentOption = "永久允许（需再次确认）："
+                + ApprovalRequest.scopeDescription(request.permanentAllowProposal());
+        ListSelectDialogBuilder<String> approvalChoices = new ListSelectDialogBuilder<String>()
                 .setTitle(title)
-                .setText(body)
+                .setDescription(body + "\n请选择本次操作的授权方式");
+        approvalChoices.addListItem("仅批准本次");
+        approvalChoices.addListItem(permanentOption);
+        approvalChoices.addListItem("拒绝");
+        approvalChoices.addListItem("跳过");
+        String selected = approvalChoices.build().showDialog(gui);
+        if (selected == null || selected.equals("跳过")) return ApprovalResult.skip();
+        if (selected.equals("拒绝")) return ApprovalResult.reject("Lanterna 模态框拒绝");
+        if (selected.equals("仅批准本次")) return ApprovalResult.approve();
+        if (!selected.equals(permanentOption)) return ApprovalResult.skip();
+
+        String binding = ApprovalRequest.bindingDescription(request.permanentAllowProposal());
+        String confirmation = "将保存以下永久授权规则：\n"
+                + ApprovalRequest.scopeDescription(request.permanentAllowProposal())
+                + (binding == null ? "" : "\nMCP 配置绑定：" + binding)
+                + "\n项目根目录：" + request.permanentAllowProposal().projectRoot()
+                + "\n该规则仅对当前项目生效。确认保存吗？";
+        MessageDialogButton confirmed = new MessageDialogBuilder()
+                .setTitle("二次确认：永久授权")
+                .setText(confirmation)
                 .addButton(MessageDialogButton.Yes)
                 .addButton(MessageDialogButton.No)
-                .addButton(MessageDialogButton.Cancel)
                 .build()
                 .showDialog(gui);
-        if (button == null) {
-            return ApprovalResult.skip();
-        }
-        return switch (button) {
-            case Yes -> ApprovalResult.approve();
-            case No -> ApprovalResult.reject("Lanterna 模态框拒绝");
-            case Cancel -> ApprovalResult.skip();
-            default -> ApprovalResult.skip();
-        };
+        return confirmed == MessageDialogButton.Yes
+                ? ApprovalResult.allowPermanently() : ApprovalResult.skip();
     }
 
     @Override

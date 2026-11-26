@@ -202,6 +202,7 @@ public abstract class AbstractOpenAiCompatibleClient implements LlmClient {
             boolean resolvedModelConflict = false;
             boolean usagePresent = false;
             boolean streamCompleted = false;
+            String finishReasonText = null;
 
             while (!source.exhausted()) {
                 String line = source.readUtf8Line();
@@ -256,6 +257,7 @@ public abstract class AbstractOpenAiCompatibleClient implements LlmClient {
                 JsonNode finishReason = choice.get("finish_reason");
                 if (finishReason != null && !finishReason.isNull() && !finishReason.asText("").isBlank()) {
                     streamCompleted = true;
+                    finishReasonText = finishReason.asText();
                 }
                 JsonNode delta = choice.path("delta");
                 if (delta.isMissingNode() || delta.isNull()) {
@@ -296,6 +298,10 @@ public abstract class AbstractOpenAiCompatibleClient implements LlmClient {
                 throw new IOException("API返回空内容，请检查 provider/model 配置或该模型是否支持当前请求参数");
             }
 
+            // 放在所有可能失败的检查之后：这次尝试一定会成功返回，重试不会让调用方收到两次。
+            if (finishReasonText != null) {
+                streamListener.onFinishReason(finishReasonText);
+            }
             return new ChatResponse(
                     role,
                     content.toString(),

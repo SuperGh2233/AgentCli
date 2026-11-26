@@ -61,6 +61,10 @@ public class Task {
         }
     }
 
+    void removeDependent(String taskId) {
+        dependents.remove(taskId);
+    }
+
     public void addDependency(String taskId) {
         if (!dependencies.contains(taskId)) {
             dependencies.add(taskId);

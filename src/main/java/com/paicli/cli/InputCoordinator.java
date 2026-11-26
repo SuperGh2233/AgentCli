@@ -9,10 +9,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Phase2A 的输入模式与事件路由组件，尚未接入 Main。
+ * 输入模式与事件路由组件，由 opt-in 的交互式 inline ReAct 输入循环调用。
  * 不读 Terminal/System.in，不开线程，不管理行编辑，不写 History，也不负责执行或结束任务。
- * 后续适配器必须由同一个 JLine 所有者完成读取、按键解码及调用 capture/submit/escape。
- * 审批线程只申请/释放输入模式；模式切换时适配器必须唤醒读取并保存草稿。
+ * JLine 适配器只由同一个 UI 所有者读取、解码按键并调用 capture/submit/escape。
+ * 审批线程只申请/释放输入模式；模式切换时适配器唤醒读取并保存草稿。
  */
 public final class InputCoordinator {
     public enum Mode { IDLE_INPUT, RUNNING_INPUT, APPROVAL_INPUT, PLAN_REVIEW_INPUT }
@@ -164,6 +164,13 @@ public final class InputCoordinator {
         }
         InputAcceptance acceptance = manager.accept(sessionId, ticket.turnId, UUID.randomUUID().toString(),
                 "cli", content, deliveryMode);
+        if (acceptance.code() == InputAcceptance.Code.STALE_TURN
+                && manager.snapshot().state() != TurnState.CANCELLING) {
+            // Turn 在用户按 Enter 前已经原子收尾：保留原文为草稿，交给下一提示再次确认。
+            // CANCELLING 则是用户已经明确请求取消，不再接受新的输入草稿。
+            return result(Route.RETRY, text, acceptance,
+                    "当前任务已结束，输入未被接收；原文已保留为草稿，请确认后重新提交。" + RECEIPT);
+        }
         return result(acceptance.accepted() ? Route.ACCEPTED : Route.REJECTED, text, acceptance,
                 (acceptance.accepted() ? "已接收。" : "未接收：" + acceptance.code() + "。") + RECEIPT);
     }

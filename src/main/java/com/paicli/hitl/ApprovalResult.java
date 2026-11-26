@@ -20,6 +20,7 @@ public record ApprovalResult(
         APPROVED,
         APPROVED_ALL,
         APPROVED_ALL_BY_SERVER,
+        PERMANENTLY_ALLOWED,
         REJECTED,
         MODIFIED,
         SKIPPED
@@ -37,6 +38,10 @@ public record ApprovalResult(
         return new ApprovalResult(Decision.APPROVED_ALL_BY_SERVER, null, null);
     }
 
+    public static ApprovalResult allowPermanently() {
+        return new ApprovalResult(Decision.PERMANENTLY_ALLOWED, null, null);
+    }
+
     public static ApprovalResult reject(String reason) {
         return new ApprovalResult(Decision.REJECTED, null, reason);
     }
@@ -51,7 +56,7 @@ public record ApprovalResult(
 
     public boolean isApproved() {
         return decision == Decision.APPROVED || decision == Decision.APPROVED_ALL
-                || decision == Decision.APPROVED_ALL_BY_SERVER
+                || decision == Decision.APPROVED_ALL_BY_SERVER || decision == Decision.PERMANENTLY_ALLOWED
                 || decision == Decision.MODIFIED;
     }
 

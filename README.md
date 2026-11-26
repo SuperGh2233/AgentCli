@@ -1,4 +1,4 @@
-# PaiCLI
+# Hao CLI
 
 <p align="center">
   <strong>Java Agent CLI / Harness 实践项目</strong>
@@ -14,6 +14,13 @@ PaiCLI 是一个以 Java 构建的终端 Agent 项目，用于实践 Coding Agen
 
 项目从 ReAct 单 Agent 循环逐步扩展到 Plan-and-Execute、Multi-Agent、MCP、代码检索、记忆管理、终端交互和外部接入。**项目目标是学习和验证 Agent 工程方法，不宣称复刻或替代 Claude Code。**
 
+
+Build. Execute. Evolve.
+
+Hao CLI 是一个由 GitHub 账号 **SuperGh2233** 独立开发和维护的 Java Agent CLI 项目，重点探索 Agent Harness、任务规划、工具执行、上下文管理、记忆机制和终端交互。
+
+项目设计过程中参考了开发者社区中关于 Agent CLI 的实践思路，包括[沉默王二的 PaiCLI 项目与教程](https://javabetter.cn/sidebar/itwanger/paicli/)。这里仅作为设计思路的参考与致谢；Hao CLI 的代码实现、功能取舍和后续演进由本项目独立维护。项目不以 PaiCLI 作为代码来源，也不将其功能清单直接视为 Hao CLI 的实现说明。
+
 ## 核心能力
 
 | 模块 | 能力 |
@@ -27,6 +34,11 @@ PaiCLI 是一个以 Java 构建的终端 Agent 项目，用于实践 Coding Agen
 | Code RAG | SQLite 向量索引、代码切块、AST 关系分析与语义检索 |
 | Safety | Human-in-the-loop、风险分级、工具审批与执行审计 |
 | Interfaces | inline TUI、可选 Lanterna TUI、Runtime API、浏览器 MCP、微信文本通道 |
+
+
+## 项目特点
+
+Hao CLI 围绕一个目标展开：把模型推理、任务规划、工具调用、记忆和运行时控制组织成一个可观察、可扩展的终端 Agent。项目从 ReAct 单 Agent 循环逐步扩展到 Plan-and-Execute、Multi-Agent、MCP、代码检索、记忆管理和终端界面。
 
 ## 架构概览
 
@@ -50,34 +62,33 @@ flowchart TD
     T --> S[Risk Policy / HITL / Audit]
 ```
 
-## 技术栈
 
-- **语言与构建：** Java 17、Maven
-- **终端交互：** JLine、Lanterna（可选）
-- **持久化：** SQLite
-- **模型接入：** OpenAI-compatible API 及多 Provider 适配
-- **工具扩展：** MCP、Browser / Chrome DevTools
-- **质量保障：** JUnit 与项目内专项验证脚本
+## 当前开发方向
 
-## 快速开始
+本项目持续推进执行中输入控制和终端交互可靠性；未完成的接线和验证不作为已交付能力。现有 Maven 构建名称、`com.paicli` 包名、`~/.paicli`、`PAICLI_*` 和 `PAI.md` 等历史兼容标识暂时保留，后续再评估是否迁移。启动时显示的 `v16.1.0` 是现有代码中的历史版本常量，不代表 Hao CLI 已发布对应的语义版本。
 
-### 环境要求
+执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；用户也已在普通 macOS Terminal 验证 Ctrl+C / Ctrl+D 的 JLine 原生异常。Phase3A ReAct 安全点和 Phase3B-3A 的 Main 接线已实现，但只有在 `paicli.steering.enabled=true`、交互式 inline ReAct 路径启用；Plain/Lanterna 和非交互路径不启用新输入循环，Plan/Team 仍保留原审批流程。Phase3B-3A 隔离离线回归已通过（12 suites / 94 tests，0 failures / 0 errors）；真实 Main + WakeableLineReader 终端组合、中文输入法候选窗和审批/Steer 输入归属仍待人工验收。Steer/Queue 输入会清除编辑态回显并写入可见的对话记录；`/queue` 目前只保存并显示数量，不会自动启动下一任务。`paicli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
 
-- JDK 17
-- Maven 3.8+
-- 至少一个兼容的模型服务及 API Key
-- 可选：Ollama 与 Embedding 模型，用于本地代码语义检索
-- 可选：Node.js / npx、Chrome，用于浏览器 MCP 能力
-
-### 构建
+## 启动时恢复会话（Day3-A）
 
 ```bash
-git clone https://github.com/SuperGh2233/AgentCli.git
-cd AgentCli
-mvn package -DskipTests
+java -jar target/paicli-1.0-SNAPSHOT.jar --continue
+java -jar target/paicli-1.0-SNAPSHOT.jar --session <id>
 ```
 
-启动命令与配置项请以仓库当前版本的 `README.md` 后续章节、`config/`、`.env.example` 和 [运行手册](docs/) 为准。首次运行前先配置模型 Provider 和凭证；不要将真实 API Key 提交到仓库。
+`--continue` 按现有 `/resume` 的顺序恢复当前项目最近一个可恢复的旧 CLI 会话，排除本次启动新建的记录。`--session <id>` 精确匹配 ID（不是列表序号），只接受当前项目的 CLI 会话。两个参数不能混用或重复；ID 不能为空或包含路径。未知旧参数仍忽略，不带参数的启动不变，微信和 Runtime API 的专用入口不变。
+
+只恢复 ReAct 对话，沿用 `/resume` 对未完成最后一轮的处理，恢复后清除人工确认授权并刷新状态。找不到会话或记录不可用时明确报错并退出。实际选择 Lanterna 全屏 TUI 时拒绝这些参数；终端太小而退回 CLI 时可以恢复。不增加持久化机制或任务检查点，`/resume` 行为不变。
+
+## 无界面模式（一次执行，给脚本和 CI 用）
+
+```bash
+java -jar target/paicli-1.0-SNAPSHOT.jar -p "总结 README 的要点"
+echo "列出 src 下的入口类" | java -jar target/paicli-1.0-SNAPSHOT.jar -p --output-format json
+java -jar target/paicli-1.0-SNAPSHOT.jar -p "修复编译错误" --permission-mode edit --allow-command "mvn -q compile" --output-format stream-json
+```
+
+执行一次任务后退出，不弹任何确认。默认只读（读文件、搜代码、联网读取）；`--permission-mode edit` 另外允许写文件和改文件；命令默认一条都不执行，要用 `--allow-command` 逐条精确列出。`text` 只输出最终回答，`json` 结束时输出一个结果对象，`stream-json` 每个事件一行 JSON。退出码：0 完成、1 调用模型失败、2 参数或配置错误、3 只完成一部分、130 已取消。输出格式见 `docs/specs/headless-mode.md`。
 
 ## 安全边界
 
@@ -89,6 +100,7 @@ mvn package -DskipTests
 
 建议先在可丢弃的测试项目或虚拟机中试用，使用最小权限账户，并检查 Agent 提议执行的命令和工具参数。
 
+
 ## 文档
 
 - [路线图](ROADMAP.md)
@@ -96,266 +108,17 @@ mvn package -DskipTests
 - [项目记忆约定](PAI.md)
 - [阶段设计与实现记录](docs/)
 
-## 测试
-
-项目包含 Maven 测试与按阶段组织的专项验证。根据改动范围选择测试；发版或大规模重构前，建议执行完整回归：
-
-```bash
-mvn test -DskipTests=false
-```
-
-具体快速测试 Profile 和终端 / MCP / Runtime API 验证方法以仓库当前测试配置和阶段文档为准。
-
-## 许可证
-
-请以仓库中的 LICENSE 文件为准。
-
-## 快速开始
-
-### 1. 配置 API Key
-
-复制 `.env.example` 为 `.env`，并填入你的 DeepSeek、GLM、混元、StepFun、Kimi、FreeLLMAPI、讯飞星辰 MaaS 或 Agnes API Key。DeepSeek 是默认接入选择，没有在 `~/.paicli/config.json` 保存默认 provider 时优先使用它：
-
-```bash
-cp .env.example .env
-# 编辑 .env 文件，填入你的 API Key
-```
-
-或者在环境变量中设置：
-
-```bash
-export DEEPSEEK_API_KEY=your_deepseek_api_key_here
-export DEEPSEEK_MODEL=deepseek-flash
-# 或
-export GLM_API_KEY=your_api_key_here
-export GLM_MODEL=glm-5.3-flash
-# 或
-export HUNYUAN_API_KEY=your_hunyuan_api_key_here
-export HUNYUAN_MODEL=hy4-preview
-export HUNYUAN_BASE_URL=https://tokenhub.tencentmaas.com/v1
-# 或
-export STEP_API_KEY=your_step_api_key_here
-export STEP_MODEL=step-3.5-flash
-# 或
-export KIMI_API_KEY=your_kimi_api_key_here
-export KIMI_MODEL=kimi-k2.6
-# 或
-export FREELLMAPI_API_KEY=your_freellmapi_unified_key_here
-export FREELLMAPI_BASE_URL=http://localhost:5173/v1
-export FREELLMAPI_MODEL=auto
-# 或
-export AGNES_API_KEY=your_agnes_api_key_here
-export AGNES_MODEL=agnes-2.0-flash
-export AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
-```
-
-也可以在 PaiCLI 内用命令写入 `~/.paicli/config.json`，不会覆盖 Kimi 配置：
-
-```text
-/model deepseek-flash
-/model glm-5.3-flash
-/config provider hunyuan --base-url https://tokenhub.tencentmaas.com/v1 --api-key <key> --model hy4-preview --default
-/model hy4-preview
-/config provider freellmapi --base-url http://localhost:5173/v1 --api-key <key> --model auto
-/model freellmapi
-/config provider agnes --api-key <key> --model agnes-2.0-flash --default
-/model agnes
-```
-
-长期记忆默认保存在用户目录下的 `~/.paicli/memory/long_term_memory.json`。ReAct / Plan / Team 各自的记忆实例和多个 PaiCLI 进程可以同时读写这个文件：每次写入都在进程内锁 + `long_term_memory.json.lock` 文件锁下先重读磁盘上的最新内容再修改，写入时先写临时文件、再原子改名保存；读取前会检测文件变化并刷新。文件解析失败时会另存为 `long_term_memory.json.corrupt-<时间戳>`，并保留内存中已有记忆，不会被空列表覆盖。
-交互式 CLI 默认在 ReAct、Plan、Team 的任务完成后，从用户实际提交的原文中自动挑选稳定偏好或项目事实；模型必须返回原文中的连续片段，最多 3 条。自动条目只存当前项目，标注“自动提取，待核实”，不会从工具输出、助手回复或压缩摘要提取，也不会覆盖冲突记忆。会话接触外部内容后默认停止自动提取。可用 `PAICLI_MEMORY_AUTO_EXTRACT_ENABLED=false` 关闭；嵌入式 Agent 默认关闭，需调用 `MemoryManager.setAutoFactExtractionEnabled(true)`。候选输入会多一次不带工具的模型调用。显式保存仍可用 `/save <事实>`，或用户明确说“记一下 / 记住 / 以后记得”时由 Agent 调用 `save_memory`；跨项目通用偏好可用 `/save --global <事实>` 或 `save_memory(scope=global)`。长期记忆不应包含一次性任务请求或临时文件名/目录名。
-重复记忆只会在相同 `type + scope + project` 域内合并：先规范化 Unicode 宽窄、大小写、空白和普通标点，再保守识别少量中文语法助词差异；用户显式重复保存等价内容会刷新已有条目的核实时间，自动提取重复内容则跳过且不刷新。数字、代码符号或实质内容不同的事实不会被去重合并。
-写入时另有冲突检测：同域内“只有数字/版本号不同”或字符二元组相似度 ≥ `PAICLI_MEMORY_CONFLICT_THRESHOLD`（默认 0.8）但又不是重复的条目，视为同一事实的新旧版本，新内容不会写入，`/save` 或 `save_memory` 的结果会同时列出两条，由用户选择：保留旧的（无需操作）、`/memory replace <id> <新事实>` 改用新的，或 `/save --force <事实>` 两条都保留。冲突检测基于字面相似度，不理解同义改写或语义矛盾。
-每条记忆记录写入时间和最后核实时间；自动提取条目额外标注“待核实”，在用户确认前不把写入时间表述成用户核实时间。超过 `PAICLI_MEMORY_STALE_DAYS`（默认 30 天）未核实的记忆在检索注入和 `/memory list` 中标注“可能已过时”。`/memory verify <id>` 表示用户确认仍然成立并刷新核实时间。system prompt 要求模型把记忆当线索：行动前用当前文件核实，不一致时以文件为准并提示用户更新记忆。
-可用 `/memory list` 查看长期记忆，`/memory search <关键词>` 搜索当前项目可见记忆，`/memory delete <id>` 删除单条记忆。
-
-项目级记忆使用 Markdown 文件维护，和 `/save` 的长期记忆分工不同：
-
-- `~/.paicli/PAI.md`：用户级稳定偏好，所有项目可见。
-- `PAI.md` / `.paicli/PAI.md`：项目级团队规则，建议提交到 git。
-- `PAI.local.md` / `.paicli/PAI.local.md`：本地覆盖，适合个人调试约定，建议加入 `.gitignore`。
-- `@relative/path.md`：在 `PAI.md` 中导入项目根内的相对文件；越靠后的文件越接近本地覆盖，优先级越高。
-
-可用 `/init` 为当前项目生成一份短 `PAI.md`。该命令默认不覆盖已有文件；确认需要重建时使用 `/init --force`。
-代码索引默认保存在 `~/.paicli/rag/codebase.db`。
-调试日志默认滚动写入 `~/.paicli/logs/paicli.log`，旧日志会按保留天数和总容量自动清理。
-ReAct / Plan task / SubAgent / Planner 的模型 `reasoning_content` 会以 `LLM reasoning [...]` 形式写入该日志，便于排查模型为什么选择某个工具或路径。
-
-如果你想为某次运行指定单独目录，可以额外传入：
-
-```bash
-# 指定记忆目录
-java -Dpaicli.memory.dir=/tmp/paicli-memory -jar target/paicli-1.0-SNAPSHOT.jar
-
-# 指定 RAG 索引目录
-java -Dpaicli.rag.dir=/tmp/paicli-rag -jar target/paicli-1.0-SNAPSHOT.jar
-
-# 指定日志目录与保留策略
-java -Dpaicli.log.dir=/tmp/paicli-logs \
-     -Dpaicli.log.level=DEBUG \
-     -Dpaicli.log.maxHistory=3 \
-     -Dpaicli.log.maxFileSize=5MB \
-     -Dpaicli.log.totalSizeCap=20MB \
-     -jar target/paicli-1.0-SNAPSHOT.jar
-```
-
-也可以放到 `.env` 或环境变量中：
-
-```bash
-PAICLI_LOG_LEVEL=DEBUG
-PAICLI_LOG_DIR=/Users/yourname/.paicli/logs
-PAICLI_LOG_MAX_HISTORY=7
-PAICLI_LOG_MAX_FILE_SIZE=10MB
-PAICLI_LOG_TOTAL_SIZE_CAP=100MB
-```
-
-### 2. 可选：配置 MCP server
-
-MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，PaiCLI 会自动创建默认 chrome-devtools 配置：
-
-```json
-{
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--isolated=true"]
-    }
-  }
-}
-```
-
-需要继续接入其他 server 时，可编辑 `~/.paicli/mcp.json` 或项目内 `.paicli/mcp.json`：
-
-```json
-{
-  "mcpServers": {
-    "fetch": {
-      "command": "uvx",
-      "args": ["mcp-server-fetch"]
-    },
-    "git": {
-      "command": "uvx",
-      "args": ["mcp-server-git", "--repository", "${PROJECT_DIR}"]
-    },
-    "remote-demo": {
-      "url": "https://mcp.example.com/v1",
-      "headers": {"Authorization": "Bearer ${REMOTE_TOKEN}"}
-    },
-    "step_search": {
-      "url": "https://api.stepfun.com/step_plan/v1/mcp/web_search/mcp",
-      "headers": {"Authorization": "Bearer ${STEP_API_KEY}"}
-    }
-  }
-}
-```
-
-`command` 表示 stdio server，`url` 表示 Streamable HTTP server。`${PROJECT_DIR}` / `${HOME}` 是内置变量，其他 `${VAR}` 从环境变量读取；缺失会在启动时直接提示。
-
-stdio server 不会继承 PaiCLI 进程里的全部环境变量，只带过去 PATH、HOME、语言、临时目录、代理和证书这类运行必需的变量，免得你机器上的各家 API Key 被交给第三方 MCP 服务。server 需要某个 Key 时，在配置里显式写：
-
-```json
-"github": {
-  "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-github"],
-  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
-}
-```
-
-项目内的 `.paicli/mcp.json` 会跟着仓库走，克隆别人的仓库时里面的命令不该直接执行。所以项目级 server 第一次启动前需要确认：启动时会提示哪些 server 还没确认，`/mcp` 会列出每个 server 要执行的命令（env 和 headers 只列名字），确认后输入 `/mcp trust <name>` 启动。确认记录保存在 `~/.paicli/mcp-trust.json`，仓库更新改了这个 server 的命令、参数、env、url 或 headers，就需要重新确认。
-
-`step_search` 是约定名称：如果项目 `.env`、用户 `~/.env` 或系统环境变量里存在 `STEP_API_KEY`，PaiCLI 会自动内置这个远程 MCP；上面的手写配置只用于覆盖默认地址或自定义鉴权。当前模型为 `step-3.7-flash*` 时，内置 `web_search` / `web_fetch` 会优先代理到该 MCP server。
-
-需要复用当前登录态时，Chrome 144+ 推荐打开 `chrome://inspect/#remote-debugging` 并勾选 `Allow remote debugging for this browser instance`。旧版本或需要显式 CDP 端口时，可以启动带远程调试端口和独立 user-data-dir 的 Chrome，并在这个调试 Chrome 中完成登录：
-
-```bash
-# macOS
-open -na "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-profile
-
-# Windows
-start chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\paicli-chrome-profile
-
-# Linux
-google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-profile
-```
-
-通常不需要用户预先切换；Agent 如果遇到登录页会自己调用 `browser_connect`。手工调试时也可以在 PaiCLI 内执行：
-
-```text
-/browser status
-/browser connect
-/browser tabs
-/browser disconnect
-```
-
-`/browser connect` 只在当前进程内把 `chrome-devtools` 切到 shared 模式，不会改写 `~/.paicli/mcp.json`。如果希望启动后默认 shared，可手动把 args 改为：
-
-```json
-["-y", "chrome-devtools-mcp@latest", "--autoConnect"]
-```
-
-旧式 CDP HTTP JSON 端口也可使用：
-
-```json
-["-y", "chrome-devtools-mcp@latest", "--browser-url=http://127.0.0.1:9222"]
-```
-
-浏览器测试可直接让 Agent 读取动态页面，例如：
-
-```text
-帮我看下 https://mp.weixin.qq.com/s/RB7kF_BbsJZ5_Hmu9PxWdg 这篇文章讲了什么
-```
-
-预期流程是：`web_fetch` 抓取失败后，改用 `mcp__chrome-devtools__navigate_page` 与 `take_snapshot`。
-
-如果 server 支持 resources，可以直接查看或引用：
-
-```text
-/mcp resources filesystem
-/mcp prompts filesystem
-帮我看下 @filesystem:file://README.md 这份文档
-```
-
-OAuth 和 `sampling/createMessage` 当前未实现；远程 server 需要鉴权时仍使用 `headers` + 环境变量注入 Bearer token。
-
-### 3. 编译运行
-
-```bash
-# 编译（默认跳过测试）
-mvn clean package
-
-# 运行（只有 search_code 语义检索需要本地 Ollama + nomic-embed-text；grep_code 会优先使用本机 ripgrep，未安装时自动回退）
-java -jar target/paicli-1.0-SNAPSHOT.jar
-```
-
-或者直接运行：
-
-```bash
-mvn clean compile exec:java -Dexec.mainClass="com.paicli.cli.Main"
-```
-
-### 4. 如何进入 Plan 模式
-
-当前默认模式是 `ReAct`。进入 `Plan-and-Execute` 有三种方式：
-
-1. 输入 `/plan`，只有下一条任务用计划模式执行，执行完回到原来的模式
-2. 输入 `/plan <任务>`，这一条任务直接用计划模式执行：
-
-```text
-/plan 创建一个 demo 项目，然后读取 pom.xml，最后验证项目结构
-```
-
-3. 按 Shift+Tab 切到 plan 模式（或输入 `/mode plan`），之后每条普通输入都先规划再执行，直到切走；这期间显式输入 `/team` 仍走 Multi-Agent
-
-计划生成后，CLI 会先停下来等待确认：
-
-- 按 `Enter`：按当前计划执行
-- 按 `Ctrl+O`：展开完整计划
-- 按 `ESC`：折叠完整计划或取消本次计划
-- 按 `I`：输入补充要求，模型在当前计划基础上修改，改完再审一次
-- 按方向键不会触发取消；只有单独按下 `ESC` 才会取消待执行 plan
-
 
 ## 测试策略
+
+MRTR-3 历史验收与相关 MCP/界面离线回归：18 个测试类、170 项全部通过，保留原 159 项，新增能力声明测试 11 项。MRTR-4 Lanterna UI 已纳入完整离线回归：本轮 43 个测试类、387 项全部通过（0 失败、0 错误、0 跳过）；真实终端手工验收仍待执行。构建和测试输出隔离在 `/tmp`；没有调用模型、外网、真实浏览器或 Docker。命令和剩余限制见 [MRTR 实施记录](docs/plans/active/PLAN-20261103-mcp-mrtr.md)。
+
+Day2-C 已将文件重复失败观察器接入 ReAct、Plan 单任务和 Team worker。
+用 `java -Dpaicli.stagnation.resource.observer.enabled=true -jar target/paicli-1.0-SNAPSHOT.jar` 显式启用，默认关闭。
+Day2-D 使用工具实现传递的明确失败码识别 old_text 未找到，不再匹配错误文案；原错误显示不变。
+每次运行或独立任务分别计数；只在特定编辑失败连续出现时记录一次固定日志事件，不含用户文本、路径或文件内容。
+不向模型添加消息，不改变现有提醒、预算、工具顺序或执行策略。
+范围和验证记录见[说明](docs/plans/active/PLAN-20261103-resource-failure-observation.md)。
 
 日常开发不需要每次都跑全量测试。`mvn clean package` 默认跳过测试，先打出能手工试用的 jar；需要回归测试时，按改动范围选择：
 
@@ -363,8 +126,11 @@ mvn clean compile exec:java -Dexec.mainClass="com.paicli.cli.Main"
 # 第 16 期终端 / TUI / inline renderer 冒烟
 mvn test -Pphase16-smoke
 
-# 常规快速回归，跳过外部进程 / 网络超时 / 命令超时类慢测试
+# 常规快速回归，跳过外部进程 / 网络超时 / 命令超时类慢测试和评测包测试
 mvn test -Pquick
+
+# 评测包（eval.benchmark）测试，单独跑
+mvn test -Pbenchmark
 
 # 代码搜索 deterministic golden set
 mvn test -Dtest=CodeSearchGoldenSetTest -DskipTests=false
@@ -373,8 +139,7 @@ mvn test -Dtest=CodeSearchGoldenSetTest -DskipTests=false
 mvn test -DskipTests=false
 ```
 
-
-## 功能演进详解
+## 演进历程
 
 ### 第一期：ReAct Agent CLI
 
@@ -427,6 +192,7 @@ mvn test -DskipTests=false
 - 危险操作静态规则识别：`write_file`、`edit_file`、`execute_command`、`create_project`、`revert_turn`
 - 三级危险等级：高危（`execute_command`）、中危（`write_file` / `edit_file` / `create_project`）
 - 审批决策：批准 / 全部放行 / 拒绝 / 跳过 / 修改参数后执行
+- Terminal（终端）、Plain（纯文本）、Inline（行内界面）的审批框均完整展示 `execute_command` 命令，按显示宽度换行；动态内容中的控制字符与双向文本控制字符显示为 `<U+001B>` 等可见标记，修改参数时的当前参数、工具名和 MCP 服务名提示也安全显示。普通中文、路径和反斜线保留，其他长字符串仍只显示预览；实际工具参数、修改后的参数和审批缓存键保持原样。
 - auto（启动默认，不打断用户）：读写文件直接执行；Shell 命令先由轻量模型分类器审查，低风险直接执行；分类器不放行的命令，以及 MCP 工具、回滚快照，都交回模型换做法或向你说明，同一轮连续被拦 3 次才弹审批
 - ask：写文件、编辑文件、执行命令、创建项目、回滚快照和 MCP 工具都要确认
 - `/hitl on` 切到 ask，`/hitl default` 切回 auto，`/hitl` 查看当前档位；交互式 CLI 不提供全部放行
@@ -495,13 +261,15 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 - stdio server 进程自己退出，或者连续两次 ping 都不回（卡死）时，PaiCLI 会移除它的工具，按 1 秒、2 秒、4 秒的间隔自动重启，连续 3 次失败就停下并提示用 `/mcp restart` 手动处理；正在等它回复的请求立即失败，不用干等 60 秒超时
 - 关闭 server 时会连同 npx / uvx 拉起的子进程一起结束；PaiCLI 被强制杀掉（kill -9）后，下次启动会清理上次遗留的 MCP 子进程
 - MCP `${VAR}` 支持系统环境变量、系统属性、项目 `.env`、用户 `~/.env`；检测到 `STEP_API_KEY` 时自动内置 `step_search` 远程 MCP，显式同名配置优先
+- MCP 配置指纹使用本地 HMAC-SHA256（带私有密钥的摘要）；32 字节随机密钥仅存在私有 `~/.paicli/mcp-trust.json` 的 `fingerprintKey` 中。首次升级生成密钥会清除旧 SHA 信任记录，项目 server 需要重新 `/mcp trust`；文件损坏或密钥非法时拒绝覆盖。
+- 配置绑定会重新检查原始配置和展开后的有效配置，变化或读取失败时标记 `current=false`。本阶段不自动 reload，也未启用 MCP 永久 ALLOW。文件改动需要重新载入配置（当前可重新启动 CLI）；`/mcp restart` 只重启已载入的配置，并重新展开变量，不重读 mcp.json。
 - MCP 工具自动注册为 `mcp__{server}__{tool}`，参数 schema 会删掉 `$ref` 和超长 description，`anyOf` / `oneOf` 按真实类型收起来（例如可选的字符串参数仍标成 `string`），降低模型调用失败率；执行前按 server 返回的原始 schema 校验参数，不合格的调用不发给 server，直接把哪个字段有什么问题告诉模型
 - 所有 MCP 工具默认走 HITL 审批和审计，审计参数会脱敏 token / key / password / Authorization / Bearer 凭证
 - 支持 MCP resources：server 声明 `resources` capability 后，自动注册 `mcp__{server}__list_resources` / `mcp__{server}__read_resource` 虚拟工具
 - 普通输入支持 `@server:protocol://path` 显式引用 resource，提交给 Agent 前展开为 `<resource>` 内联块
 - 被动处理 `notifications/tools/list_changed`、`notifications/resources/list_changed`、`notifications/resources/updated`
 - 运行中输入 `/cancel` 并回车可请求取消当前 Agent run
-- CLI 命令：`/mcp`、`/mcp restart <name>`、`/mcp logs <name>`、`/mcp disable <name>`、`/mcp enable <name>`、`/mcp trust <name>`、`/mcp resources <name>`、`/mcp prompts <name>`
+- CLI 命令：`/mcp login <name>`、`/mcp logout <name>`、`/mcp`、`/mcp restart <name>`、`/mcp logs <name>`、`/mcp disable <name>`、`/mcp enable <name>`、`/mcp trust <name>`、`/mcp resources <name>`、`/mcp prompts <name>`
 - `~/.paicli/mcp.json` 不存在时会自动创建默认 chrome-devtools 配置；项目级 `.paicli/mcp.json` 仍可按 server 名覆盖
 
 ### 第十二期：长上下文工程
@@ -671,6 +439,7 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 - `java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080` 启动 localhost Runtime API
 - Runtime API 端点：`POST /v1/threads`、`POST /v1/threads/{id}/turns`、`GET /v1/threads/{id}/events`
 - Runtime API 强制要求 `PAICLI_RUNTIME_API_KEY` 或 `-Dpaicli.runtime.api.key`
+- Runtime API 和后台任务没人确认，工具按和 `-p` 相同的白名单放行：默认只读、不执行命令。`serve` 可加 `--permission-mode edit` 允许写文件、`--allow-command "精确命令"`（可重复）放行命令；后台任务用 `PAICLI_TASK_PERMISSION_MODE=edit` 允许写文件（后台任务不执行命令）。2026-11-26 之前这两条路径没有任何审批和白名单
 - 详细文档见 `docs/phase-20-runtime-api.md`
 
 ### 第二十一期：图片复制粘贴输入（MVP）
@@ -834,6 +603,280 @@ Plan/FILE_ONLY 配置；题面、两份 CSV、runtime 和逐题评测约定由�
 - 🧱 定位：HITL 之外的辅助层，不是沙箱、不提供进程隔离
 - 🔒 可选命令沙箱：`PAICLI_COMMAND_SANDBOX=auto|required` 时 `execute_command` 走 macOS Seatbelt 或 Linux bubblewrap，只能写工作区、没有网络；默认 `off`，因为 `mvn` / `npm install` / `git push` 等需要网络或用户目录的命令在沙箱里会失败
 
+## 快速开始
+
+### 1. 配置 API Key
+
+复制 `.env.example` 为 `.env`，并填入你的 DeepSeek、GLM、混元、StepFun、Kimi、FreeLLMAPI、讯飞星辰 MaaS 或 Agnes API Key。DeepSeek 是默认接入选择，没有在 `~/.paicli/config.json` 保存默认 provider 时优先使用它：
+
+```bash
+cp .env.example .env
+# 编辑 .env 文件，填入你的 API Key
+```
+
+或者在环境变量中设置：
+
+```bash
+export DEEPSEEK_API_KEY=your_deepseek_api_key_here
+export DEEPSEEK_MODEL=deepseek-flash
+# 或
+export GLM_API_KEY=your_api_key_here
+export GLM_MODEL=glm-5.3-flash
+# 或
+export HUNYUAN_API_KEY=your_hunyuan_api_key_here
+export HUNYUAN_MODEL=hy4-preview
+export HUNYUAN_BASE_URL=https://tokenhub.tencentmaas.com/v1
+# 或
+export STEP_API_KEY=your_step_api_key_here
+export STEP_MODEL=step-3.5-flash
+# 或
+export KIMI_API_KEY=your_kimi_api_key_here
+export KIMI_MODEL=kimi-k2.6
+# 或
+export FREELLMAPI_API_KEY=your_freellmapi_unified_key_here
+export FREELLMAPI_BASE_URL=http://localhost:5173/v1
+export FREELLMAPI_MODEL=auto
+# 或
+export AGNES_API_KEY=your_agnes_api_key_here
+export AGNES_MODEL=agnes-2.0-flash
+export AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
+```
+
+也可以在 PaiCLI 内用命令写入 `~/.paicli/config.json`，不会覆盖 Kimi 配置：
+
+```text
+/model deepseek-flash
+/model glm-5.3-flash
+/config provider hunyuan --base-url https://tokenhub.tencentmaas.com/v1 --api-key <key> --model hy4-preview --default
+/model hy4-preview
+/config provider freellmapi --base-url http://localhost:5173/v1 --api-key <key> --model auto
+/model freellmapi
+/config provider agnes --api-key <key> --model agnes-2.0-flash --default
+/model agnes
+```
+
+长期记忆默认保存在用户目录下的 `~/.paicli/memory/long_term_memory.json`。ReAct / Plan / Team 各自的记忆实例和多个 PaiCLI 进程可以同时读写这个文件：每次写入都在进程内锁 + `long_term_memory.json.lock` 文件锁下先重读磁盘上的最新内容再修改，写入时先写临时文件、再原子改名保存；读取前会检测文件变化并刷新。文件解析失败时会另存为 `long_term_memory.json.corrupt-<时间戳>`，并保留内存中已有记忆，不会被空列表覆盖。
+交互式 CLI 默认在 ReAct、Plan、Team 的任务完成后，从用户实际提交的原文中自动挑选稳定偏好或项目事实；模型必须返回原文中的连续片段，最多 3 条。自动条目只存当前项目，标注“自动提取，待核实”，不会从工具输出、助手回复或压缩摘要提取，也不会覆盖冲突记忆。会话接触外部内容后默认停止自动提取。可用 `PAICLI_MEMORY_AUTO_EXTRACT_ENABLED=false` 关闭；嵌入式 Agent 默认关闭，需调用 `MemoryManager.setAutoFactExtractionEnabled(true)`。候选输入会多一次不带工具的模型调用。显式保存仍可用 `/save <事实>`，或用户明确说“记一下 / 记住 / 以后记得”时由 Agent 调用 `save_memory`；跨项目通用偏好可用 `/save --global <事实>` 或 `save_memory(scope=global)`。长期记忆不应包含一次性任务请求或临时文件名/目录名。
+重复记忆只会在相同 `type + scope + project` 域内合并：先规范化 Unicode 宽窄、大小写、空白和普通标点，再保守识别少量中文语法助词差异；用户显式重复保存等价内容会刷新已有条目的核实时间，自动提取重复内容则跳过且不刷新。数字、代码符号或实质内容不同的事实不会被去重合并。
+写入时另有冲突检测：同域内“只有数字/版本号不同”或字符二元组相似度 ≥ `PAICLI_MEMORY_CONFLICT_THRESHOLD`（默认 0.8）但又不是重复的条目，视为同一事实的新旧版本，新内容不会写入，`/save` 或 `save_memory` 的结果会同时列出两条，由用户选择：保留旧的（无需操作）、`/memory replace <id> <新事实>` 改用新的，或 `/save --force <事实>` 两条都保留。冲突检测基于字面相似度，不理解同义改写或语义矛盾。
+每条记忆记录写入时间和最后核实时间；自动提取条目额外标注“待核实”，在用户确认前不把写入时间表述成用户核实时间。超过 `PAICLI_MEMORY_STALE_DAYS`（默认 30 天）未核实的记忆在检索注入和 `/memory list` 中标注“可能已过时”。`/memory verify <id>` 表示用户确认仍然成立并刷新核实时间。system prompt 要求模型把记忆当线索：行动前用当前文件核实，不一致时以文件为准并提示用户更新记忆。
+可用 `/memory list` 查看长期记忆，`/memory search <关键词>` 搜索当前项目可见记忆，`/memory delete <id>` 删除单条记忆。
+
+项目级记忆使用 Markdown 文件维护，和 `/save` 的长期记忆分工不同：
+
+- `~/.paicli/PAI.md`：用户级稳定偏好，所有项目可见。
+- `PAI.md` / `.paicli/PAI.md`：项目级团队规则，建议提交到 git。
+- `PAI.local.md` / `.paicli/PAI.local.md`：本地覆盖，适合个人调试约定，建议加入 `.gitignore`。
+- `@relative/path.md`：在 `PAI.md` 中导入项目根内的相对文件；越靠后的文件越接近本地覆盖，优先级越高。
+
+可用 `/init` 为当前项目生成一份短 `PAI.md`。该命令默认不覆盖已有文件；确认需要重建时使用 `/init --force`。
+代码索引默认保存在 `~/.paicli/rag/codebase.db`。
+调试日志默认滚动写入 `~/.paicli/logs/paicli.log`，旧日志会按保留天数和总容量自动清理。
+ReAct / Plan task / SubAgent / Planner 的模型 `reasoning_content` 会以 `LLM reasoning [...]` 形式写入该日志，便于排查模型为什么选择某个工具或路径。
+
+如果你想为某次运行指定单独目录，可以额外传入：
+
+```bash
+# 指定记忆目录
+java -Dpaicli.memory.dir=/tmp/paicli-memory -jar target/paicli-1.0-SNAPSHOT.jar
+
+# 指定 RAG 索引目录
+java -Dpaicli.rag.dir=/tmp/paicli-rag -jar target/paicli-1.0-SNAPSHOT.jar
+
+# 指定日志目录与保留策略
+java -Dpaicli.log.dir=/tmp/paicli-logs \
+     -Dpaicli.log.level=DEBUG \
+     -Dpaicli.log.maxHistory=3 \
+     -Dpaicli.log.maxFileSize=5MB \
+     -Dpaicli.log.totalSizeCap=20MB \
+     -jar target/paicli-1.0-SNAPSHOT.jar
+```
+
+也可以放到 `.env` 或环境变量中：
+
+```bash
+PAICLI_LOG_LEVEL=DEBUG
+PAICLI_LOG_DIR=/Users/yourname/.paicli/logs
+PAICLI_LOG_MAX_HISTORY=7
+PAICLI_LOG_MAX_FILE_SIZE=10MB
+PAICLI_LOG_TOTAL_SIZE_CAP=100MB
+```
+
+### 2. 可选：配置 MCP server
+
+双协议核心已完成（completed）。协议版本默认 `2025-03-26`；在单个 server 中加 `"protocolVersion": "2026-07-28"` 可启用现代协议，两种传输都支持。只允许这两个版本，不自动协商、不降级。现代模式先发 `server/discover`，没有 initialize/session/DELETE/ping 或资源订阅，暂不支持变化通知。MRTR-1 已完成 elicitation 表单/URL 交互；MRTR-2 已接通现代 tools/call、resources/read、prompts/get 的有限往返（最多 4 轮、每轮 8 项），新 id 重试并原样回传本轮 requestState，拒绝/取消也回传服务端。其他请求仍严格拒绝 input_required。MRTR-3 仅在这三种现代 MRTR 操作每次发送时查询当前 UI，按实际支持声明 elicitation.form/url，保留其他元数据和自定义能力；普通请求和通知不声明。Main 仅在 System.console() 非空时连接交互 handler，无法确认交互性的路径保持空能力；切换 UI 后下一次请求立即生效。MRTR-4 为 Lanterna 全屏 TUI 增加表单/URL 界面，仅在 GUI 已运行时声明对应能力；该实现已通过本轮 43 类/387 项完整离线回归，真实终端手工验收仍待执行。WeChat 和无人值守路径默认取消且不声明。不实现旧 sampling。配置见 [双协议说明](docs/specs/mcp-protocol-eras.md)，MRTR 进度见 [MRTR 约定](docs/specs/mcp-mrtr.md)。
+
+
+MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，PaiCLI 会自动创建默认 chrome-devtools 配置：
+
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--isolated=true"]
+    }
+  }
+}
+```
+
+需要继续接入其他 server 时，可编辑 `~/.paicli/mcp.json` 或项目内 `.paicli/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    },
+    "git": {
+      "command": "uvx",
+      "args": ["mcp-server-git", "--repository", "${PROJECT_DIR}"]
+    },
+    "remote-demo": {
+      "url": "https://mcp.example.com/v1",
+      "headers": {"Authorization": "Bearer ${REMOTE_TOKEN}"}
+    },
+    "step_search": {
+      "url": "https://api.stepfun.com/step_plan/v1/mcp/web_search/mcp",
+      "headers": {"Authorization": "Bearer ${STEP_API_KEY}"}
+    }
+  }
+}
+```
+
+`command` 表示 stdio server，`url` 表示 Streamable HTTP server。`${PROJECT_DIR}` / `${HOME}` 是内置变量，其他 `${VAR}` 从环境变量读取；缺失会在启动时直接提示。
+
+stdio server 不会继承 PaiCLI 进程里的全部环境变量，只带过去 PATH、HOME、语言、临时目录、代理和证书这类运行必需的变量，免得你机器上的各家 API Key 被交给第三方 MCP 服务。server 需要某个 Key 时，在配置里显式写：
+
+```json
+"github": {
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"],
+  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"}
+}
+```
+
+项目内的 `.paicli/mcp.json` 会跟着仓库走，克隆别人的仓库时里面的命令不该直接执行。所以项目级 server 第一次启动前需要确认：启动时会提示哪些 server 还没确认，`/mcp` 会列出每个 server 要执行的命令（env 和 headers 只列名字），确认后输入 `/mcp trust <name>` 启动。确认记录保存在 `~/.paicli/mcp-trust.json`，仓库更新改了这个 server 的命令、参数、env、url 或 headers，就需要重新确认。
+
+`step_search` 是约定名称：如果项目 `.env`、用户 `~/.env` 或系统环境变量里存在 `STEP_API_KEY`，PaiCLI 会自动内置这个远程 MCP；上面的手写配置只用于覆盖默认地址或自定义鉴权。当前模型为 `step-3.7-flash*` 时，内置 `web_search` / `web_fetch` 会优先代理到该 MCP server。
+
+需要复用当前登录态时，Chrome 144+ 推荐打开 `chrome://inspect/#remote-debugging` 并勾选 `Allow remote debugging for this browser instance`。旧版本或需要显式 CDP 端口时，可以启动带远程调试端口和独立 user-data-dir 的 Chrome，并在这个调试 Chrome 中完成登录：
+
+```bash
+# macOS
+open -na "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-profile
+
+# Windows
+start chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\paicli-chrome-profile
+
+# Linux
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-profile
+```
+
+通常不需要用户预先切换；Agent 如果遇到登录页会自己调用 `browser_connect`。手工调试时也可以在 PaiCLI 内执行：
+
+```text
+/browser status
+/browser connect
+/browser tabs
+/browser disconnect
+```
+
+`/browser connect` 只在当前进程内把 `chrome-devtools` 切到 shared 模式，不会改写 `~/.paicli/mcp.json`。如果希望启动后默认 shared，可手动把 args 改为：
+
+```json
+["-y", "chrome-devtools-mcp@latest", "--autoConnect"]
+```
+
+旧式 CDP HTTP JSON 端口也可使用：
+
+```json
+["-y", "chrome-devtools-mcp@latest", "--browser-url=http://127.0.0.1:9222"]
+```
+
+浏览器测试可直接让 Agent 读取动态页面，例如：
+
+```text
+帮我看下 https://mp.weixin.qq.com/s/RB7kF_BbsJZ5_Hmu9PxWdg 这篇文章讲了什么
+```
+
+预期流程是：`web_fetch` 抓取失败后，改用 `mcp__chrome-devtools__navigate_page` 与 `take_snapshot`。
+
+如果 server 支持 resources，可以直接查看或引用：
+
+```text
+/mcp resources filesystem
+/mcp prompts filesystem
+帮我看下 @filesystem:file://README.md 这份文档
+```
+
+Streamable HTTP server 现在支持 OAuth 2.1 Authorization Code + PKCE S256（按 [MCP 2026-07-28 授权规范](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)）。默认 MCP 握手仍是 `2025-03-26`；stdio 和 HTTP 均可按 server 显式配置 `"protocolVersion": "2026-07-28"`。先在授权服务器预注册**公共客户端**，允许 `http://127.0.0.1:<随机端口>/oauth/callback` 回调，然后配置：
+
+```json
+{
+  "mcpServers": {
+    "remote": {
+      "url": "https://mcp.example.com/mcp",
+      "oauth": { "clientId": "your-pre-registered-client-id", "scopes": ["read"] }
+    }
+  }
+}
+```
+
+授权服务器元数据必须声明 `response_types_supported` 包含 `code`；若提供 `grant_types_supported`，必须包含 `authorization_code`。同时必须明确声明 `token_endpoint_auth_methods_supported` 包含 `none`；缺失时按 RFC 8414 默认 `client_secret_basic` 处理并拒绝。`scopes` 可省略；设置时仅表示你允许请求的范围。首次请求优先使用 401 `WWW-Authenticate` 挑战中的 scope，否则使用资源元数据的 `scopes_supported`；两者都没有时不传 scope。挑战要求的范围超出配置允许范围就报错；没有挑战时，取元数据范围与配置允许范围的交集，不自动追加权限。多个授权服务器时选择元数据列表第一项，客户端必须预注册在该服务器上。
+
+```text
+/mcp trust remote       # 仅项目级配置需要
+/mcp login remote
+/mcp logout remote
+/mcp login remote       # 成功后恢复连接；失败时仍保持停用
+```
+
+登录会按配置的协议版本发送未认证探测：旧版使用 `initialize`，现代版使用 `server/discover`；取得挑战后再发现资源与授权服务器元数据。授权服务器必须明确支持 S256，issuer/授权/令牌端点必须用 HTTPS。回调只监听 127.0.0.1，等待 180 秒；不能自动打开浏览器时会打印授权 URL，手动打开即可。成功后保存令牌并重启该 server；启动与 401 重试不会自动打开浏览器。
+
+令牌只保存在 `~/.paicli/oauth/mcp-oauth-tokens.json`，可用 JVM 参数 `-Dpaicli.mcp.oauth.tokens=/用户私有目录/tokens.json` 改路径，不能放进项目。POSIX 下新建目录 0700、文件 0600；已有父目录必须已经是 0700，程序不会修改共享目录权限。非 POSIX 使用仅属主可访问的 ACL，不支持权限控制或原子替换就拒绝存储；可换到支持这些能力的本地文件系统。默认使用新建的专用 `oauth/` 目录，不修改已有 `~/.paicli` 权限。
+
+带 access token 的请求遇到 401，只刷新并重试一次；refresh token 轮换会保存新值，`invalid_grant` 清除该 issuer 的旧凭证并要求重新登录。403 权限不足不重试。旧模式注销会先尝试带令牌 DELETE 关闭 MCP 会话（现代模式不发 DELETE），再删除该资源/client ID 下全部 issuer 的凭证并停用当前连接；不调用远程令牌撤销接口。
+
+静态 `headers` 仍可使用，但不能同时配置 OAuth 与静态 Authorization。令牌仅发送到配置的 MCP URL；元数据请求不携带 MCP headers，OAuth HTTP 跳转都不跟随，未配置 OAuth 的传输保留原有跳转与连接重试行为。此阶段要求资源 URL 没有 query/fragment、授权和 token endpoint 没有预置 query；不支持 confidential client secrets、client credentials、DCR/CIMD、step-up scope、device-code 或 sampling。实现约定和离线验证见 [OAuth 说明](docs/specs/mcp-oauth.md)。
+
+### 3. 编译运行
+
+```bash
+# 编译（默认跳过测试）
+mvn clean package
+
+# 运行（只有 search_code 语义检索需要本地 Ollama + nomic-embed-text；grep_code 会优先使用本机 ripgrep，未安装时自动回退）
+java -jar target/paicli-1.0-SNAPSHOT.jar
+```
+
+或者直接运行：
+
+```bash
+mvn clean compile exec:java -Dexec.mainClass="com.paicli.cli.Main"
+```
+
+### 4. 如何进入 Plan 模式
+
+当前默认模式是 `ReAct`。进入 `Plan-and-Execute` 有三种方式：
+
+1. 输入 `/plan`，只有下一条任务用计划模式执行，执行完回到原来的模式
+2. 输入 `/plan <任务>`，这一条任务直接用计划模式执行：
+
+```text
+/plan 创建一个 demo 项目，然后读取 pom.xml，最后验证项目结构
+```
+
+3. 按 Shift+Tab 切到 plan 模式（或输入 `/mode plan`），之后每条普通输入都先规划再执行，直到切走；这期间显式输入 `/team` 仍走 Multi-Agent
+
+计划生成后，CLI 会先停下来等待确认：
+
+- 按 `Enter`：按当前计划执行
+- 按 `Ctrl+O`：展开完整计划
+- 按 `ESC`：折叠完整计划或取消本次计划
+- 按 `I`：输入补充要求，模型在当前计划基础上修改，改完再审一次
+- 按方向键不会触发取消；只有单独按下 `ESC` 才会取消待执行 plan
 
 ## 使用示例
 
@@ -939,6 +982,8 @@ I
 - `/hitl default` - 切回 auto（启动默认）
 - `/hitl` - 查看 HITL 当前档位
 - `/mcp` - 查看所有 MCP server 状态
+- `/mcp login <name>` - 登录预注册公共客户端的 HTTP OAuth，成功后恢复连接
+- `/mcp logout <name>` - 先关闭当前会话，再清除令牌并停用连接
 - `/mcp restart <name>` - 重启单个 MCP server
 - `/mcp logs <name>` - 查看 MCP server 最近 200 行 stderr 日志
 - `/mcp disable <name>` - 运行时禁用 MCP server 并移除其工具
@@ -1084,3 +1129,8 @@ src/main/java/com/paicli
 └── tool/
     └── ToolRegistry.java       # 工具注册表
 ```
+
+## 许可证
+
+请以仓库中的 LICENSE 文件为准。
+

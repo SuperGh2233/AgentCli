@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /** Exercises the real public verifier against the production read-only snapshot shape. */
 class DevSafeBundleVerifierTest {
@@ -31,6 +32,8 @@ class DevSafeBundleVerifierTest {
 
     private static void verify(Path temp, boolean forbiddenRead, int expectedExit)
             throws Exception {
+        // benchmarks/ 目录目前没有纳入 git，新克隆的仓库里没有它，这时跳过而不是报错
+        assumeTrue(Files.isDirectory(SUITE), "本地没有 benchmarks/ 评测数据目录，跳过: " + SUITE);
         Path workspace = Files.createDirectory(temp.resolve("workspace"));
         BenchmarkFixtureCopier.copy(SUITE.resolve("fixtures/dev/dev-secret-safe-bundle"), workspace);
         String generator = "import sys,re\nfrom pathlib import Path\n"

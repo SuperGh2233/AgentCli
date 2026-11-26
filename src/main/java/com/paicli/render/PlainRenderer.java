@@ -6,6 +6,9 @@ import com.paicli.hitl.ApprovalPolicy;
 import com.paicli.hitl.ApprovalRequest;
 import com.paicli.hitl.ApprovalResult;
 import com.paicli.llm.LlmClient;
+import com.paicli.mcp.elicitation.ElicitationPrompter;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
 import com.paicli.util.AnsiStyle;
 
 import java.io.BufferedReader;
@@ -17,6 +20,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.paicli.hitl.ApprovalRequest.encodeForDisplay;
 
 /**
  * Plain 渲染器：纯 println 模式，等价 phase-15 行为，无折叠、无状态栏。
@@ -101,18 +106,18 @@ public final class PlainRenderer implements Renderer {
 
     @Override
     public ApprovalResult promptApproval(ApprovalRequest request) {
-        boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
+        boolean sensitivePerCall = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
         out.println();
         out.println("────────── ⚠️  HITL 审批请求 ──────────");
-        if (sensitivePerCall) {
-            out.println("⚠️  " + request.sensitiveNotice());
-        }
         out.println(request.toDisplayText());
 
         for (int attempt = 0; attempt < 5; attempt++) {
             out.println();
             if (sensitivePerCall) {
                 out.println("请选择操作：[y/Enter] 批准本次  [n] 拒绝  [s] 跳过  [m] 修改参数");
+            } else if (request.permanentAllowProposal() != null) {
+                out.println("请选择操作：[y/Enter] 批准本次  [p] 永久允许（需二次确认）  [a] 本会话全部放行  [n] 拒绝  [s] 跳过  [m] 修改参数");
             } else {
                 out.println("请选择操作：[y/Enter] 批准  [a] 全部放行  [n] 拒绝  [s] 跳过  [m] 修改参数");
             }
@@ -139,10 +144,17 @@ public final class PlainRenderer implements Renderer {
             switch (normalized) {
                 case "a" -> {
                     if (sensitivePerCall) {
-                        out.println("  敏感页面操作不支持全部放行，请选择 y/n/s/m");
+                        out.println("  当前操作必须逐次确认，不支持全部放行，请选择 y/n/s/m");
                         continue;
                     }
                     return promptApproveAllScope(request);
+                }
+                case "p" -> {
+                    if (request.permanentAllowProposal() == null || sensitivePerCall) {
+                        out.println("  当前操作不支持永久授权");
+                        continue;
+                    }
+                    if (confirmPermanentAllow(request)) return ApprovalResult.allowPermanently();
                 }
                 case "n" -> {
                     out.print("  拒绝原因（可直接回车跳过）：");
@@ -165,11 +177,25 @@ public final class PlainRenderer implements Renderer {
                         return modified;
                     }
                 }
-                default -> out.println("  ❓ 无法识别的选项：'" + input + "'，请输入 y/a/n/s/m 之一（Enter 等价于 y）");
+                default -> out.println("  ❓ 无法识别的选项：'" + encodeForDisplay(input) + "'，请输入 y/p/a/n/s/m 之一（Enter 等价于 y）");
             }
         }
         out.println("  [HITL] 连续多次无效输入，保守处理为拒绝");
         return ApprovalResult.reject("连续多次无效输入");
+    }
+
+    @Override
+    public java.util.Set<String> supportedElicitationModes() {
+        return java.util.Set.of("form", "url");
+    }
+
+    @Override
+    public synchronized ElicitationResponse promptElicitation(ElicitationRequest request) {
+        return ElicitationPrompter.prompt(request, out, prompt -> {
+            out.print(prompt);
+            out.flush();
+            return in.readLine();
+        }, ElicitationPrompter.desktopBrowser());
     }
 
     @Override
@@ -196,16 +222,38 @@ public final class PlainRenderer implements Renderer {
         }
     }
 
+    private boolean confirmPermanentAllow(ApprovalRequest request) {
+        out.println("\n  即将保存永久授权规则：");
+        out.println("  " + encodeForDisplay(ApprovalRequest.scopeDescription(request.permanentAllowProposal())));
+        String binding = ApprovalRequest.bindingDescription(request.permanentAllowProposal());
+        if (binding != null) out.println("  MCP 配置绑定：" + encodeForDisplay(binding));
+        out.println("  项目根目录：" + encodeForDisplay(request.permanentAllowProposal().projectRoot()));
+        out.println("  该规则仅适用于当前项目；请准确输入 YES 确认保存：");
+        out.print("  > ");
+        out.flush();
+        try {
+            String confirmation = in.readLine();
+            if (confirmation != null && confirmation.trim().equals("YES")) {
+                out.println("  已确认，将保存永久授权规则");
+                return true;
+            }
+        } catch (IOException ignored) {
+            // Fail closed: return to the approval menu without saving.
+        }
+        out.println("  未确认，永久授权未保存；请重新选择本次审批操作");
+        return false;
+    }
+
     private ApprovalResult promptApproveAllScope(ApprovalRequest request) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
         if (mcpServer == null || mcpServer.isBlank()) {
-            out.println("  已批准，后续 " + request.toolName() + " 操作将自动通过");
+            out.println("  已批准，后续 " + encodeForDisplay(request.toolName()) + " 操作将自动通过");
             return ApprovalResult.approveAll();
         }
 
         out.println("  全部放行范围：");
-        out.println("  [tool / Enter] 仅本工具 " + request.toolName());
-        out.println("  [server]       整个 MCP server " + mcpServer + "（连续浏览器操作推荐）");
+        out.println("  [tool / Enter] 仅本工具 " + encodeForDisplay(request.toolName()));
+        out.println("  [server]       整个 MCP server " + encodeForDisplay(mcpServer) + "（连续浏览器操作推荐）");
         out.print("> ");
         out.flush();
         String scope;
@@ -217,15 +265,15 @@ public final class PlainRenderer implements Renderer {
         }
         String normalized = scope == null ? "" : scope.trim().toLowerCase();
         if ("server".equals(normalized) || "s".equals(normalized)) {
-            out.println("  已批准，后续 MCP server " + mcpServer + " 的工具调用将自动通过");
+            out.println("  已批准，后续 MCP server " + encodeForDisplay(mcpServer) + " 的工具调用将自动通过");
             return ApprovalResult.approveAllByServer();
         }
-        out.println("  已批准，后续 " + request.toolName() + " 操作将自动通过");
+        out.println("  已批准，后续 " + encodeForDisplay(request.toolName()) + " 操作将自动通过");
         return ApprovalResult.approveAll();
     }
 
     private ApprovalResult promptModifiedArguments(ApprovalRequest request) {
-        out.println("  当前参数：" + request.arguments());
+        out.println("  当前参数：" + encodeForDisplay(request.arguments()));
         out.print("  请输入修改后的参数（JSON 格式，空行则使用原始参数）：");
         out.flush();
 
@@ -245,7 +293,7 @@ public final class PlainRenderer implements Renderer {
         try {
             JSON.readTree(trimmed);
         } catch (Exception e) {
-            out.println("  ❌ 修改后的参数不是合法 JSON：" + e.getMessage());
+            out.println("  ❌ 修改后的参数不是合法 JSON：" + encodeForDisplay(e.getMessage()));
             return null;
         }
         return ApprovalResult.modify(trimmed);

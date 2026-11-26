@@ -30,15 +30,19 @@ final class CliCommandParser {
         GRAPH_QUERY,
         CONTEXT_STATUS,
         POLICY_STATUS,
+        PERMISSIONS,
         AUDIT_TAIL,
         SNAPSHOT,
         RESTORE_SNAPSHOT,
+        MCP_LOGIN,
+        MCP_LOGOUT,
         MCP_LIST,
         MCP_RESTART,
         MCP_LOGS,
         MCP_DISABLE,
         MCP_ENABLE,
         MCP_TRUST,
+        MCP_UNTRUST,
         MCP_RESOURCES,
         MCP_PROMPTS,
         BROWSER,
@@ -233,6 +237,14 @@ final class CliCommandParser {
             return new ParsedCommand(CommandType.POLICY_STATUS, null);
         }
 
+        if (trimmed.equalsIgnoreCase("/permissions")) {
+            return new ParsedCommand(CommandType.PERMISSIONS, "list");
+        }
+
+        if (trimmed.regionMatches(true, 0, "/permissions ", 0, 13)) {
+            return new ParsedCommand(CommandType.PERMISSIONS, trimmed.substring(13).trim());
+        }
+
         if (trimmed.equalsIgnoreCase("/config")) {
             return new ParsedCommand(CommandType.CONFIG, null);
         }
@@ -335,6 +347,12 @@ final class CliCommandParser {
                     trimmed.substring(16).trim());
         }
 
+        for (String action : java.util.List.of("login", "logout")) {
+            String prefix = "/mcp " + action;
+            if (trimmed.equalsIgnoreCase(prefix) || trimmed.regionMatches(true, 0, prefix + " ", 0, prefix.length() + 1))
+                return new ParsedCommand(action.equals("login") ? CommandType.MCP_LOGIN : CommandType.MCP_LOGOUT,
+                        trimmed.substring(prefix.length()).trim());
+        }
         if (trimmed.equalsIgnoreCase("/mcp")) {
             return new ParsedCommand(CommandType.MCP_LIST, null);
         }
@@ -365,6 +383,11 @@ final class CliCommandParser {
 
         if (trimmed.equalsIgnoreCase("/mcp trust") || trimmed.regionMatches(true, 0, "/mcp trust ", 0, 11)) {
             return new ParsedCommand(CommandType.MCP_TRUST, trimmed.substring(10).trim());
+        }
+
+        if (trimmed.equalsIgnoreCase("/mcp untrust")
+                || trimmed.regionMatches(true, 0, "/mcp untrust ", 0, 13)) {
+            return new ParsedCommand(CommandType.MCP_UNTRUST, trimmed.substring(12).trim());
         }
 
         if (trimmed.startsWith("/")) {

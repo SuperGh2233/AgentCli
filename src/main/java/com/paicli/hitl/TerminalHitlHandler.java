@@ -10,6 +10,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static com.paicli.hitl.ApprovalRequest.encodeForDisplay;
+
 /**
  * 终端 HITL 审批处理器
  *
@@ -56,12 +58,12 @@ public class TerminalHitlHandler implements HitlHandler {
 
     @Override
     public void onAutoDenied(String toolName, String reason) {
-        out.println("  ⊘ auto 未放行 " + toolName + "：" + reason + "（已交回模型处理）");
+        out.println("  ⊘ auto 未放行 " + encodeForDisplay(toolName) + "：" + encodeForDisplay(reason) + "（已交回模型处理）");
     }
 
     @Override
     public void onAutoApproved(String toolName, String reason) {
-        out.println("  ✓ auto 已放行 " + toolName + "：" + reason);
+        out.println("  ✓ auto 已放行 " + encodeForDisplay(toolName) + "：" + encodeForDisplay(reason));
     }
 
     @Override
@@ -80,22 +82,20 @@ public class TerminalHitlHandler implements HitlHandler {
     @Override
     public synchronized ApprovalResult requestApproval(ApprovalRequest request) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
-        boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
-        if (!sensitivePerCall && isApprovedAllByTool(request.toolName())) {
-            out.println("  [HITL] " + request.toolName() + " 已在本次会话中全部放行，自动通过");
+        boolean perCallOnly = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
+        if (!perCallOnly && isApprovedAllByTool(request.toolName())) {
+            out.println("  [HITL] " + encodeForDisplay(request.toolName()) + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAll();
         }
-        if (!sensitivePerCall && isApprovedAllByServer(mcpServer)) {
-            out.println("  [HITL] MCP server " + mcpServer + " 已在本次会话中全部放行，自动通过");
+        if (!perCallOnly && isApprovedAllByServer(mcpServer)) {
+            out.println("  [HITL] MCP server " + encodeForDisplay(mcpServer) + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAllByServer();
         }
 
         // 显著的视觉分隔符，避免审批框被误认为属于上游的"回复"区
         out.println();
         out.println("────────── ⚠️  HITL 审批请求 ──────────");
-        if (sensitivePerCall) {
-            out.println("⚠️  " + request.sensitiveNotice());
-        }
         out.println(request.toDisplayText());
 
         return promptUntilDecision(request);
@@ -107,9 +107,10 @@ public class TerminalHitlHandler implements HitlHandler {
     private ApprovalResult promptUntilDecision(ApprovalRequest request) {
         for (int attempt = 0; attempt < 5; attempt++) {
             out.println();
-            boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
-            if (sensitivePerCall) {
-                out.println("请选择操作：[y/Enter] 批准本次  [n] 拒绝  [s] 跳过  [m] 修改参数");
+            boolean perCallOnly = request.forcePerCall()
+                    || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
+            if (perCallOnly) {
+                out.println("请选择操作：[y/Enter] 仅批准本次  [n] 拒绝  [s] 跳过  [m] 修改参数");
             } else {
                 out.println("请选择操作：[y/Enter] 批准  [a] 全部放行  [n] 拒绝  [s] 跳过  [m] 修改参数");
             }
@@ -137,8 +138,8 @@ public class TerminalHitlHandler implements HitlHandler {
             }
             switch (normalized) {
                 case "a" -> {
-                    if (sensitivePerCall) {
-                        out.println("  敏感页面操作不支持全部放行，请选择 y/n/s/m");
+                    if (perCallOnly) {
+                        out.println("  当前操作必须逐次确认，不支持全部放行，请选择 y/n/s/m");
                         continue;
                     }
                     return promptApproveAllScope(request);
@@ -165,7 +166,7 @@ public class TerminalHitlHandler implements HitlHandler {
                     }
                     // 修改失败（JSON 非法等）时回到主菜单重新提示
                 }
-                default -> out.println("  ❓ 无法识别的选项：'" + input + "'，请输入 y/a/n/s/m 之一（Enter 等价于 y）");
+                default -> out.println("  ❓ 无法识别的选项：'" + encodeForDisplay(input) + "'，请输入 y/a/n/s/m 之一（Enter 等价于 y）");
             }
         }
         out.println("  [HITL] 连续多次无效输入，保守处理为拒绝");
@@ -175,14 +176,14 @@ public class TerminalHitlHandler implements HitlHandler {
     private ApprovalResult promptApproveAllScope(ApprovalRequest request) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
         if (mcpServer == null || mcpServer.isBlank()) {
-            approvedAllByTool.add(request.toolName());
-            out.println("  已批准，后续 " + request.toolName() + " 操作将自动通过");
+            out.println("  已选择本会话放行 " + encodeForDisplay(request.toolName())
+                    + "（将在本次操作通过校验后生效）");
             return ApprovalResult.approveAll();
         }
 
         out.println("  全部放行范围：");
-        out.println("  [tool / Enter] 仅本工具 " + request.toolName());
-        out.println("  [server]       整个 MCP server " + mcpServer + "（连续浏览器操作推荐）");
+        out.println("  [tool / Enter] 仅本工具 " + encodeForDisplay(request.toolName()));
+        out.println("  [server]       整个 MCP server " + encodeForDisplay(mcpServer) + "（连续浏览器操作推荐）");
         out.print("> ");
         out.flush();
         String scope;
@@ -194,12 +195,12 @@ public class TerminalHitlHandler implements HitlHandler {
         }
         String normalized = scope == null ? "" : scope.trim().toLowerCase();
         if ("server".equals(normalized) || "s".equals(normalized)) {
-            approvedAllByServer.add(mcpServer);
-            out.println("  已批准，后续 MCP server " + mcpServer + " 的工具调用将自动通过");
+            out.println("  已选择本会话放行 MCP server " + encodeForDisplay(mcpServer)
+                    + "（将在本次操作通过校验后生效）");
             return ApprovalResult.approveAllByServer();
         }
-        approvedAllByTool.add(request.toolName());
-        out.println("  已批准，后续 " + request.toolName() + " 操作将自动通过");
+        out.println("  已选择本会话放行 " + encodeForDisplay(request.toolName())
+                + "（将在本次操作通过校验后生效）");
         return ApprovalResult.approveAll();
     }
 
@@ -207,7 +208,7 @@ public class TerminalHitlHandler implements HitlHandler {
      * 修改参数子流程：验证用户输入为合法 JSON；非法则返回 null 让主循环重新提示。
      */
     private ApprovalResult promptModifiedArguments(ApprovalRequest request) {
-        out.println("  当前参数：" + request.arguments());
+        out.println("  当前参数：" + encodeForDisplay(request.arguments()));
         out.print("  请输入修改后的参数（JSON 格式，空行则使用原始参数）：");
         out.flush();
 
@@ -227,7 +228,7 @@ public class TerminalHitlHandler implements HitlHandler {
         try {
             MAPPER.readTree(trimmed);
         } catch (Exception e) {
-            out.println("  ❌ 修改后的参数不是合法 JSON：" + e.getMessage());
+            out.println("  ❌ 修改后的参数不是合法 JSON：" + encodeForDisplay(e.getMessage()));
             return null;  // 回到主菜单
         }
         return ApprovalResult.modify(trimmed);
@@ -247,6 +248,19 @@ public class TerminalHitlHandler implements HitlHandler {
     public void clearApprovedAllForServer(String serverName) {
         if (serverName != null) {
             approvedAllByServer.remove(serverName);
+            approvedAllByTool.removeIf(name -> name.startsWith("mcp__" + serverName + "__"));
+        }
+    }
+
+    @Override
+    public void commitApproval(ApprovalRequest request, ApprovalResult result) {
+        if (request == null || result == null || request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank())) return;
+        String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
+        if (result.isApprovedAllForTool()) {
+            approvedAllByTool.add(request.toolName());
+        } else if (result.isApprovedAllForServer() && mcpServer != null) {
+            approvedAllByServer.add(mcpServer);
         }
     }
 

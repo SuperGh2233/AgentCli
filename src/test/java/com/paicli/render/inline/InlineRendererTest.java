@@ -25,6 +25,63 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class InlineRendererTest {
+    @Test
+    void elicitationCapabilitiesFollowActualInputAndFallback() {
+        var expected = java.util.Set.of("form", "url");
+        var fallback = new InlineRenderer(null, new PrintStream(new ByteArrayOutputStream()));
+        assertEquals(expected, fallback.supportedElicitationModes());
+        fallback.close(); assertTrue(fallback.supportedElicitationModes().isEmpty());
+        Terminal terminal = Mockito.mock(Terminal.class);
+        Mockito.when(terminal.getType()).thenReturn("dumb");
+        var renderer = new InlineRenderer(terminal, new PrintStream(new ByteArrayOutputStream()));
+        assertEquals(expected, renderer.supportedElicitationModes());
+        renderer.bindLineReader(Mockito.mock(LineReader.class));
+        assertEquals(expected, renderer.supportedElicitationModes());
+        renderer.close(); assertTrue(renderer.supportedElicitationModes().isEmpty());
+    }
+
+
+    @Test
+    @org.junit.jupiter.api.Timeout(10)
+    void elicitationGatewayKeepsInputOnUiOwnerWithoutWorkerHoldingTerminalLock() throws Exception {
+        var manager = new com.paicli.runtime.input.TurnInputManager("session", true,
+                com.paicli.runtime.input.TurnInputManager.Limits.defaults());
+        var coordinator = new com.paicli.cli.InputCoordinator("session", manager, true);
+        Terminal terminal = Mockito.mock(Terminal.class);
+        Mockito.when(terminal.getType()).thenReturn("dumb");
+        InlineRenderer renderer = new InlineRenderer(terminal, new PrintStream(new ByteArrayOutputStream()));
+        Thread owner = Thread.currentThread();
+        var answers = new java.util.ArrayDeque<>(List.of("alice", "submit"));
+        var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var schema = new com.fasterxml.jackson.databind.ObjectMapper().readTree("""
+                {"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}
+                """);
+        var request = new com.paicli.mcp.elicitation.ElicitationRequest("demo", "name",
+                com.paicli.mcp.elicitation.ElicitationRequest.Mode.FORM, "Name", schema, null);
+        try (var gateway = new com.paicli.cli.TerminalInputGateway(coordinator, input -> {
+            org.junit.jupiter.api.Assertions.assertSame(owner, Thread.currentThread());
+            assertEquals(com.paicli.cli.TerminalInputGateway.Kind.MCP_ELICITATION_INPUT, input.kind());
+            return answers.pollFirst();
+        })) {
+            renderer.bindApprovalGateway(gateway, java.time.Duration.ofSeconds(3));
+            assertEquals(java.util.Set.of("form", "url"), renderer.supportedElicitationModes());
+            var result = worker.submit(() -> renderer.promptElicitation(request));
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5);
+            while (!result.isDone() && System.nanoTime() < deadline) {
+                gateway.serviceNext();
+                Thread.sleep(1);
+            }
+            var response = result.get(1, java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(com.paicli.mcp.elicitation.ElicitationResponse.Action.ACCEPT, response.action());
+            assertEquals("alice", response.content().path("name").asText());
+            assertTrue(answers.isEmpty());
+            assertEquals(com.paicli.cli.TerminalInputGateway.InteractionState.NONE,
+                    gateway.awaitInteraction(java.time.Duration.ZERO).state());
+        } finally {
+            worker.shutdownNow();
+            renderer.close();
+        }
+    }
 
     @Test
     void codeFoldingAndTranscriptRedrawPreserveExistingDock() {

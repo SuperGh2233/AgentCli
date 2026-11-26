@@ -378,6 +378,11 @@ public class DeepSeekClient extends AbstractOpenAiCompatibleClient {
         }
 
         @Override
+        public void onFinishReason(String finishReason) {
+            target.onFinishReason(finishReason);
+        }
+
+        @Override
         public void onContentDelta(String delta) {
             if (delta == null || delta.isEmpty()) {
                 return;

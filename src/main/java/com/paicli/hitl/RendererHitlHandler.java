@@ -1,10 +1,14 @@
 package com.paicli.hitl;
 
 import com.paicli.render.Renderer;
+import com.paicli.mcp.elicitation.ElicitationRequest;
+import com.paicli.mcp.elicitation.ElicitationResponse;
 
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static com.paicli.hitl.ApprovalRequest.encodeForDisplay;
 
 /**
  * 与 {@link Renderer} 协作的 HITL 处理器：
@@ -38,26 +42,35 @@ public final class RendererHitlHandler implements HitlHandler {
 
     @Override
     public void onAutoDenied(String toolName, String reason) {
-        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ⊘ auto 未放行 " + toolName + "：" + reason + "（已交回模型处理）"));
+        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ⊘ auto 未放行 " + encodeForDisplay(toolName) + "：" + encodeForDisplay(reason) + "（已交回模型处理）"));
     }
 
     @Override
     public void onAutoApproved(String toolName, String reason) {
-        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ✓ auto 已放行 " + toolName + "：" + reason));
+        renderer.stream().println(com.paicli.util.AnsiStyle.subtle("  ✓ auto 已放行 " + encodeForDisplay(toolName) + "：" + encodeForDisplay(reason)));
+    }
+
+    @Override
+    public java.util.Set<String> supportedModes() { return renderer.supportedElicitationModes(); }
+
+    @Override
+    public synchronized ElicitationResponse requestElicitation(ElicitationRequest request) {
+        return renderer.promptElicitation(request);
     }
 
     @Override
     public synchronized ApprovalResult requestApproval(ApprovalRequest request) {
         String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
-        boolean sensitivePerCall = request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank();
+        boolean perCallOnly = request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank());
 
-        if (!sensitivePerCall && isApprovedAllByTool(request.toolName())) {
-            renderer.stream().println("  [HITL] " + request.toolName()
+        if (!perCallOnly && isApprovedAllByTool(request.toolName())) {
+            renderer.stream().println("  [HITL] " + encodeForDisplay(request.toolName())
                     + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAll();
         }
-        if (!sensitivePerCall && isApprovedAllByServer(mcpServer)) {
-            renderer.stream().println("  [HITL] MCP server " + mcpServer
+        if (!perCallOnly && isApprovedAllByServer(mcpServer)) {
+            renderer.stream().println("  [HITL] MCP server " + encodeForDisplay(mcpServer)
                     + " 已在本次会话中全部放行，自动通过");
             return ApprovalResult.approveAllByServer();
         }
@@ -66,12 +79,19 @@ public final class RendererHitlHandler implements HitlHandler {
         if (result == null) {
             return ApprovalResult.reject("渲染器返回 null");
         }
+        return result;
+    }
+
+    @Override
+    public void commitApproval(ApprovalRequest request, ApprovalResult result) {
+        if (request == null || result == null || request.forcePerCall()
+                || (request.sensitiveNotice() != null && !request.sensitiveNotice().isBlank())) return;
+        String mcpServer = ApprovalPolicy.mcpServerName(request.toolName());
         if (result.isApprovedAllForTool()) {
             approvedAllByTool.add(request.toolName());
         } else if (result.isApprovedAllForServer() && mcpServer != null) {
             approvedAllByServer.add(mcpServer);
         }
-        return result;
     }
 
     @Override
@@ -94,6 +114,7 @@ public final class RendererHitlHandler implements HitlHandler {
     public void clearApprovedAllForServer(String serverName) {
         if (serverName != null) {
             approvedAllByServer.remove(serverName);
+            approvedAllByTool.removeIf(name -> name.startsWith("mcp__" + serverName + "__"));
         }
     }
 }

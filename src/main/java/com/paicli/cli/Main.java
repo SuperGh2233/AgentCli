@@ -14,6 +14,8 @@ import com.paicli.hitl.HitlHandler;
 import com.paicli.hitl.HitlToolRegistry;
 import com.paicli.hitl.SwitchableHitlHandler;
 import com.paicli.hitl.RendererHitlHandler;
+import com.paicli.hitl.PermissionRule;
+import com.paicli.hitl.PermissionRuleStore;
 import com.paicli.hitl.TerminalHitlHandler;
 import com.paicli.history.ConversationLedger;
 import com.paicli.harness.BetterHarnessOptions;
@@ -45,6 +47,7 @@ import com.paicli.rag.CodeRelation;
 import com.paicli.rag.SearchResultFormatter;
 import com.paicli.runtime.CancellationContext;
 import com.paicli.runtime.CancellationToken;
+import com.paicli.runtime.input.TurnInputManager;
 import com.paicli.runtime.api.RuntimeApiServer;
 import com.paicli.runtime.api.RuntimeThreadStore;
 import com.paicli.runtime.task.DurableTaskManager;
@@ -93,9 +96,11 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CountDownLatch;
@@ -119,7 +124,7 @@ import java.util.regex.Pattern;
  * HITL 增强：路径围栏（PathGuard）、命令快速拒绝（CommandGuard）、操作审计链（AuditLog）—— 见 com.paicli.policy
  */
 public class Main {
-    private static final String VERSION = "16.1.0";
+    public static final String VERSION = "16.1.0";
     private static final String ENV_FILE = ".env";
     private static final String LOG_DIR_PROPERTY = "paicli.log.dir";
     private static final String LOG_LEVEL_PROPERTY = "paicli.log.level";
@@ -141,6 +146,65 @@ public class Main {
     private static final Pattern SENSITIVE_ASSIGNMENT = Pattern.compile(
             "(?i)((?:api[_-]?key|authorization|password|passwd|secret|token)\\s*[=:]\\s*)(\\S+)");
     private static final int CTRL_O = 15;
+    static String handleMcpOAuthCommand(CliCommandParser.ParsedCommand command,
+                                       McpServerManager manager, java.util.function.Consumer<String> output) {
+        if (command.payload() == null || command.payload().isBlank() || command.payload().matches(".*\\s.*"))
+            return "❌ 用法：/mcp login <name> 或 /mcp logout <name>";
+        return command.type() == CliCommandParser.CommandType.MCP_LOGIN
+                ? manager.login(command.payload(), output) : manager.logout(command.payload());
+    }
+
+    static String handlePermissionsCommand(PermissionRuleStore store, String payload, Path projectPath) {
+        if (store == null) {
+            return "❌ 永久权限规则未启用：存储路径未通过安全检查。";
+        }
+        final String projectRoot;
+        try {
+            projectRoot = projectPath.toRealPath().toString();
+            store.requireOutsideProject(projectPath);
+        } catch (IOException | RuntimeException error) {
+            return "❌ 当前项目路径或权限规则存储不安全：" + error.getMessage();
+        }
+
+        String command = payload == null || payload.isBlank() ? "list" : payload.trim();
+        String[] parts = command.split(" +");
+        try {
+            if (parts.length == 1 && parts[0].equalsIgnoreCase("list")) {
+                List<PermissionRule> rules = store.load().stream()
+                        .filter(rule -> rule.projectRoot().equals(projectRoot)).toList();
+                if (rules.isEmpty()) return "当前项目没有永久授权规则。\n使用 /permissions 查看规则管理帮助。";
+                StringBuilder out = new StringBuilder("当前项目永久授权规则（").append(rules.size()).append(" 条）：\n");
+                for (PermissionRule rule : rules) {
+                    out.append("- ").append(rule.id()).append(" | ").append(rule.effect())
+                            .append(" | ").append(com.paicli.hitl.ApprovalRequest.encodeForDisplay(
+                                    com.paicli.hitl.ApprovalRequest.scopeDescription(rule)));
+                    String binding = com.paicli.hitl.ApprovalRequest.bindingDescription(rule);
+                    if (binding != null) out.append(" | ").append(binding);
+                    out.append("\n");
+                }
+                out.append("\n/permissions revoke <rule-id> - 撤销一条规则\n")
+                        .append("/permissions clear --confirm - 清除当前项目全部规则");
+                return out.toString();
+            }
+            if (parts.length == 2 && parts[0].equalsIgnoreCase("revoke")) {
+                boolean removed = store.remove(parts[1], projectRoot);
+                return removed ? "✅ 已撤销当前项目规则：" + parts[1]
+                        : "⚠️ 未找到属于当前项目的规则：" + parts[1];
+            }
+            if (parts.length == 1 && parts[0].equalsIgnoreCase("clear")) {
+                return "⚠️ 此操作会清除当前项目的全部永久授权规则。\n如确认，请执行：/permissions clear --confirm";
+            }
+            if (parts.length == 2 && parts[0].equalsIgnoreCase("clear")
+                    && parts[1].equalsIgnoreCase("--confirm")) {
+                int removed = store.clearProject(projectRoot);
+                return "✅ 已清除当前项目的 " + removed + " 条永久授权规则；其他项目规则保持不变。";
+            }
+            return "用法：\n/permissions 或 /permissions list\n/permissions revoke <rule-id>\n/permissions clear --confirm";
+        } catch (IOException | IllegalArgumentException error) {
+            return "❌ 权限规则操作失败（fail closed）：" + error.getMessage();
+        }
+    }
+
     private static final String DEFAULT_CHROME_DEVTOOLS_MCP_JSON = """
             {
               "mcpServers": {
@@ -228,8 +292,21 @@ public class Main {
             startRuntimeApiAndBlock(args);
             return;
         }
+        if (com.paicli.headless.HeadlessCommand.isHeadless(args)) {
+            // 无界面模式：日志只写文件，标准输出只放约定格式的结果。
+            configureLogging();
+            System.exit(com.paicli.headless.HeadlessCommand.run(args, System.in, System.out, System.err));
+        }
 
         configureLogging();
+
+        CliStartupOptions startupOptions;
+        try {
+            startupOptions = CliStartupOptions.parse(args);
+        } catch (IllegalArgumentException e) {
+            System.err.println("❌ " + e.getMessage());
+            return;
+        }
 
         PaiCliConfig config = PaiCliConfig.load();
         LlmClient llmClient = LlmClientFactory.createFromConfig(config);
@@ -241,6 +318,14 @@ public class Main {
         AtomicReference<LlmClient> llmClientRef = new AtomicReference<>(llmClient);
 
         try (Terminal terminal = TerminalBuilder.builder().system(true).dumb(true).build()) {
+            boolean useTui = startupOptions.requested()
+                    && com.paicli.tui.TuiBootstrap.shouldUseTui(terminal);
+            try {
+                startupOptions.requireCli(useTui);
+            } catch (IllegalArgumentException e) {
+                System.err.println("❌ " + e.getMessage());
+                return;
+            }
             refreshTerminalColumns(terminal);
             TerminalHitlHandler terminalHitlHandler = new TerminalHitlHandler(false);
             SwitchableHitlHandler hitlHandler = new SwitchableHitlHandler(terminalHitlHandler);
@@ -248,6 +333,17 @@ public class Main {
             hitlHandler.setHighRiskConfirmationEnabled(true);
             SessionModeController sessionModes = new SessionModeController(hitlHandler);
             HitlToolRegistry hitlToolRegistry = new HitlToolRegistry(hitlHandler);
+            PermissionRuleStore permissionRuleStore;
+            try {
+                PermissionRuleStore store = PermissionRuleStore.defaultStore();
+                Path projectRoot = Path.of(hitlToolRegistry.getProjectPath()).toRealPath();
+                store.requireOutsideProject(projectRoot);
+                hitlToolRegistry.setPermissionRuleStore(store);
+                permissionRuleStore = store;
+            } catch (IOException | IllegalArgumentException error) {
+                permissionRuleStore = null;
+                System.err.println("⚠️ 永久权限规则未启用（安全检查失败）：" + error.getMessage());
+            }
             // auto 模式的 Shell 命令审查：跟随当前会话的供应商，关闭思考的轻量请求；切换模型后自动重建
             com.paicli.hitl.LlmApprovalClassifier approvalClassifier = new com.paicli.hitl.LlmApprovalClassifier(
                     approvalClassifierClient(llmClientRef, config));
@@ -256,6 +352,9 @@ public class Main {
             BrowserConnectivityCheck browserConnectivityCheck = new BrowserConnectivityCheck();
             hitlToolRegistry.setBrowserGuard(new BrowserGuard(browserSession, new SensitivePagePolicy()));
             McpServerManager mcpServerManager = new McpServerManager(hitlToolRegistry, Path.of("."));
+            hitlToolRegistry.setMcpPermissionBindingProvider(mcpServerManager::permissionBinding);
+            // MCP elicitation 走独立的用户输入通道；切换 Plain/Inline/Lanterna renderer 时自动跟随 delegate。
+            if (System.console() != null) mcpServerManager.setElicitationHandler(hitlHandler);
             AtomicReference<SkillRegistry> skillRegistryRef = new AtomicReference<>();
             hitlToolRegistry.setBrowserConnector(new com.paicli.browser.BrowserConnector() {
                 @Override
@@ -277,13 +376,32 @@ public class Main {
                 }
             });
 
-            LineReader lineReader = LineReaderBuilder.builder()
-                    .terminal(terminal)
-                    .history(new PaiCliHistory())
-                    .completer(new PaiCliCompleter(mcpServerManager::resourceCandidates,
-                            () -> skillRegistryRef.get() == null ? List.of() : skillRegistryRef.get().allSkills(), () -> config))
-                    .highlighter(new PaiCliHighlighter())
-                    .build();
+            PaiCliHistory inputHistory = new PaiCliHistory();
+            PaiCliCompleter inputCompleter = new PaiCliCompleter(mcpServerManager::resourceCandidates,
+                    () -> skillRegistryRef.get() == null ? List.of() : skillRegistryRef.get().allSkills(), () -> config,
+                    () -> mcpServerManager.servers().stream().map(com.paicli.mcp.McpServer::name).toList());
+            PaiCliHighlighter inputHighlighter = new PaiCliHighlighter();
+            Renderer renderer = RendererFactory.create(RendererFactory.resolveMode(), terminal);
+            boolean wakeableInputRequested = Boolean.parseBoolean(
+                    System.getProperty(TurnInputManager.ENABLED_PROPERTY, "false"));
+            boolean wakeableTerminal = wakeableInputRequested && renderer instanceof InlineRenderer
+                    && terminal != null && System.console() != null && terminal.getType() != null
+                    && !"dumb".equalsIgnoreCase(terminal.getType());
+            LineReader lineReader;
+            if (wakeableTerminal) {
+                WakeableLineReader wakeable = new WakeableLineReader(terminal, "paicli");
+                wakeable.setHistory(inputHistory);
+                wakeable.setCompleter(inputCompleter);
+                wakeable.setHighlighter(inputHighlighter);
+                lineReader = wakeable;
+            } else {
+                lineReader = LineReaderBuilder.builder()
+                        .terminal(terminal)
+                        .history(inputHistory)
+                        .completer(inputCompleter)
+                        .highlighter(inputHighlighter)
+                        .build();
+            }
             lineReader.option(LineReader.Option.BRACKETED_PASTE, true);
             lineReader.option(LineReader.Option.AUTO_LIST, true);
             lineReader.option(LineReader.Option.AUTO_MENU, true);
@@ -293,7 +411,17 @@ public class Main {
 
             // JLine-first：启动输出、命令输出、Agent 流式内容都走同一条 Renderer.stream() 通道。
             // inline 首屏要挂到 LineReader 首次初始化回调里，避免在 readLine 接管屏幕前用裸输出抢光标。
-            Renderer renderer = RendererFactory.create(RendererFactory.resolveMode(), terminal);
+            String steeringSessionId = UUID.randomUUID().toString();
+            TurnInputManager steeringManager = new TurnInputManager(steeringSessionId);
+            boolean steeringInteractive = renderer instanceof InlineRenderer
+                    && lineReader instanceof WakeableLineReader
+                    && terminal != null && System.console() != null;
+            InputCoordinator steeringCoordinator = new InputCoordinator(
+                    steeringSessionId, steeringManager, steeringInteractive);
+            boolean steeringEnabled = steeringCoordinator.enabled();
+            if (wakeableInputRequested && !steeringEnabled) {
+                renderer.stream().println("⚠️ Steering 未启用：需要交互式 inline 终端；当前会话继续使用原输入路径。");
+            }
             RendererHitlHandler rendererHitl = new RendererHitlHandler(renderer, hitlHandler.isEnabled());
             hitlHandler.setDelegate(rendererHitl);
             if (renderer instanceof InlineRenderer inline) {
@@ -361,12 +489,22 @@ public class Main {
                     conversationLedger, reactAgent.getToolRegistry().getProjectPath());
             reactAgent.setExternalContextSupplier(mcpServerManager::resourceIndexForPrompt);
             reactAgent.setSkillRegistry(skillRegistry);
+            if (startupOptions.requested()) {
+                ResumeCommandHandler.Result result =
+                        ResumeCommandHandler.handleStartup(reactAgent, startupOptions, hitlHandler);
+                ui.print(result.output());
+                renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
+                if (!result.restored()) {
+                    mcpServerManager.close();
+                    renderer.close();
+                    return;
+                }
+            }
             DurableTaskManager taskManager = openTaskManager(llmClientRef);
             taskManager.start();
             Runtime.getRuntime().addShutdownHook(new Thread(taskManager::close, "paicli-task-shutdown"));
             WechatRuntimeController wechatRuntime = new WechatRuntimeController(renderer);
             Runtime.getRuntime().addShutdownHook(new Thread(wechatRuntime::stop, "paicli-wechat-shutdown"));
-            renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
             StartupScreenInfo startupScreenInfo = startupScreenInfo(llmClient, mcpServerManager, skillRegistry, startupNote);
             if (renderer instanceof InlineRenderer inline) {
                 inline.installStartupScreen(startupScreenLines(startupScreenInfo));
@@ -375,15 +513,18 @@ public class Main {
             }
             boolean nextTaskUsePlanMode = false;
             boolean nextTaskUseTeamMode = false;
+            String nextPromptSeed = null;
+            int nextPromptCursor = 0;
 
             // === TUI / CLI 分支判断 ===
             // 旧 PAICLI_TUI=true 路径仍走 Lanterna 全屏 TUI（Day 5 后由 LanternaRenderer 接管）。
-            if (com.paicli.tui.TuiBootstrap.shouldUseTui(terminal)) {
+            if (startupOptions.requested() ? useTui : com.paicli.tui.TuiBootstrap.shouldUseTui(terminal)) {
                 try {
                     com.paicli.tui.TuiBootstrap.launch(config, llmClient, reactAgent, hitlHandler);
                     return;  // TUI 启动成功，不进入 CLI 循环
                 } catch (Exception e) {
-                    hitlHandler.setDelegate(terminalHitlHandler);
+                    // TUI 启动失败后仍回到当前 CLI renderer；保留它的审批和 MCP elicitation 界面。
+                    hitlHandler.setDelegate(rendererHitl);
                     System.err.println("❌ TUI 启动失败，降级到 CLI: " + e.getMessage());
                     e.printStackTrace();
                     // 降级到 CLI 继续执行
@@ -393,6 +534,7 @@ public class Main {
             reactAgent.setRenderer(renderer);
             reactAgent.setHitlEnabledSupplier(hitlHandler::isConfirmationActive);
             reactAgent.setSessionModeSupplier(() -> sessionModes.current().statusLabel());
+            renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
             bindSessionModeCycle(lineReader, () -> {
                 SessionMode mode = sessionModes.cycle();
                 renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistryRef.get(), "idle"));
@@ -424,7 +566,10 @@ public class Main {
                 PromptInput promptInput;
                 try {
                     promptInput = readPromptInput(terminal, lineReader, renderer,
-                            nextTaskUsePlanMode || nextTaskUseTeamMode, spaciousPrompt);
+                            nextTaskUsePlanMode || nextTaskUseTeamMode, spaciousPrompt,
+                            nextPromptSeed, nextPromptCursor);
+                    nextPromptSeed = null;
+                    nextPromptCursor = 0;
                 } catch (UserInterruptException e) {
                     continue;  // Ctrl+C 跳过
                 } catch (EndOfFileException e) {
@@ -708,6 +853,12 @@ public class Main {
                         printPolicyStatus(ui, reactAgent);
                         continue;
                     }
+                    case PERMISSIONS -> {
+                        ui.println(handlePermissionsCommand(permissionRuleStore, command.payload(),
+                                Path.of(reactAgent.getToolRegistry().getProjectPath())));
+                        ui.println();
+                        continue;
+                    }
                     case CONFIG -> {
                         if (command.payload() == null || command.payload().isBlank()) {
                             handleConfigPalette(renderer, config, llmClient, hitlHandler, skillRegistry);
@@ -727,6 +878,11 @@ public class Main {
                     }
                     case RESTORE_SNAPSHOT -> {
                         printRestoreCommand(ui, reactAgent.getToolRegistry().getSnapshotService(), command.payload());
+                        continue;
+                    }
+                    case MCP_LOGIN, MCP_LOGOUT -> {
+                        printMcpCommandResult(ui, handleMcpOAuthCommand(command, mcpServerManager, ui::println));
+                        renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
                         continue;
                     }
                     case MCP_LIST -> {
@@ -755,6 +911,11 @@ public class Main {
                     }
                     case MCP_TRUST -> {
                         printMcpCommandResult(ui, mcpServerManager.trust(command.payload()));
+                        renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
+                        continue;
+                    }
+                    case MCP_UNTRUST -> {
+                        printMcpCommandResult(ui, mcpServerManager.untrust(command.payload()));
                         renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
                         continue;
                     }
@@ -1019,9 +1180,36 @@ public class Main {
                 }
                 SnapshotService snapshotService = reactAgent.getToolRegistry().getSnapshotService();
                 renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, snapshotMode));
-                String response = runWithCancelSupport(terminal,
-                        ui,
-                        () -> snapshotService.runTurn(snapshotMode, taskInput, runTask::call));
+                String response;
+                if (steeringEnabled && "react".equals(snapshotMode)
+                        && renderer instanceof InlineRenderer inline
+                        && lineReader instanceof WakeableLineReader wakeable) {
+                    String turnId = UUID.randomUUID().toString();
+                    reactAgent.configureSteeringSafePoint(steeringManager, turnId);
+                    SteeringRunLoop.RunResult steeringResult;
+                    boolean steeringWorkerStopped = false;
+                    try {
+                        steeringResult = SteeringRunLoop.run(
+                                wakeable, inline, steeringManager, steeringCoordinator, turnId,
+                                () -> snapshotService.runTurn(snapshotMode, taskInput, runTask::call));
+                        steeringWorkerStopped = steeringResult.workerStopped();
+                    } finally {
+                        if (steeringWorkerStopped) {
+                            reactAgent.clearSteeringSafePoint();
+                        }
+                    }
+                    response = steeringResult.response();
+                    nextPromptSeed = steeringResult.promptSeed();
+                    nextPromptCursor = steeringResult.promptCursor();
+                    if (!steeringWorkerStopped) {
+                        ui.println("❌ 后台执行线程未确认停止，为避免并发修改 Agent 状态，本会话将退出，不再启动下一任务。");
+                        break;
+                    }
+                } else {
+                    response = runWithCancelSupport(terminal,
+                            ui,
+                            () -> snapshotService.runTurn(snapshotMode, taskInput, runTask::call));
+                }
                 if (!"react".equals(snapshotMode)) {
                     renderer.updateStatus(statusInfo(reactAgent, mcpServerManager, skillRegistry, "idle"));
                 }
@@ -1057,11 +1245,21 @@ public class Main {
             System.exit(1);
         }
         int port = parseServePort(args, 8080);
+        com.paicli.headless.UnattendedPermissions permissions;
+        try {
+            // 无人值守：和 -p 同一套白名单，默认只读；--permission-mode edit / --allow-command 显式放宽。
+            permissions = com.paicli.headless.UnattendedPermissions.fromArgs(args);
+        } catch (IllegalArgumentException e) {
+            System.err.println("❌ " + e.getMessage());
+            System.exit(2);
+            return;
+        }
         try {
             RuntimeThreadStore store = new RuntimeThreadStore(RuntimeThreadStore.defaultDbPath());
             RuntimeApiServer server = new RuntimeApiServer(
                     store,
-                    prompt -> runHeadlessTask(prompt, client),
+                    new com.paicli.headless.UnattendedTaskRunner(() -> client, Path.of("."), permissions,
+                            Path.of(System.getProperty("user.home"))),
                     port,
                     RuntimeApiServer.configuredApiKey());
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -1071,6 +1269,7 @@ public class Main {
             server.start();
             System.out.println("✅ PaiCLI Runtime API 已启动: http://127.0.0.1:" + server.port());
             System.out.println("   认证: Authorization: Bearer <PAICLI_RUNTIME_API_KEY>");
+            System.out.println("   " + permissions.describe());
             new CountDownLatch(1).await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -1096,28 +1295,13 @@ public class Main {
         return defaultPort;
     }
 
-    private static String runHeadlessTask(String prompt, LlmClient llmClient) {
-        ToolRegistry registry = new ToolRegistry();
-        registry.setProjectPath(Path.of(".").toAbsolutePath().normalize().toString());
-        com.paicli.tool.CommandSandboxStatus sandboxStatus = registry.configureCommandSandbox(
-                com.paicli.tool.CommandSandboxMode.fromConfiguration(),
-                Path.of(registry.getProjectPath()));
-        if (!sandboxStatus.message().isBlank()) {
-            System.err.println(sandboxStatus.message());
-        }
-        Agent agent = new Agent(llmClient, registry);
-        try {
-            agent.setConversationLedger(ConversationLedger.openDefault(
-                    Path.of(System.getProperty("user.home"))));
-        } catch (IOException ignored) {
-            // A background task should still run if its audit directory is temporarily unavailable.
-        }
-        return agent.run(prompt);
-    }
-
     private static DurableTaskManager openTaskManager(AtomicReference<LlmClient> llmClientRef) {
         try {
-            return DurableTaskManager.openDefault(prompt -> runHeadlessTask(prompt, llmClientRef.get()));
+            // 后台任务没人确认：默认只读，PAICLI_TASK_PERMISSION_MODE=edit 才能写文件；不执行命令。
+            com.paicli.headless.UnattendedPermissions permissions = com.paicli.headless.UnattendedPermissions
+                    .fromModeValue(loadConfigValue("PAICLI_TASK_PERMISSION_MODE", "read-only"));
+            return DurableTaskManager.openDefault(new com.paicli.headless.UnattendedTaskRunner(
+                    llmClientRef::get, Path.of("."), permissions, Path.of(System.getProperty("user.home"))));
         } catch (Exception e) {
             throw new IllegalStateException("后台任务管理器初始化失败: " + e.getMessage(), e);
         }
@@ -1445,7 +1629,9 @@ public class Main {
                                                LineReader lineReader,
                                                Renderer renderer,
                                                boolean allowEscCancel,
-                                               boolean spaciousPrompt)
+                                               boolean spaciousPrompt,
+                                               String seed,
+                                               int seedCursor)
             throws UserInterruptException, EndOfFileException {
         if (spaciousPrompt) {
             renderer.stream().println();
@@ -1455,7 +1641,11 @@ public class Main {
             String prompt = renderer.inputPrompt();
             String rightPrompt = renderer.inputRightPrompt();
             if (!allowEscCancel) {
-                return PromptInput.submitted(lineReader.readLine(prompt, rightPrompt, (MaskingCallback) null, null));
+                if (seed != null && lineReader instanceof WakeableLineReader wakeable) {
+                    wakeable.restoreCursorOnNextInit(seedCursor);
+                }
+                return PromptInput.submitted(lineReader.readLine(
+                        prompt, rightPrompt, (MaskingCallback) null, seed));
             }
 
             if (terminal != null && terminal.writer() != null) {
@@ -1838,15 +2028,21 @@ public class Main {
                 new SlashCommandHint("/task add ", "/task add <任务内容>", "提交后台任务"),
                 new SlashCommandHint("/task cancel ", "/task cancel <task_id>", "取消后台任务"),
                 new SlashCommandHint("/task log ", "/task log <task_id>", "查看后台任务结果"),
+                new SlashCommandHint("/mcp login ", "/mcp login <name>", "登录 HTTP MCP OAuth"),
+                new SlashCommandHint("/mcp logout ", "/mcp logout <name>", "注销并停用 HTTP MCP"),
                 new SlashCommandHint("/mcp", "/mcp", "查看 MCP server 状态"),
                 new SlashCommandHint("/mcp restart ", "/mcp restart <name>", "重启 MCP server"),
                 new SlashCommandHint("/mcp logs ", "/mcp logs <name>", "查看 MCP server 日志"),
                 new SlashCommandHint("/mcp disable ", "/mcp disable <name>", "禁用 MCP server"),
                 new SlashCommandHint("/mcp enable ", "/mcp enable <name>", "启用 MCP server"),
                 new SlashCommandHint("/mcp trust ", "/mcp trust <name>", "确认并启动项目级 MCP server"),
+                new SlashCommandHint("/mcp untrust ", "/mcp untrust <name>", "撤销项目级 MCP server 信任并停止服务"),
                 new SlashCommandHint("/mcp resources ", "/mcp resources <name>", "查看 MCP resources"),
                 new SlashCommandHint("/mcp prompts ", "/mcp prompts <name>", "查看 MCP prompts"),
                 new SlashCommandHint("/policy", "/policy", "查看安全策略状态"),
+                new SlashCommandHint("/permissions", "/permissions", "查看当前项目的永久授权规则"),
+                new SlashCommandHint("/permissions revoke ", "/permissions revoke <rule-id>", "撤销当前项目的一条永久授权规则"),
+                new SlashCommandHint("/permissions clear --confirm", "/permissions clear --confirm", "清除当前项目的全部永久授权规则"),
                 new SlashCommandHint("/config", "/config", "打开配置 palette（只读视图 + 切换提示）"),
                 new SlashCommandHint("/audit", "/audit", "查看今日最近 10 条危险工具审计"),
                 new SlashCommandHint("/audit ", "/audit [N]", "查看今日最近 N 条危险工具审计"),
@@ -3216,11 +3412,11 @@ public class Main {
         String capabilities = "ReAct · Plan · MCP · Browser · Image · Tools · Memory · RAG";
         String state = mcp + " · " + skills + " · ReAct";
         List<String> lines = new ArrayList<>(List.of(
-                "   " + AnsiStyle.section("██████████") + "    " + AnsiStyle.emphasis("PaiCLI") + " " + AnsiStyle.section("π") + "  " + AnsiStyle.subtle("v" + VERSION),
-                "   " + AnsiStyle.section("  ██  ██") + "    " + AnsiStyle.subtle(ready),
-                "   " + AnsiStyle.section("  ██  ██") + "    " + AnsiStyle.subtle(state),
-                "   " + AnsiStyle.section("  ██  ██") + "    " + AnsiStyle.subtle(capabilities),
-                "   " + AnsiStyle.section("  ██  ██"),
+                AnsiStyle.emphasis("Hao CLI") + "  " + AnsiStyle.subtle("v" + VERSION),
+                AnsiStyle.subtle("Build. Execute. Evolve."),
+                AnsiStyle.subtle(ready),
+                AnsiStyle.subtle(state),
+                AnsiStyle.subtle(capabilities),
                 "",
                 "Tips for getting started:",
                 "1. Type " + AnsiStyle.emphasis("/") + " for commands and Tab completion",
@@ -3233,7 +3429,9 @@ public class Main {
                 lines.add(AnsiStyle.subtle(line));
             }
         }
-        return lines;
+        return lines.stream()
+                .flatMap(line -> Arrays.stream(TerminalTable.wrap(line, terminalColumns()).split("\n", -1)))
+                .toList();
     }
 
     static McpConfigBootstrapResult ensureDefaultMcpConfig(Path userHome) throws IOException {

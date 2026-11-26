@@ -10,15 +10,31 @@ import java.util.Map;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class McpServerConfig {
+    private String protocolVersion;
+    public String getProtocolVersion() { return protocolVersion; }
+    public void setProtocolVersion(String version) { protocolVersion = version; }
+    public com.paicli.mcp.protocol.McpProtocolVersion protocolVersion() {
+        return com.paicli.mcp.protocol.McpProtocolVersion.fromConfig(protocolVersion);
+    }
+
     private String command;
     private List<String> args = new ArrayList<>();
     private Map<String, String> env = new LinkedHashMap<>();
     private String url;
     private Map<String, String> headers = new LinkedHashMap<>();
     private boolean disabled;
+    private McpOAuthConfig oauth;
+
+    public McpOAuthConfig getOauth() { return oauth; }
+    public void setOauth(McpOAuthConfig oauth) { this.oauth = oauth; }
     // 来源只能由 McpConfigLoader 标记；不用 getter/setter 命名，避免配置文件里写同名字段把自己伪装成用户级
     private Path projectConfigFile;
     private String projectFingerprint;
+    private String sourceFingerprint;
+    private String configFingerprint;
+    private byte[] rawSource;
+    private List<String> runtimeArgs;
+    private Boolean runtimeDisabledOverride;
 
     public String getCommand() {
         return command;
@@ -66,6 +82,7 @@ public class McpServerConfig {
 
     public void setDisabled(boolean disabled) {
         this.disabled = disabled;
+        if (rawSource != null) this.runtimeDisabledOverride = disabled;
     }
 
     public boolean isStdio() {
@@ -78,8 +95,68 @@ public class McpServerConfig {
 
     public void markProjectScoped(Path configFile, String fingerprint) {
         this.projectConfigFile = configFile;
+        markSourceFingerprint(fingerprint);
         this.projectFingerprint = fingerprint;
     }
+
+    /** User-level configuration is trusted by its owner, but still needs a stable binding fingerprint. */
+    public void markUserScoped(String fingerprint) {
+        this.projectConfigFile = null;
+        this.projectFingerprint = null;
+        markSourceFingerprint(fingerprint);
+    }
+
+    private void markSourceFingerprint(String fingerprint) {
+        captureSource();
+        this.sourceFingerprint = fingerprint;
+        this.configFingerprint = null;
+    }
+
+    private void captureSource() {
+        if (rawSource == null) rawSource = McpConfigLoader.fingerprintPayload(this);
+    }
+
+    /** Detached copy: the immutable raw snapshot never escapes. */
+    public McpServerConfig sourceConfig() {
+        captureSource();
+        McpServerConfig source = McpConfigLoader.fromPayload(rawSource);
+        if (runtimeArgs != null) source.setArgs(new ArrayList<>(runtimeArgs));
+        return source;
+    }
+
+    public byte[] sourcePayload() {
+        captureSource();
+        McpServerConfig raw = McpConfigLoader.fromPayload(rawSource);
+        if (runtimeArgs == null || runtimeArgs.equals(raw.getArgs())) return rawSource.clone();
+        return McpConfigLoader.runtimeSourcePayload(rawSource, runtimeArgs);
+    }
+
+    public void restoreSource() {
+        McpServerConfig source = sourceConfig();
+        protocolVersion = source.protocolVersion;
+        command = source.command;
+        args = source.args;
+        env = source.env;
+        url = source.url;
+        headers = source.headers;
+        disabled = runtimeDisabledOverride == null ? source.disabled : runtimeDisabledOverride;
+        oauth = source.oauth;
+        configFingerprint = null;
+    }
+
+    public void overrideArgs(List<String> args) {
+        captureSource();
+        runtimeArgs = args == null ? List.of() : List.copyOf(args);
+        this.args = new ArrayList<>(runtimeArgs);
+        sourceFingerprint = null;
+        projectFingerprint = null;
+        configFingerprint = null;
+    }
+
+    public List<String> runtimeArgs() { return runtimeArgs; }
+    public Boolean runtimeDisabledOverride() { return runtimeDisabledOverride; }
+    public String sourceFingerprint() { return sourceFingerprint; }
+    public void effectiveFingerprint(String fingerprint) { configFingerprint = fingerprint; }
 
     /** 来自项目目录 .paicli/mcp.json 的 server：随仓库分发，启动前要用户确认。 */
     public boolean projectScoped() {
@@ -92,6 +169,10 @@ public class McpServerConfig {
 
     public String projectFingerprint() {
         return projectFingerprint;
+    }
+
+    public String configFingerprint() {
+        return configFingerprint;
     }
 
     public String transportName() {

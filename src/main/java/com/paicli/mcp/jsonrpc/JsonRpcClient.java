@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.paicli.mcp.transport.McpTransport;
+import com.paicli.mcp.protocol.McpProtocolVersion;
 
 import java.io.IOException;
 import java.util.List;
@@ -23,6 +24,7 @@ public class JsonRpcClient implements AutoCloseable {
     private static final int METHOD_NOT_FOUND = -32601;
 
     private final McpTransport transport;
+    private final McpProtocolVersion protocolVersion;
     private final AtomicLong ids = new AtomicLong(1);
     private final ConcurrentHashMap<Long, CompletableFuture<JsonNode>> pending = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -32,8 +34,27 @@ public class JsonRpcClient implements AutoCloseable {
     });
     private final List<Consumer<JsonNode>> notificationListeners = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile String disconnectReason;
+    private volatile java.util.function.Supplier<java.util.Set<String>> supportedElicitationModes = java.util.Set::of;
+
+    public void setSupportedElicitationModes(java.util.function.Supplier<java.util.Set<String>> supplier) {
+        supportedElicitationModes = supplier == null ? java.util.Set::of : supplier;
+    }
+
+    private java.util.Set<String> currentElicitationModes() {
+        try {
+            var modes = supportedElicitationModes.get();
+            return modes == null ? java.util.Set.of() : java.util.Set.copyOf(modes);
+        } catch (RuntimeException e) {
+            return java.util.Set.of();
+        }
+    }
 
     public JsonRpcClient(McpTransport transport) {
+        this(transport, McpProtocolVersion.LEGACY);
+    }
+
+    public JsonRpcClient(McpTransport transport, McpProtocolVersion protocolVersion) {
+        this.protocolVersion = java.util.Objects.requireNonNull(protocolVersion);
         this.transport = transport;
         this.transport.onReceive(this::handleMessage);
         this.transport.onUnexpectedClose(this::failPending);
@@ -64,9 +85,22 @@ public class JsonRpcClient implements AutoCloseable {
     }
 
     public JsonNode request(String method, JsonNode params, long timeout, TimeUnit unit) throws IOException {
+        return requestInternal(method, params, timeout, unit, false);
+    }
+
+    /** Only modern business operations can enter the MRTR loop. */
+    public JsonNode requestWithInputs(String method, JsonNode params) throws IOException {
+        if (!protocolVersion.modern() || !java.util.Set.of("tools/call", "resources/read", "prompts/get").contains(method))
+            throw new IOException("MRTR 不支持此协议或操作");
+        return requestInternal(method, params, DEFAULT_TIMEOUT_SECONDS, TimeUnit.SECONDS, true);
+    }
+
+    private JsonNode requestInternal(String method, JsonNode params, long timeout, TimeUnit unit,
+                                    boolean allowInput) throws IOException {
         if (disconnectReason != null) {
             throw new IOException(disconnectReason);
         }
+        params = protocolVersion.decorate(params, allowInput ? currentElicitationModes() : java.util.Set.of());
         long timeoutMillis = unit.toMillis(timeout);
         long id = ids.getAndIncrement();
         ObjectNode request = MAPPER.createObjectNode();
@@ -93,7 +127,18 @@ public class JsonRpcClient implements AutoCloseable {
 
         try {
             transport.send(request);
-            return future.get(timeoutMillis + 1000, TimeUnit.MILLISECONDS);
+            JsonNode result = future.get(timeoutMillis + 1000, TimeUnit.MILLISECONDS);
+            if (protocolVersion.modern()) {
+                String type = result == null ? "" : result.path("resultType").asText("");
+                if ("input_required".equals(type) && allowInput) return result;
+                if ("input_required".equals(type)) {
+                    throw new IOException("MCP 2026-07-28 input_required：此请求入口不支持 MRTR 补充输入");
+                }
+                if (!"complete".equals(type)) {
+                    throw new IOException("MCP 2026-07-28 协议响应无效：resultType 必须是 complete 或 input_required");
+                }
+            }
+            return result;
         } catch (JsonRpcException e) {
             throw e;
         } catch (Exception e) {
@@ -109,6 +154,7 @@ public class JsonRpcClient implements AutoCloseable {
     }
 
     public void sendNotification(String method, JsonNode params) throws IOException {
+        params = protocolVersion.decorate(params);
         ObjectNode notification = MAPPER.createObjectNode();
         notification.put("jsonrpc", "2.0");
         notification.put("method", method);
@@ -130,6 +176,7 @@ public class JsonRpcClient implements AutoCloseable {
      */
     private void handleMessage(JsonNode message) {
         if (message.hasNonNull("method")) {
+            if (protocolVersion.modern()) return;
             JsonNode idNode = message.get("id");
             if (idNode == null || idNode.isNull()) {
                 for (Consumer<JsonNode> listener : notificationListeners) {

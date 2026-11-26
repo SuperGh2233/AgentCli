@@ -173,6 +173,11 @@ public interface LlmClient {
             return new Message(role, content, null, toolCalls, toolCallId, contentParts);
         }
 
+        /** 多段内容合成的纯文字，和 {@link #user(List)} 生成的 content 一致。 */
+        public static String textOf(List<ContentPart> parts) {
+            return plainText(parts);
+        }
+
         private static String plainText(List<ContentPart> parts) {
             if (parts == null || parts.isEmpty()) {
                 return "";
@@ -214,6 +219,13 @@ public interface LlmClient {
         default void onReasoningDelta(String delta) {}
 
         default void onContentDelta(String delta) {}
+
+        /**
+         * 供应商原始的停止原因（OpenAI 兼容接口的 finish_reason，比如 stop、tool_calls、length）。
+         * 只在这次请求成功结束、即将返回结果时回调一次；中途重试的尝试不会回调。
+         * 包装 listener 的类要把它转发下去，否则新接口只能按有没有工具调用推断停止原因。
+         */
+        default void onFinishReason(String finishReason) {}
     }
 
     record ChatResponse(String role, String content, String reasoningContent, List<ToolCall> toolCalls,

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 日常回归：不含评测包（-Pbenchmark）和几个慢测试；CI 上没有任何模型 API Key，不会调用真实模型
+      - name: Quick regression
+        run: mvn -B test -Pquick
+
+      # ToolRegistryTest 因为要起外部进程被 -Pquick 排除，但工具执行和安全策略的测试大多在里面，这里单独跑
+      - name: Tool and safety policy tests
+        run: mvn -B test -DskipTests=false -Dtest='ToolRegistryTest,PathGuardTest,CommandGuardTest,AuditLogTest'

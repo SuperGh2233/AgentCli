@@ -18,6 +18,7 @@ final class PaiCliCompleter implements Completer {
     private final Supplier<List<McpResourceDescriptor>> resourceSupplier;
     private final Supplier<List<Skill>> skillSupplier;
     private final Supplier<PaiCliConfig> configSupplier;
+    private final Supplier<List<String>> serverSupplier;
 
     PaiCliCompleter(Supplier<List<McpResourceDescriptor>> resourceSupplier) {
         this(resourceSupplier, List::of);
@@ -30,6 +31,14 @@ final class PaiCliCompleter implements Completer {
 
     PaiCliCompleter(Supplier<List<McpResourceDescriptor>> resourceSupplier,
                     Supplier<List<Skill>> skillSupplier, Supplier<PaiCliConfig> configSupplier) {
+        this(resourceSupplier, skillSupplier, configSupplier, () -> resourceSupplier.get().stream()
+                .map(McpResourceDescriptor::serverName).toList());
+    }
+
+    PaiCliCompleter(Supplier<List<McpResourceDescriptor>> resourceSupplier,
+                    Supplier<List<Skill>> skillSupplier, Supplier<PaiCliConfig> configSupplier,
+                    Supplier<List<String>> serverSupplier) {
+        this.serverSupplier = serverSupplier;
         this.configSupplier = configSupplier;
         this.resourceSupplier = resourceSupplier;
         this.skillSupplier = skillSupplier == null ? List::of : skillSupplier;
@@ -175,6 +184,8 @@ final class PaiCliCompleter implements Completer {
         String[] parts = payload.trim().isEmpty() ? new String[0] : payload.trim().split("\\s+");
         if (parts.length <= 1 && !payload.endsWith(" ")) {
             addMatching(candidates, "MCP 命令", payload,
+                    option("login ", "登录 HTTP MCP OAuth", "/mcp login <name>"),
+                    option("logout ", "注销并停用 HTTP MCP", "/mcp logout <name>"),
                     option("restart ", "重启 MCP server", "/mcp restart <name>"),
                     option("logs ", "查看 MCP server stderr", "/mcp logs <name>"),
                     option("disable ", "禁用 MCP server", "/mcp disable <name>"),
@@ -185,7 +196,7 @@ final class PaiCliCompleter implements Completer {
             return true;
         }
         String sub = parts.length == 0 ? "" : parts[0].toLowerCase();
-        if (List.of("restart", "logs", "disable", "enable", "trust", "resources", "prompts").contains(sub)) {
+        if (List.of("login", "logout", "restart", "logs", "disable", "enable", "trust", "resources", "prompts").contains(sub)) {
             String prefix = payload.endsWith(" ") ? "" : parts.length >= 2 ? parts[parts.length - 1] : "";
             addServerCandidates(candidates, prefix);
             return true;
@@ -284,15 +295,14 @@ final class PaiCliCompleter implements Completer {
     }
 
     private void addServerCandidates(List<Candidate> candidates, String prefix) {
-        List<String> servers = resourceSupplier.get().stream()
-                .map(McpResourceDescriptor::serverName)
+        List<String> servers = serverSupplier.get().stream()
                 .filter(name -> name != null && !name.isBlank())
                 .distinct()
                 .sorted()
                 .toList();
         for (String server : servers) {
             if (matches(server, prefix)) {
-                candidates.add(new Candidate(server, server, "MCP server", "来自 resource cache", null, null, true));
+                candidates.add(new Candidate(server, server, "MCP server", "已配置的 MCP server", null, null, true));
             }
         }
     }

@@ -270,7 +270,18 @@
 - progress / logging notification 的 UI 展示
 
 （后续已补：stdio server 的崩溃自动重启、本地 ping 探活、进程树清理，HTTP server 仍不 ping）
-- OAuth Device Flow / Client Credentials
+
+**Day3-B 后续交付**：Streamable HTTP 的 OAuth 2.1 Authorization Code + PKCE S256，包含 RFC9728/RFC8414/OIDC 发现、issuer/state 校验、loopback 回调、私有令牌文件、refresh 轮换与一次 401 重试、`/mcp login|logout`。只支持预注册公共客户端，不支持 confidential client secrets、client credentials、DCR/CIMD、step-up scope、device-code 或 sampling；默认 MCP 2025-03-26 握手不变。配置和验收见 `docs/specs/mcp-oauth.md`。
+
+**双协议核心后续交付 ✅ completed**：默认 2025-03-26，stdio/HTTP 可显式固定 2026-07-28；server/discover、请求元数据、严格 resultType 校验、HTTP 方法/名称头，无现代 session/DELETE/ping/订阅。现代变化通知尚未实现；补充输入的后续实现见下方 MRTR-2。见 `docs/specs/mcp-protocol-eras.md`。
+
+**MRTR-1 交互层 ✅ completed（离线验收）**：新增独立 elicitation request/response 模型、受限表单校验、URL 显式打开确认，并复用可切换 HITL/Renderer 生命周期；不实现旧 sampling/roots。见 `docs/specs/mcp-mrtr.md`。
+
+**MRTR-2 协议往返 ✅ completed（离线验收）**：仅现代 tools/call、resources/read、prompts/get；整轮校验、最多 4 轮/每轮 8 项、新 id、当轮响应和 requestState 原样回传。17 个测试类、159 项全部通过（新增 MRTR-2 测试 11 项）。当时暂缓的能力声明已由下方 MRTR-3 接续。
+
+**MRTR-3 动态能力声明 ✅ completed（离线验收）**：仅三种现代 MRTR 操作查询当前 UI 并声明 form/url，切换 delegate 后下一请求生效；保留其他元数据和自定义能力。普通请求、通知、legacy、WeChat、benchmark 与无控制台 CLI 不声明 elicitation；Lanterna 仅在全屏 GUI 已运行时声明 form/url。18 类、170 项全部通过（原 159 项保留，新增 11 项）。
+
+仍未实现：现代变化通知、OAuth Device Flow / Client Credentials。Lanterna elicitation UI 已实现并通过 43 类/387 项离线回归；真实终端手工验收仍待执行。
 
 **核心知识点**：
 - MCP resources/list + resources/read 包装成工具
@@ -686,12 +697,12 @@ E2 的原生观察接口已经接入：包括 13 类事件（角色、输入、�
 - ⬜ 项目级 `.paicli/mcp.json` 首次出现或内容变化时逐个 server 确认，禁止覆盖用户同名配置
 - ✅ HITL 默认开启（至少 `execute_command` 与 MCP 默认需确认）：2026-09-25 交互式 CLI 默认确认 `execute_command`、`revert_turn` 与全部 MCP 工具，`/hitl on|default` 切换；同日改为 auto 模式由轻量模型分类器审查 Shell 命令，低风险直接执行，移除 `/hitl off`
 - ✅ 会话模式切换（参考 Claude Code）：2026-09-25 Shift+Tab / `/mode` 在 auto、plan、ask 之间循环，状态栏显示当前模式；Lanterna TUI 待接入
-- ⬜ 审批框完整显示命令，转义控制字符与双向控制字符，防止伪装
-- ⬜ `revert_turn` 不跟随符号链接写到项目外，按文件模式恢复软链与可执行位，失败回滚
+- ✅ 审批框完整显示命令，转义控制字符与双向控制字符，防止伪装（七类 / 97 项离线定向回归通过）
+- ✅ `revert_turn` 安全恢复：最终修复后隔离离线定向回归 18/18 通过（SideGitManagerTest 4/4、SnapshotRestorerTest 14/14）；覆盖软链/执行位、父目录缺失、路径冲突、失败回滚；path-based NOFOLLOW 检查仍有已记录的并发 TOCTOU 窗口
 
 ### 第二批：体验与能力
 
-- 🟡 会话恢复：`/resume` 已完成（2026-10-09，按项目列出历史会话并恢复 ReAct 对话）；还缺启动参数 `--continue` / `--session <id>`、`/sessions` 管理面板、`/fork`、`/rewind`、`/retry`，以及 Lanterna TUI 入口。参考 `packages/tui/src/features/session/manager.ts`
+- 🟡 会话恢复：`/resume` 已完成（2026-10-09，按项目列出历史会话并恢复 ReAct 对话）；Day3-A 已完成启动参数 `--continue` / `--session <id>`（仅 CLI，复用原恢复逻辑，失败报错退出）；还缺 `/sessions` 管理面板、`/fork`、`/rewind`、`/retry`，以及 Lanterna TUI 入口。参考 `packages/tui/src/features/session/manager.ts`
 - ⬜ 按轮次回滚：可选“只回退对话 / 对话连同文件”，还原前比对哈希，文件已被别处改过则跳过并说明。参考 `packages/local-runtime/src/turns/file-changes.ts`
 - ✅ `edit_file` 容错：精确匹配失败后做 Unicode、行尾空白、引号归一化再匹配；剥掉从 read 输出带来的行号前缀；支持 `replace_all`（2026-09-25）
 - ⬜ 运行中插话：Enter 插话改变当前方向，Alt+Enter 排到下一轮，`/btw` 开一个只读的旁支会话；同时修掉 ESC 取消时的线程竞争问题。参考 `packages/tui/src/tui/shell/keybindings.ts`

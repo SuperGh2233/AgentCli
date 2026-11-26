@@ -56,6 +56,37 @@ final class ResumeCommandHandler {
         }
     }
 
+    static Result handleStartup(Agent agent, CliStartupOptions options,
+                                com.paicli.hitl.SwitchableHitlHandler hitlHandler) {
+        ConversationLedger ledger = agent.getConversationLedger();
+        if (ledger == null || !ledger.isEnabled() || ledger.file() == null) {
+            return Result.message("❌ 无法恢复：本次会话记录不可用\n");
+        }
+        try {
+            Path directory = ledger.file().getParent();
+            String project = agent.getToolRegistry().getProjectPath();
+            String id = options.sessionId();
+            if (options.continueSession()) {
+                List<SessionResume.SessionSummary> sessions = SessionResume.listSessions(
+                        directory, project, ledger.sessionId(), 1);
+                if (sessions.isEmpty()) {
+                    return Result.message("❌ 当前项目没有可以恢复的旧 CLI 会话\n");
+                }
+                id = sessions.get(0).sessionId();
+            }
+            Optional<SessionResume.RestoredConversation> restored =
+                    SessionResume.loadExact(directory, project, ledger.sessionId(), id);
+            if (restored.isEmpty()) {
+                return Result.message("❌ 当前项目找不到可以恢复的 CLI 会话 ID: " + id + "\n");
+            }
+            agent.resumeConversation(restored.get().sessionId(), restored.get().messages());
+            hitlHandler.clearApprovedAll();
+            return new Result(restoredMessage(restored.get(), false), true);
+        } catch (IOException | RuntimeException e) {
+            return Result.message("❌ 读取会话记录失败: " + e.getMessage() + "\n");
+        }
+    }
+
     static String list(List<SessionResume.SessionSummary> sessions) {
         if (sessions.isEmpty()) {
             return "📭 当前项目没有可以恢复的会话\n"

@@ -85,7 +85,28 @@ public class ToolRegistry {
     private static final Set<String> AUDIT_TOOLS = Set.of(
             "write_file", "edit_file", "execute_command", "create_project", "revert_turn", "save_skill_reference");
     private final Map<String, Tool> tools = new ConcurrentHashMap<>();
+    // 实例级、非继承的线程上下文：只包住一次派发，finally 清理，不跨 Turn 注册回调。
+    private final ThreadLocal<PendingToolStart> pendingToolStart = new ThreadLocal<>();
+
+    /** null 表示允许；非 null 是未启动原因。只在审批后、执行器入口调用一次。 */
+    @FunctionalInterface
+    public interface ToolStartGate {
+        String rejectionReason(ToolInvocation invocation);
+    }
+
+    private record PendingToolStart(ToolInvocation invocation, ToolStartGate gate) { }
+
+    private String claimPendingToolStart() {
+        PendingToolStart pending = pendingToolStart.get();
+        if (pending == null) return null;
+        // 内置 web 工具可能委托给 MCP：同一 invocation 只领取一次。
+        pendingToolStart.remove();
+        return pending.gate().rejectionReason(pending.invocation());
+    }
     private final Map<String, McpRegisteredTool> mcpTools = new ConcurrentHashMap<>();
+    /** Fair lifecycle lock: an invocation runs against one registration while replacement/revocation waits. */
+    private final java.util.concurrent.locks.ReentrantReadWriteLock mcpToolLock =
+            new java.util.concurrent.locks.ReentrantReadWriteLock(true);
     private final long commandTimeoutSeconds;
     private final long toolBatchTimeoutSeconds;
     private static final int DEFAULT_FETCH_MAX_CHARS = 8_000;
@@ -155,8 +176,10 @@ public class ToolRegistry {
             configureCommandSandbox(sandboxMode, Path.of(projectPath));
         }
         if (!customSnapshotService) {
-            this.snapshotService.close();
+            // 先建好新的再关旧的，避免中途出错时留下一个已关闭的快照服务
+            SnapshotService previous = this.snapshotService;
             this.snapshotService = SnapshotService.forProject(Path.of(projectPath));
+            previous.close();
         }
     }
 
@@ -1358,23 +1381,33 @@ public class ToolRegistry {
     public synchronized void registerMcpToolOutput(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {
         Objects.requireNonNull(descriptor, "descriptor");
         Objects.requireNonNull(invoker, "invoker");
-        String toolName = descriptor.namespacedName();
-        McpRegisteredTool registered = new McpRegisteredTool(descriptor, invoker);
-        mcpTools.put(toolName, registered);
-        tools.put(toolName, new Tool(
-                toolName,
-                mcpDescription(descriptor),
-                descriptor.inputSchema(),
-                args -> "MCP 工具不应通过 Map<String,String> 入口执行"
-        ));
+        mcpToolLock.writeLock().lock();
+        try {
+            String toolName = descriptor.namespacedName();
+            McpRegisteredTool registered = new McpRegisteredTool(descriptor, invoker);
+            mcpTools.put(toolName, registered);
+            tools.put(toolName, new Tool(
+                    toolName,
+                    mcpDescription(descriptor),
+                    descriptor.inputSchema(),
+                    args -> "MCP 工具不应通过 Map<String,String> 入口执行"
+            ));
+        } finally {
+            mcpToolLock.writeLock().unlock();
+        }
     }
 
     public synchronized void unregisterMcpTool(String toolName) {
         if (toolName == null || toolName.isBlank()) {
             return;
         }
-        mcpTools.remove(toolName);
-        tools.remove(toolName);
+        mcpToolLock.writeLock().lock();
+        try {
+            mcpTools.remove(toolName);
+            tools.remove(toolName);
+        } finally {
+            mcpToolLock.writeLock().unlock();
+        }
     }
 
     public synchronized void replaceMcpToolsForServer(String serverName, List<McpToolDescriptor> newTools,
@@ -1388,17 +1421,80 @@ public class ToolRegistry {
         Objects.requireNonNull(serverName, "serverName");
         Objects.requireNonNull(newTools, "newTools");
         Objects.requireNonNull(invokerFactory, "invokerFactory");
-        String prefix = "mcp__" + serverName + "__";
-        List<String> existing = mcpTools.keySet().stream()
-                .filter(name -> name.startsWith(prefix))
-                .toList();
-        for (String toolName : existing) {
-            mcpTools.remove(toolName);
-            tools.remove(toolName);
+        mcpToolLock.writeLock().lock();
+        try {
+            String prefix = "mcp__" + serverName + "__";
+            List<String> existing = mcpTools.keySet().stream()
+                    .filter(name -> name.startsWith(prefix))
+                    .toList();
+            for (String toolName : existing) {
+                mcpTools.remove(toolName);
+                tools.remove(toolName);
+            }
+            for (McpToolDescriptor descriptor : newTools) {
+                registerMcpToolOutput(descriptor, invokerFactory.apply(descriptor));
+            }
+        } finally {
+            mcpToolLock.writeLock().unlock();
         }
-        for (McpToolDescriptor descriptor : newTools) {
-            registerMcpToolOutput(descriptor, invokerFactory.apply(descriptor));
+    }
+
+    /** Snapshot the exact registered MCP invoker before permission checks or user approval. */
+    protected final McpRegisteredTool mcpToolSnapshot(String toolName) {
+        return toolName == null ? null : mcpTools.get(toolName);
+    }
+
+    /** Run a registry mutation and its permission-grant invalidation under the same write lock. */
+    protected final void withMcpToolRegistryWriteLock(Runnable action) {
+        Objects.requireNonNull(action, "action");
+        mcpToolLock.writeLock().lock();
+        try {
+            action.run();
+        } finally {
+            mcpToolLock.writeLock().unlock();
         }
+    }
+
+    protected final boolean isCurrentMcpToolRegistration(String toolName, McpRegisteredTool expected) {
+        if (toolName == null || expected == null) return false;
+        mcpToolLock.readLock().lock();
+        try {
+            return mcpTools.get(toolName) == expected;
+        } finally {
+            mcpToolLock.readLock().unlock();
+        }
+    }
+
+    /** Execute only the exact MCP registration captured before permission evaluation/approval. */
+    protected final ToolOutput doExecuteMcpToolBound(String name, String argumentsJson,
+                                                      McpRegisteredTool expected) {
+        return doExecuteMcpToolBound(name, argumentsJson, expected, null);
+    }
+
+    /** Run the approval commit callback only after the captured registration is locked and validated. */
+    protected final ToolOutput doExecuteMcpToolBound(String name, String argumentsJson,
+                                                      McpRegisteredTool expected, Runnable beforeInvoke) {
+        if (expected == null) {
+            return ToolOutput.failure("[PERMISSION] MCP 工具注册已变化或不可用，未执行");
+        }
+        mcpToolLock.readLock().lock();
+        try {
+            if (mcpTools.get(name) != expected) {
+                return ToolOutput.failure("[PERMISSION] MCP 工具在审批期间被替换，未执行；请重新审批");
+            }
+            return doExecuteToolLocked(name, argumentsJson, expected, beforeInvoke);
+        } finally {
+            mcpToolLock.readLock().unlock();
+        }
+    }
+
+    /** Execute a non-MCP tool and publish its approval only after validation and the start gate pass. */
+    protected final ToolOutput doExecuteToolWithBeforeInvoke(String name, String argumentsJson,
+                                                              Runnable beforeInvoke) {
+        if (name != null && name.startsWith("mcp__")) {
+            return ToolOutput.failure("MCP 工具必须使用绑定注册的执行入口");
+        }
+        return doExecuteToolLocked(name, argumentsJson, null, beforeInvoke);
     }
 
     /**
@@ -1421,6 +1517,19 @@ public class ToolRegistry {
     }
 
     protected ToolOutput doExecuteTool(String name, String argumentsJson) {
+        if (name != null && name.startsWith("mcp__")) {
+            mcpToolLock.readLock().lock();
+            try {
+                return doExecuteToolLocked(name, argumentsJson, null, null);
+            } finally {
+                mcpToolLock.readLock().unlock();
+            }
+        }
+        return doExecuteToolLocked(name, argumentsJson, null, null);
+    }
+
+    private ToolOutput doExecuteToolLocked(String name, String argumentsJson,
+                                            McpRegisteredTool expectedMcpTool, Runnable beforeInvoke) {
         if (CancellationContext.isCancelled()) {
             return ToolOutput.failure("用户取消了此次工具调用");
         }
@@ -1434,6 +1543,12 @@ public class ToolRegistry {
         BrowserAuditMetadata auditMetadata = null;
 
         McpRegisteredTool mcpTool = mcpTools.get(name);
+        if (expectedMcpTool != null && mcpTool != expectedMcpTool) {
+            return ToolOutput.failure("[PERMISSION] MCP 工具注册已变化，未执行；请重新审批");
+        }
+        if (name != null && name.startsWith("mcp__") && mcpTool == null) {
+            return ToolOutput.failure("未知工具: " + name);
+        }
         ToolArgumentValidator.Outcome checked = argumentValidator.check(name, validationSchema(tool, mcpTool), argumentsJson, mcpTool == null);
         if (!checked.passed()) {
             if (shouldAudit) {
@@ -1450,6 +1565,9 @@ public class ToolRegistry {
                 if (browserCheck.blocked()) {
                     throw new PolicyException(browserCheck.reason());
                 }
+                String rejection = claimPendingToolStart();
+                if (rejection != null) return ToolOutput.failure(rejection);
+                if (beforeInvoke != null) beforeInvoke.run();
                 ToolOutput output = mcpTool.invoker().apply(argumentsJson);
                 if (output == null) {
                     output = ToolOutput.text("");
@@ -1466,7 +1584,7 @@ public class ToolRegistry {
                                 safeText,
                                 output.imageParts(),
                                 output.successful(),
-                                output.discoveredUrls());
+                                output.discoveredUrls(), output.failureCode());
                     }
                 }
                 if (shouldAudit) {
@@ -1478,6 +1596,9 @@ public class ToolRegistry {
             Map<String, String> argMap = new HashMap<>();
             checked.arguments().fields().forEachRemaining(entry ->
                     argMap.put(entry.getKey(), entry.getValue().asText()));
+            String rejection = claimPendingToolStart();
+            if (rejection != null) return ToolOutput.failure(rejection);
+            if (beforeInvoke != null) beforeInvoke.run();
             ToolOutput output;
             if ("web_search".equals(name)) {
                 output = webSearchOutput(argMap.get("query"), parseInt(argMap.get("top_k"), 5));
@@ -1501,7 +1622,9 @@ public class ToolRegistry {
                 auditLog.record(AuditLog.AuditEntry.error(
                         name, argumentsJson, e.getMessage(), elapsedMillis(start), auditMetadata));
             }
-            return ToolOutput.failure("工具执行失败: " + e.getMessage());
+            return new ToolOutput("工具执行失败: " + e.getMessage(), List.of(), false, List.of(),
+                    "edit_file".equals(name) && e instanceof TextEditMatcher.EditException edit
+                            ? edit.failureCode() : ToolOutput.FailureCode.NONE);
         }
     }
 
@@ -1534,7 +1657,8 @@ public class ToolRegistry {
         if (!output.successful() || !looksLikeFailureText(output.text())) {
             return output;
         }
-        return ToolOutput.failure(output.text(), output.imageParts());
+        return new ToolOutput(output.text(), output.imageParts(), false,
+                List.of(), output.failureCode());
     }
 
     private static boolean looksLikeFailureText(String text) {
@@ -1601,6 +1725,11 @@ public class ToolRegistry {
      * 含浏览器工具的批次整体串行，避免同一浏览器会话内的页面状态互相覆盖。
      */
     public List<ToolExecutionResult> executeTools(List<ToolInvocation> invocations) {
+        return executeTools(invocations, null);
+    }
+
+    /** 可选的逐调用启动检查；HITL 仍通过 executeToolOutput 的动态派发先完成审批。 */
+    public List<ToolExecutionResult> executeTools(List<ToolInvocation> invocations, ToolStartGate startGate) {
         if (invocations == null || invocations.isEmpty()) {
             return List.of();
         }
@@ -1611,10 +1740,10 @@ public class ToolRegistry {
         }
         if (invocations.size() == 1
                 || invocations.stream().anyMatch(invocation -> TurnToolPolicy.isBrowserToolName(invocation.name()))) {
-            return executeSerially(invocations);
+            return executeSerially(invocations, startGate);
         }
         if (invocations.stream().allMatch(invocation -> isParallelSafeTool(invocation.name()))) {
-            return executeInParallel(invocations);
+            return executeInParallel(invocations, startGate);
         }
 
         List<ToolExecutionResult> results = new ArrayList<>(invocations.size());
@@ -1624,10 +1753,10 @@ public class ToolRegistry {
                 readOnlyRun.add(invocation);
                 continue;
             }
-            results.addAll(flushReadOnlyRun(readOnlyRun));
-            results.addAll(executeSerially(List.of(invocation)));
+            results.addAll(flushReadOnlyRun(readOnlyRun, startGate));
+            results.addAll(executeSerially(List.of(invocation), startGate));
         }
-        results.addAll(flushReadOnlyRun(readOnlyRun));
+        results.addAll(flushReadOnlyRun(readOnlyRun, startGate));
         return results;
     }
 
@@ -1640,16 +1769,28 @@ public class ToolRegistry {
         return toolName != null && PARALLEL_SAFE_TOOLS.contains(toolName);
     }
 
-    private List<ToolExecutionResult> flushReadOnlyRun(List<ToolInvocation> readOnlyRun) {
+    private List<ToolExecutionResult> flushReadOnlyRun(List<ToolInvocation> readOnlyRun, ToolStartGate startGate) {
         if (readOnlyRun.isEmpty()) {
             return List.of();
         }
         List<ToolInvocation> run = List.copyOf(readOnlyRun);
         readOnlyRun.clear();
-        return run.size() == 1 ? executeSerially(run) : executeInParallel(run);
+        return run.size() == 1 ? executeSerially(run, startGate) : executeInParallel(run, startGate);
     }
 
-    private List<ToolExecutionResult> executeSerially(List<ToolInvocation> invocations) {
+    private ToolOutput executeInvocation(ToolInvocation invocation, ToolStartGate startGate) {
+        if (startGate == null) return executeToolOutput(invocation.name(), invocation.argumentsJson());
+        PendingToolStart previous = pendingToolStart.get();
+        pendingToolStart.set(new PendingToolStart(invocation, startGate));
+        try {
+            return executeToolOutput(invocation.name(), invocation.argumentsJson());
+        } finally {
+            if (previous == null) pendingToolStart.remove();
+            else pendingToolStart.set(previous);
+        }
+    }
+
+    private List<ToolExecutionResult> executeSerially(List<ToolInvocation> invocations, ToolStartGate startGate) {
         List<ToolExecutionResult> results = new ArrayList<>(invocations.size());
         for (ToolInvocation invocation : invocations) {
             if (CancellationContext.isCancelled()) {
@@ -1657,13 +1798,13 @@ public class ToolRegistry {
                 continue;
             }
             long startedAt = System.nanoTime();
-            ToolOutput output = executeToolOutput(invocation.name(), invocation.argumentsJson());
+            ToolOutput output = executeInvocation(invocation, startGate);
             results.add(ToolExecutionResult.completed(invocation, output, elapsedMillis(startedAt)));
         }
         return results;
     }
 
-    private List<ToolExecutionResult> executeInParallel(List<ToolInvocation> invocations) {
+    private List<ToolExecutionResult> executeInParallel(List<ToolInvocation> invocations, ToolStartGate startGate) {
         int parallelism = Math.min(invocations.size(), MAX_PARALLEL_TOOLS);
         ExecutorService executor = Executors.newFixedThreadPool(parallelism, r -> {
             Thread thread = new Thread(r, "paicli-tool-executor");
@@ -1678,7 +1819,7 @@ public class ToolRegistry {
                             return ToolExecutionResult.failed(invocation, "用户取消了此次工具调用");
                         }
                         long startedAt = System.nanoTime();
-                        ToolOutput output = executeToolOutput(invocation.name(), invocation.argumentsJson());
+                        ToolOutput output = executeInvocation(invocation, startGate);
                         return ToolExecutionResult.completed(invocation, output, elapsedMillis(startedAt));
                     })
                     .toList();
@@ -1735,7 +1876,7 @@ public class ToolRegistry {
         }
         return new ToolExecutionResult(result.id(), result.name(), result.argumentsJson(), text,
                 result.elapsedMillis(), result.timedOut(), result.imageParts(), result.successful(),
-                result.discoveredUrls());
+                result.discoveredUrls(), result.failureCode());
     }
 
     private long elapsedMillis(long startedAtNanos) {
@@ -1975,7 +2116,7 @@ public class ToolRegistry {
 
     public record Tool(String name, String description, JsonNode parameters, ToolExecutor executor) {}
 
-    private record McpRegisteredTool(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {}
+    protected static record McpRegisteredTool(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {}
 
     public record ToolInvocation(String id, String name, String argumentsJson) {}
 
@@ -1983,11 +2124,21 @@ public class ToolRegistry {
                                       String result, long elapsedMillis, boolean timedOut,
                                       List<com.paicli.llm.LlmClient.ContentPart> imageParts,
                                       boolean successful,
-                                      List<String> discoveredUrls) {
+                                      List<String> discoveredUrls,
+                                      ToolOutput.FailureCode failureCode) {
         public ToolExecutionResult {
+            failureCode = failureCode == null ? ToolOutput.FailureCode.NONE : failureCode;
             imageParts = imageParts == null ? List.of() : List.copyOf(imageParts);
             discoveredUrls = discoveredUrls == null ? List.of() : List.copyOf(discoveredUrls);
             successful = successful && !timedOut;
+        }
+
+        public ToolExecutionResult(String id, String name, String argumentsJson,
+                                   String result, long elapsedMillis, boolean timedOut,
+                                   List<com.paicli.llm.LlmClient.ContentPart> imageParts,
+                                   boolean successful, List<String> discoveredUrls) {
+            this(id, name, argumentsJson, result, elapsedMillis, timedOut, imageParts,
+                    successful, discoveredUrls, ToolOutput.FailureCode.NONE);
         }
 
         /** Backward-compatible constructor for existing registries and tests. */
@@ -2008,7 +2159,8 @@ public class ToolRegistry {
                     false,
                     output == null ? List.of() : output.imageParts(),
                     output != null && output.successful(),
-                    output == null ? List.of() : output.discoveredUrls());
+                    output == null ? List.of() : output.discoveredUrls(),
+                    output == null ? ToolOutput.FailureCode.NONE : output.failureCode());
         }
 
         private static ToolExecutionResult completed(ToolInvocation invocation, String result, long elapsedMillis) {

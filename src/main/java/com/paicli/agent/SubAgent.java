@@ -293,6 +293,8 @@ public class SubAgent {
 
         AgentBudget budget = AgentBudget.fromSystemProperties();
         RunawayGuard runawayGuard = new RunawayGuard();
+        ResourceFailureObserver resourceFailureObserver =
+                new ResourceFailureObserver(Path.of(toolRegistry.getProjectPath()));
 
         // 与 Agent.java 对称：主退出条件 = LLM 自决，默认不限制轮数；budget 只承担安全阀职责。
         while (true) {
@@ -339,8 +341,11 @@ public class SubAgent {
                     // 没有换行的 pending 内容会被 HITL 提示"跨过"导致标题错位。
                     streamRenderer.resetBetweenIterations();
 
+                    List<ToolExecutionResult> executedResults = executeToolCalls(response.toolCalls(), activeToolPolicy, toolExposure);
+                    resourceFailureObserver.observe(executedResults).ifPresent(notice ->
+                            log.info("Resource failure observation: {}", notice));
                     LoadedSkillMessages.Injection skills = LoadedSkillMessages.prepare(
-                            executeToolCalls(response.toolCalls(), activeToolPolicy, toolExposure),
+                            executedResults,
                             toolRegistry.getSkillRegistry(),
                             conversationHistory);
                     List<ToolExecutionResult> toolResults = skills.results();
