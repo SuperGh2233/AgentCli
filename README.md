@@ -10,7 +10,7 @@
   <img alt="Agent Harness" src="https://img.shields.io/badge/Architecture-Agent%20Harness-6D28D9">
 </p>
 
-PaiCLI 是一个以 Java 构建的终端 Agent 项目，用于实践 Coding Agent 的 Harness 机制：将模型推理、上下文管理、任务规划、工具执行、安全审批和可恢复工作流组织成一个可观察的开发环境。
+Hao CLI 是一个以 Java 构建的终端 Agent 项目，用于实践 Coding Agent 的 Harness 机制：将模型推理、上下文管理、任务规划、工具执行、安全审批和可恢复工作流组织成一个可观察的开发环境。
 
 项目从 ReAct 单 Agent 循环逐步扩展到 Plan-and-Execute、Multi-Agent、MCP、代码检索、记忆管理、终端交互和外部接入。**项目目标是学习和验证 Agent 工程方法，不宣称复刻或替代 Claude Code。**
 
@@ -65,7 +65,7 @@ flowchart TD
 
 ## 当前开发方向
 
-本项目持续推进执行中输入控制和终端交互可靠性；未完成的接线和验证不作为已交付能力。现有 Maven 构建名称、`com.paicli` 包名、`~/.paicli`、`PAICLI_*` 和 `PAI.md` 等历史兼容标识暂时保留，后续再评估是否迁移。启动时显示的 `v16.1.0` 是现有代码中的历史版本常量，不代表 Hao CLI 已发布对应的语义版本。
+本项目持续推进执行中输入控制和终端交互可靠性；未完成的接线和验证不作为已交付能力。对外品牌统一为 Hao CLI（未来命令名 `haocli`）。现有 Maven 坐标、jar 文件名、`com.paicli` 包名、`~/.paicli`、`PAICLI_*`、`paicli.*` 和 `PAI.md` 仍是兼容接口；后续按独立迁移计划引入 Hao 命名及兼容读写，不直接替换或删除旧配置与历史评测证据。启动时显示的 `v16.1.0` 是现有代码中的历史版本常量，不代表 Hao CLI 已发布对应的语义版本。
 
 执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；用户也已在普通 macOS Terminal 验证 Ctrl+C / Ctrl+D 的 JLine 原生异常。Phase3A ReAct 安全点和 Phase3B-3A 的 Main 接线已实现，但只有在 `paicli.steering.enabled=true`、交互式 inline ReAct 路径启用；Plain/Lanterna 和非交互路径不启用新输入循环，Plan/Team 仍保留原审批流程。Phase3B-3A 隔离离线回归已通过（12 suites / 94 tests，0 failures / 0 errors）；真实 Main + WakeableLineReader 终端组合、中文输入法候选窗和审批/Steer 输入归属仍待人工验收。Steer/Queue 输入会清除编辑态回显并写入可见的对话记录；`/queue` 目前只保存并显示数量，不会自动启动下一任务。`paicli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
 
@@ -246,9 +246,9 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 - `web_search` 抽象成 `SearchProvider` 接口，内置四个实现：智谱 Web Search（与 GLM 共用 Key）、SerpAPI（国际通用付费）、SearXNG（开源自托管免费）、DeepSeek 原生搜索（与 DeepSeek 对话共用 Key）。未指定 `SEARCH_PROVIDER` 时按 GLM Key → SerpAPI Key → SearXNG URL → DeepSeek Key 自动选择，保留已有搜索配置的优先级
 - 仅配置 `DEEPSEEK_API_KEY` 即可启用 DeepSeek 搜索；同时配置了其他搜索服务时，用 `SEARCH_PROVIDER=deepseek` 指定。可用 `DEEPSEEK_SEARCH_MODEL` 单独设置搜索模型，默认 `deepseek-flash`，不随 `/model` 切换。每次搜索通过 Anthropic Messages API 发起独立模型请求（最多 4096 输出 Token、5 次服务端搜索、120 秒总超时），会产生额外 Token 费用；不自动重试或跟随重定向。只提取结构化搜索结果中的 URL，引用摘要按 URL 匹配，缺少搜索结果块或搜索工具报错会明确失败。`top_k` 在本地去重后截断，不保证减少服务端调用。
 - `web_fetch` 新工具：有可信来源的 URL → OkHttp 抓取 → Jsoup 解析 → 简易 readability → Markdown 正文
-- 联网不会根据“最新/当前/今天/趋势/新闻/版本”等关键词自动做时效性预检。顶层用户输入只是标题、主题或摘录而没有任务目标时，PaiCLI 会先询问用户，本轮不调用工具；用户明确要求不要联网时始终优先遵从。
+- 联网不会根据“最新/当前/今天/趋势/新闻/版本”等关键词自动做时效性预检。顶层用户输入只是标题、主题或摘录而没有任务目标时，Hao CLI 会先询问用户，本轮不调用工具；用户明确要求不要联网时始终优先遵从。
 - 模型不得根据标题猜测 URL。明确要求查找但没有 URL 时先 `web_search`；`web_fetch` 和浏览器导航只接受用户实际提交的顶层原文（不含 `@path` / MCP resource 展开正文）中的 URL，或当前执行分支由搜索 provider 返回的结构化 `discoveredUrls`。搜索结果正文、摘要（snippet）、回显的查询词、错误提示，`web_fetch` 抓到的正文，浏览器返回的结果，以及普通文件和命令输出里的链接，都不会自动获得访问许可；StepSearch MCP 返回的非结构化文本也不会产生 URL 凭据。
-- 运行时的 `TurnToolPolicy` 对 ReAct / Plan / Team 都生效：请求交给 StepSearch、内置 Web provider 或 MCP / Chrome 之前，先检查用户顶层意图和 URL 来源；Plan 审阅时补充要求，会重新生成这套策略。并行任务或 worker 之间不共享新发现的 URL，只有 DAG 中声明了依赖的后续任务，才会继承前面分支 `web_search` 返回的结构化 URL 凭据，不会从任务回复文本里重新提取。来源可信的 URL 一开始只允许导航；导航成功只代表可以读取当前页面，读页面不会扩大可访问的 URL 范围；点击、填写等交互需要用户在顶层原文里明确允许。shared 模式的 Chrome 状态可以跨轮读取；不是 PaiCLI 创建的标签页，只在用户明确要求时开放只读，Agent 不能导航、改写或关闭它们；导航工具返回的完整标签页清单，会在放回给模型之前删掉。被拒绝的调用不能靠换个工具绕过去。
+- 运行时的 `TurnToolPolicy` 对 ReAct / Plan / Team 都生效：请求交给 StepSearch、内置 Web provider 或 MCP / Chrome 之前，先检查用户顶层意图和 URL 来源；Plan 审阅时补充要求，会重新生成这套策略。并行任务或 worker 之间不共享新发现的 URL，只有 DAG 中声明了依赖的后续任务，才会继承前面分支 `web_search` 返回的结构化 URL 凭据，不会从任务回复文本里重新提取。来源可信的 URL 一开始只允许导航；导航成功只代表可以读取当前页面，读页面不会扩大可访问的 URL 范围；点击、填写等交互需要用户在顶层原文里明确允许。shared 模式的 Chrome 状态可以跨轮读取；不是 Hao CLI 创建的标签页，只在用户明确要求时开放只读，Agent 不能导航、改写或关闭它们；导航工具返回的完整标签页清单，会在放回给模型之前删掉。被拒绝的调用不能靠换个工具绕过去。
 - 当前模型是 `step-3.7-flash*` 且自动/显式 `step_search` 远程 server 已就绪时，通过 `TurnToolPolicy` 后的内置 `web_search` / `web_fetch` 会优先走 StepSearch MCP；未就绪或调用失败时自动回退到原 provider。
 - 默认安全策略：屏蔽 `file://` / 内网 / loopback；30 秒超时；5MB 响应上限；每分钟 30 次限流
 - 能力范围明确：SPA / 有防爬墙的站点会返回空正文，并附上已知限制的提示，Agent 会改走浏览器 MCP
@@ -258,8 +258,8 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 - 新增 `com.paicli.mcp` 模块，支持 stdio 子进程 server 与 Streamable HTTP 远程 server
 - 启动时读取 `~/.paicli/mcp.json` 与 `.paicli/mcp.json`，项目级配置按 server 名覆盖用户级配置；项目级 server 要先 `/mcp trust <name>` 确认才会启动，配置内容变了要重新确认
 - stdio server 子进程只继承运行必需的环境变量（PATH、HOME、代理、证书等），API Key 需要在配置的 `env` 里显式写
-- stdio server 进程自己退出，或者连续两次 ping 都不回（卡死）时，PaiCLI 会移除它的工具，按 1 秒、2 秒、4 秒的间隔自动重启，连续 3 次失败就停下并提示用 `/mcp restart` 手动处理；正在等它回复的请求立即失败，不用干等 60 秒超时
-- 关闭 server 时会连同 npx / uvx 拉起的子进程一起结束；PaiCLI 被强制杀掉（kill -9）后，下次启动会清理上次遗留的 MCP 子进程
+- stdio server 进程自己退出，或者连续两次 ping 都不回（卡死）时，Hao CLI 会移除它的工具，按 1 秒、2 秒、4 秒的间隔自动重启，连续 3 次失败就停下并提示用 `/mcp restart` 手动处理；正在等它回复的请求立即失败，不用干等 60 秒超时
+- 关闭 server 时会连同 npx / uvx 拉起的子进程一起结束；Hao CLI 被强制杀掉（kill -9）后，下次启动会清理上次遗留的 MCP 子进程
 - MCP `${VAR}` 支持系统环境变量、系统属性、项目 `.env`、用户 `~/.env`；检测到 `STEP_API_KEY` 时自动内置 `step_search` 远程 MCP，显式同名配置优先
 - MCP 配置指纹使用本地 HMAC-SHA256（带私有密钥的摘要）；32 字节随机密钥仅存在私有 `~/.paicli/mcp-trust.json` 的 `fingerprintKey` 中。首次升级生成密钥会清除旧 SHA 信任记录，项目 server 需要重新 `/mcp trust`；文件损坏或密钥非法时拒绝覆盖。
 - 配置绑定会重新检查原始配置和展开后的有效配置，变化或读取失败时标记 `current=false`。本阶段不自动 reload，也未启用 MCP 永久 ALLOW。文件改动需要重新载入配置（当前可重新启动 CLI）；`/mcp restart` 只重启已载入的配置，并重新展开变量，不重读 mcp.json。
@@ -299,7 +299,7 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 - Agent 遇到登录页、权限不足或明确需要登录态页面时，会先调用 `browser_connect` 自动切到 shared；公开页面如微信公众号文章不提前切换
 - `/browser connect <port>` 保留旧式 CDP 端口的兼容用法：先检测 `127.0.0.1:<port>/json/version` 能否连通，成功后切到 `--browser-url=http://127.0.0.1:<port>`；失败时不会改 MCP 启动参数，并输出 macOS / Windows / Linux 的 Chrome 启动命令
 - 切换 shared / isolated 模式时，都会清空对 `chrome-devtools` 整个 server 设置的“全部放行”，避免之前的信任带到新模式
-- shared 模式下 `close_page` 只能关闭 PaiCLI 自己创建的 tab；无法证明是 PaiCLI 创建的 tab 会被策略层拒绝
+- shared 模式下 `close_page` 只能关闭 Hao CLI 自己创建的 tab；无法证明是 Hao CLI 创建的 tab 会被策略层拒绝
 - 敏感页面命中规则后，`click` / `fill_form` / `evaluate_script` 等改写型浏览器工具必须单步 HITL 审批，不复用全部放行；读型工具如 `take_snapshot` 仍可继续使用
 - 审计日志为 chrome-devtools 工具追加可选的浏览器元数据：`browser_mode`、`sensitive`、`target_url`，旧格式 JSONL 仍可读取
 
@@ -309,7 +309,7 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 
 - 三层加载位置（按优先级，后者整体覆盖同名 skill）：jar 内置 < 用户级 `~/.paicli/skills/<name>/` < 项目级 `<project>/.paicli/skills/<name>/`
 - 启动期把启用 skill 的 `name` + `description` 注入三处 Agent 系统提示词索引段（启用上限 20 个，索引段 ≤ 4KB）
-- 内置工具 `load_skill(name)`：LLM 在 system prompt 里看到匹配的 description 时主动调用。在工具结果之后、同一轮下一次 LLM 请求之前，PaiCLI 把 SKILL.md 正文（frontmatter 之后的部分，超过 5KB 时按整行截断）包成一条注入消息追加进历史。这是一条独立的 user 消息，不放进 untrusted 工具结果，也不改 system prompt；消息头部带来源和 Skill 目录的绝对路径
+- 内置工具 `load_skill(name)`：LLM 在 system prompt 里看到匹配的 description 时主动调用。在工具结果之后、同一轮下一次 LLM 请求之前，Hao CLI 把 SKILL.md 正文（frontmatter 之后的部分，超过 5KB 时按整行截断）包成一条注入消息追加进历史。这是一条独立的 user 消息，不放进 untrusted 工具结果，也不改 system prompt；消息头部带来源和 Skill 目录的绝对路径
 - 附属文件：`load_skill(name, file="references/a.md")` 读取 Skill 目录内的文件（传目录则列出文件，支持 offset/limit）；只放行该 Skill 自己的目录，`read_file` 仍只能读项目内文件；截断提示也指向这个调用。`references/` 下的路径同时合并用户级补充目录 `~/.paicli/skills/<name>/references/`（先 Skill 自带、后用户补充；补充目录不放 SKILL.md，不会覆盖内置 skill）
 - 去重与预算：按对话历史判断，某个 Skill 的注入消息还在历史里时，再加载只返回“正文还在当前上下文里”；历史里注入消息合计默认 16KB（`PAICLI_SKILL_BODY_BUDGET`），超出时不注入并提示先完成当前任务
 - 压缩：注入消息不计入压缩的用户轮次、不交给摘要模型，被切到摘要范围内时直接删除，摘要末尾列出对应的 Skill，模型需要时重新加载
@@ -321,11 +321,11 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 - 状态持久化：`~/.paicli/skills.json` 的 `disabled` 列表（默认全启用）和 `trustedProjectSkills` 信任记录
 - 与 HITL 协同：Skill 里调用 `execute_command` 等危险工具，仍走现有的 HITL 审批，沿用按 `execute_command` 工具设置的“全部放行”；不为 Skill 单独设审批
 
-设计意图：从「写工具」演进到「打包专家手册」。当工具堆成山（PaiCLI 当前内置 9 个 + MCP 60+ 工具），用 Skill 给 LLM 一份按场景展开的"专家手册"，比往 system prompt 里塞更多规则更容易扩展。
+设计意图：从「写工具」演进到「打包专家手册」。当工具堆成山（Hao CLI 当前内置 9 个 + MCP 60+ 工具），用 Skill 给 LLM 一份按场景展开的"专家手册"，比往 system prompt 里塞更多规则更容易扩展。
 
 ### Better Harness 原生审计
 
-PaiCLI 内置 `better-harness` Skill 和 `/better-harness` 命令，用于审查编码 Agent 外层工作流，而不只是最终代码 diff。实现基于 QoderAI Better Harness 的 Agent Work Loop 方法，并针对 PaiCLI 的 Java 运行时、`ConversationLedger`、`PAI.md`、Skill、MCP 与 HITL 资产做了原生适配，不依赖 Node。
+Hao CLI 内置 `better-harness` Skill 和 `/better-harness` 命令，用于审查编码 Agent 外层工作流，而不只是最终代码 diff。实现基于 QoderAI Better Harness 的 Agent Work Loop 方法，并针对 Hao CLI 的 Java 运行时、`ConversationLedger`、`PAI.md`、Skill、MCP 与 HITL 资产做了原生适配，不依赖 Node。
 
 - `/better-harness` 或 `/better-harness normal`：正常深度审查，生成持久化报告
 - `/better-harness quick`：缩小项目摘录和候选 finding 上限，快速建立基线
@@ -333,7 +333,7 @@ PaiCLI 内置 `better-harness` Skill 和 `/better-harness` 命令，用于审查
 - 三路证据保持独立：当前会话脱敏元数据、Project Harness、Agent Customize
 - 三路证据各由一个审查子任务（evidence specialist）并行处理，且不给它们工具；主审（lead）只根据这三份结果做最终定级和合并
 - 运行期间展示 5 个固定的工作步骤、三路审查的完成数、当前阶段、累计耗时和 ESC 取消提示，不用静态等待或估算进度冒充真实完成度
-- 终端报告统一经过 PaiCLI Markdown 渲染器，标题、强调、列表、表格和代码块按当前终端宽度显示，不直接打印 Markdown 源码标记
+- 终端报告统一经过 Hao CLI Markdown 渲染器，标题、强调、列表、表格和代码块按当前终端宽度显示，不直接打印 Markdown 源码标记
 - 默认不读取消息正文、reasoning、工具参数/结果、Memory 正文、用户目录资产或其他 provider
 - 持久化输出位于 `.paicli/better-harness/<run-id>/`：`report.md`、`report.html`、`findings.json`
 - 一次报告只能证明当前机制和观测证据，不能单独证明工作流已经因修复而改善；效果要靠之后可对比的 Task Episode 来证明
@@ -388,7 +388,7 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 
 | 形态 | 启用方式 | 视觉风格 |
 |---|---|---|
-| **inline 流式 TUI**（默认） | 直接运行 / `PAICLI_RENDERER=inline` | Claude Code / Qoder 风格：π 主题彩色开屏、主屏直出、对话记录（transcript）当前位置的 `* ` 输入提示、由 JLine `Status` 管理的底部状态栏（YOLO/HITL、MCP、Skill、model、ctx、token、cwd 等关键字段带少量彩色高亮；ctx 是当前上下文估算，in/out/cache 是调用统计）、右侧输入提示、行内可折叠工具块（`Read 3 files (ctrl+o to expand)`）、行内 git diff、HITL 单字符 `[y/n/a/s/m]` 提示 |
+| **inline 流式 TUI**（默认） | 直接运行 / `PAICLI_RENDERER=inline` | Claude Code / Qoder 风格：Hao CLI 开屏、主屏直出、对话记录（transcript）当前位置的 `* ` 输入提示、由 JLine `Status` 管理的底部状态栏（YOLO/HITL、MCP、Skill、model、ctx、token、cwd 等关键字段带少量彩色高亮；ctx 是当前上下文估算，in/out/cache 是调用统计）、右侧输入提示、行内可折叠工具块（`Read 3 files (ctrl+o to expand)`）、行内 git diff、HITL 单字符 `[y/n/a/s/m]` 提示 |
 | **lanterna 全屏 TUI** | `PAICLI_RENDERER=lanterna`（或兼容旧 `PAICLI_TUI=true`） | v16 三栏全屏：文件树 + 对话流 + 状态栏 + 底部输入栏，HITL 模态弹窗 |
 | **plain 备用形态** | `PAICLI_RENDERER=plain` | 纯 println，无折叠 / 状态栏，等价 v15 行为 |
 
@@ -459,12 +459,12 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 ### 第二十三期：微信 iLink 通道（文本 MVP）
 
 - 新增进程级入口：`paicli wechat setup`、`paicli wechat start`、`paicli wechat status`、`paicli wechat daemon start|stop|restart|status|logs`
-- 新增交互式入口：在 PaiCLI 主界面输入 `/wechat` 可扫码绑定并在当前进程后台启动微信通道；`/wechat setup` 重新扫码绑定，`/wechat status` 查看状态，`/wechat stop` 停止通道
+- 新增交互式入口：在 Hao CLI 主界面输入 `/wechat` 可扫码绑定并在当前进程后台启动微信通道；`/wechat setup` 重新扫码绑定，`/wechat status` 查看状态，`/wechat stop` 停止通道
 - 默认不开启微信通道；用户必须主动执行 `setup` 并扫码确认完成绑定
 - 支持在 Warp / iTerm2 / WezTerm 等兼容终端内直接显示 260px PNG 二维码；不支持终端图片协议时回退为字符二维码和链接
 - 微信侧使用 iLink `getupdates` 长轮询收消息、`sendmessage` 分片回消息，不依赖 SSE；这是独立通道，不是 Skill，也不是 Runtime API
 - 运行时只接受绑定用户私聊；普通消息单并发排队，`/help`、`/status`、`/pause`、`/resume`、`/stop` 走队列外控制路径
-- 微信侧用户消息会回显到 PaiCLI 终端的对话记录里；PaiCLI 终端继续显示 thinking / 工具调用过程，微信侧只接收 assistant 正文。iLink 协议层仍是 `text_item.text` 文本消息，没有显式的 Markdown 解析模式；PaiCLI 会保留 ClawBot 稳定支持的 Markdown 子集（列表、引用、粗体、行内代码、真实代码块），把标题转成粗体标题、把表格转成移动端更稳的键值/列表，并过滤图片 Markdown / H5-H6 / 中文斜体等兼容性差的标记；非代码类的围栏代码块（流程说明、长中文箭头链）会去掉围栏并换行，避免微信侧出现横向滚动代码块。iLink 不提供真正的 SSE，也不能修改已发出的单条消息。
+- 微信侧用户消息会回显到 Hao CLI 终端的对话记录里；Hao CLI 终端继续显示 thinking / 工具调用过程，微信侧只接收 assistant 正文。iLink 协议层仍是 `text_item.text` 文本消息，没有显式的 Markdown 解析模式；Hao CLI 会保留 ClawBot 稳定支持的 Markdown 子集（列表、引用、粗体、行内代码、真实代码块），把标题转成粗体标题、把表格转成移动端更稳的键值/列表，并过滤图片 Markdown / H5-H6 / 中文斜体等兼容性差的标记；非代码类的围栏代码块（流程说明、长中文箭头链）会去掉围栏并换行，避免微信侧出现横向滚动代码块。iLink 不提供真正的 SSE，也不能修改已发出的单条消息。
 - 微信通道使用非交互式默认拒绝策略：只读工具默认允许，`write_file` / `edit_file` / `create_project` 继续受 workspace PathGuard 限制，`execute_command` 必须精确命中命令白名单，`mcp__*` 必须命中 MCP 白名单，`revert_turn` 和浏览器会话切换默认拒绝
 - 当前文本 MVP 会保留图片 / 文件消息的媒体元数据提示，但 CDN 下载解密、图片块输入和 `/send` 文件推送，还要等后续补齐媒体处理流程
 
@@ -478,7 +478,7 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 - `write_file` / `edit_file` 写入后单文件 5MB 上限
 - CLI 命令：`/policy` 查看安全策略状态、`/audit [N]` 看最近 N 条审计
 
-**为什么不叫沙箱**：`com.paicli.policy` 这一层只做校验和审计，不提供进程隔离。进程隔离由可选的命令沙箱负责：`PAICLI_COMMAND_SANDBOX=auto` 时，`execute_command` 在 macOS 上用 Seatbelt（`sandbox-exec`），在 Linux 上用 bubblewrap（`bwrap`），两者共用一套策略：系统目录只读、用户 HOME 不可见、只有工作区可写、没有网络；检测不到沙箱或检测失败时，启动页给出提示，并改为直接执行。`PAICLI_COMMAND_SANDBOX=required` 时，沙箱不可用就拒绝执行命令。默认仍是 `off`：Claude Code 和 Codex 默认开沙箱、关网络，但 PaiCLI 的沙箱把 HOME 重定向到工作区内，`mvn test`（依赖 `~/.m2`）、`npm install`、`git push` 等常用命令会直接失败，所以目前需要手动开启。
+**为什么不叫沙箱**：`com.paicli.policy` 这一层只做校验和审计，不提供进程隔离。进程隔离由可选的命令沙箱负责：`PAICLI_COMMAND_SANDBOX=auto` 时，`execute_command` 在 macOS 上用 Seatbelt（`sandbox-exec`），在 Linux 上用 bubblewrap（`bwrap`），两者共用一套策略：系统目录只读、用户 HOME 不可见、只有工作区可写、没有网络；检测不到沙箱或检测失败时，启动页给出提示，并改为直接执行。`PAICLI_COMMAND_SANDBOX=required` 时，沙箱不可用就拒绝执行命令。默认仍是 `off`：Claude Code 和 Codex 默认开沙箱、关网络，但 Hao CLI 的沙箱把 HOME 重定向到工作区内，`mvn test`（依赖 `~/.m2`）、`npm install`、`git push` 等常用命令会直接失败，所以目前需要手动开启。
 
 ## 启动界面
 
@@ -487,7 +487,7 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 当前启动输出以命令行实际产物为准：
 
 ```text
-   ████████    PaiCLI π  v16.1.0
+   ████████    Hao CLI π  v16.1.0
      ██  ██    Model step-3.5-flash-2603 (step)
      ██  ██    MCP 4/4 · 61 tools · 2/2 skills · ReAct
      ██  ██    ReAct · Plan · MCP · Browser · Image
@@ -642,7 +642,7 @@ export AGNES_MODEL=agnes-2.0-flash
 export AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
 ```
 
-也可以在 PaiCLI 内用命令写入 `~/.paicli/config.json`，不会覆盖 Kimi 配置：
+也可以在 Hao CLI 内用命令写入 `~/.paicli/config.json`，不会覆盖 Kimi 配置：
 
 ```text
 /model deepseek-flash
@@ -655,7 +655,7 @@ export AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
 /model agnes
 ```
 
-长期记忆默认保存在用户目录下的 `~/.paicli/memory/long_term_memory.json`。ReAct / Plan / Team 各自的记忆实例和多个 PaiCLI 进程可以同时读写这个文件：每次写入都在进程内锁 + `long_term_memory.json.lock` 文件锁下先重读磁盘上的最新内容再修改，写入时先写临时文件、再原子改名保存；读取前会检测文件变化并刷新。文件解析失败时会另存为 `long_term_memory.json.corrupt-<时间戳>`，并保留内存中已有记忆，不会被空列表覆盖。
+长期记忆默认保存在用户目录下的 `~/.paicli/memory/long_term_memory.json`。ReAct / Plan / Team 各自的记忆实例和多个 Hao CLI 进程可以同时读写这个文件：每次写入都在进程内锁 + `long_term_memory.json.lock` 文件锁下先重读磁盘上的最新内容再修改，写入时先写临时文件、再原子改名保存；读取前会检测文件变化并刷新。文件解析失败时会另存为 `long_term_memory.json.corrupt-<时间戳>`，并保留内存中已有记忆，不会被空列表覆盖。
 交互式 CLI 默认在 ReAct、Plan、Team 的任务完成后，从用户实际提交的原文中自动挑选稳定偏好或项目事实；模型必须返回原文中的连续片段，最多 3 条。自动条目只存当前项目，标注“自动提取，待核实”，不会从工具输出、助手回复或压缩摘要提取，也不会覆盖冲突记忆。会话接触外部内容后默认停止自动提取。可用 `PAICLI_MEMORY_AUTO_EXTRACT_ENABLED=false` 关闭；嵌入式 Agent 默认关闭，需调用 `MemoryManager.setAutoFactExtractionEnabled(true)`。候选输入会多一次不带工具的模型调用。显式保存仍可用 `/save <事实>`，或用户明确说“记一下 / 记住 / 以后记得”时由 Agent 调用 `save_memory`；跨项目通用偏好可用 `/save --global <事实>` 或 `save_memory(scope=global)`。长期记忆不应包含一次性任务请求或临时文件名/目录名。
 重复记忆只会在相同 `type + scope + project` 域内合并：先规范化 Unicode 宽窄、大小写、空白和普通标点，再保守识别少量中文语法助词差异；用户显式重复保存等价内容会刷新已有条目的核实时间，自动提取重复内容则跳过且不刷新。数字、代码符号或实质内容不同的事实不会被去重合并。
 写入时另有冲突检测：同域内“只有数字/版本号不同”或字符二元组相似度 ≥ `PAICLI_MEMORY_CONFLICT_THRESHOLD`（默认 0.8）但又不是重复的条目，视为同一事实的新旧版本，新内容不会写入，`/save` 或 `save_memory` 的结果会同时列出两条，由用户选择：保留旧的（无需操作）、`/memory replace <id> <新事实>` 改用新的，或 `/save --force <事实>` 两条都保留。冲突检测基于字面相似度，不理解同义改写或语义矛盾。
@@ -707,7 +707,7 @@ PAICLI_LOG_TOTAL_SIZE_CAP=100MB
 双协议核心已完成（completed）。协议版本默认 `2025-03-26`；在单个 server 中加 `"protocolVersion": "2026-07-28"` 可启用现代协议，两种传输都支持。只允许这两个版本，不自动协商、不降级。现代模式先发 `server/discover`，没有 initialize/session/DELETE/ping 或资源订阅，暂不支持变化通知。MRTR-1 已完成 elicitation 表单/URL 交互；MRTR-2 已接通现代 tools/call、resources/read、prompts/get 的有限往返（最多 4 轮、每轮 8 项），新 id 重试并原样回传本轮 requestState，拒绝/取消也回传服务端。其他请求仍严格拒绝 input_required。MRTR-3 仅在这三种现代 MRTR 操作每次发送时查询当前 UI，按实际支持声明 elicitation.form/url，保留其他元数据和自定义能力；普通请求和通知不声明。Main 仅在 System.console() 非空时连接交互 handler，无法确认交互性的路径保持空能力；切换 UI 后下一次请求立即生效。MRTR-4 为 Lanterna 全屏 TUI 增加表单/URL 界面，仅在 GUI 已运行时声明对应能力；该实现已通过本轮 43 类/387 项完整离线回归，真实终端手工验收仍待执行。WeChat 和无人值守路径默认取消且不声明。不实现旧 sampling。配置见 [双协议说明](docs/specs/mcp-protocol-eras.md)，MRTR 进度见 [MRTR 约定](docs/specs/mcp-mrtr.md)。
 
 
-MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，PaiCLI 会自动创建默认 chrome-devtools 配置：
+MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，Hao CLI 会自动创建默认 chrome-devtools 配置：
 
 ```json
 {
@@ -747,7 +747,7 @@ MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，PaiCLI 会自动
 
 `command` 表示 stdio server，`url` 表示 Streamable HTTP server。`${PROJECT_DIR}` / `${HOME}` 是内置变量，其他 `${VAR}` 从环境变量读取；缺失会在启动时直接提示。
 
-stdio server 不会继承 PaiCLI 进程里的全部环境变量，只带过去 PATH、HOME、语言、临时目录、代理和证书这类运行必需的变量，免得你机器上的各家 API Key 被交给第三方 MCP 服务。server 需要某个 Key 时，在配置里显式写：
+stdio server 不会继承 Hao CLI 进程里的全部环境变量，只带过去 PATH、HOME、语言、临时目录、代理和证书这类运行必需的变量，免得你机器上的各家 API Key 被交给第三方 MCP 服务。server 需要某个 Key 时，在配置里显式写：
 
 ```json
 "github": {
@@ -759,7 +759,7 @@ stdio server 不会继承 PaiCLI 进程里的全部环境变量，只带过去 P
 
 项目内的 `.paicli/mcp.json` 会跟着仓库走，克隆别人的仓库时里面的命令不该直接执行。所以项目级 server 第一次启动前需要确认：启动时会提示哪些 server 还没确认，`/mcp` 会列出每个 server 要执行的命令（env 和 headers 只列名字），确认后输入 `/mcp trust <name>` 启动。确认记录保存在 `~/.paicli/mcp-trust.json`，仓库更新改了这个 server 的命令、参数、env、url 或 headers，就需要重新确认。
 
-`step_search` 是约定名称：如果项目 `.env`、用户 `~/.env` 或系统环境变量里存在 `STEP_API_KEY`，PaiCLI 会自动内置这个远程 MCP；上面的手写配置只用于覆盖默认地址或自定义鉴权。当前模型为 `step-3.7-flash*` 时，内置 `web_search` / `web_fetch` 会优先代理到该 MCP server。
+`step_search` 是约定名称：如果项目 `.env`、用户 `~/.env` 或系统环境变量里存在 `STEP_API_KEY`，Hao CLI 会自动内置这个远程 MCP；上面的手写配置只用于覆盖默认地址或自定义鉴权。当前模型为 `step-3.7-flash*` 时，内置 `web_search` / `web_fetch` 会优先代理到该 MCP server。
 
 需要复用当前登录态时，Chrome 144+ 推荐打开 `chrome://inspect/#remote-debugging` 并勾选 `Allow remote debugging for this browser instance`。旧版本或需要显式 CDP 端口时，可以启动带远程调试端口和独立 user-data-dir 的 Chrome，并在这个调试 Chrome 中完成登录：
 
@@ -774,7 +774,7 @@ start chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\paicli-chro
 google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-profile
 ```
 
-通常不需要用户预先切换；Agent 如果遇到登录页会自己调用 `browser_connect`。手工调试时也可以在 PaiCLI 内执行：
+通常不需要用户预先切换；Agent 如果遇到登录页会自己调用 `browser_connect`。手工调试时也可以在 Hao CLI 内执行：
 
 ```text
 /browser status
@@ -952,7 +952,7 @@ I
 - `mcp__{server}__{tool}` - MCP server 动态提供的外部工具
 - `mcp__{server}__list_resources` / `mcp__{server}__read_resource` - 支持 resources 的 MCP server 自动注册的虚拟工具
 
-同一轮模型返回多个工具调用时，PaiCLI 只并行执行只读工具；写文件、执行命令、MCP 等有副作用的调用按模型给出的顺序逐个执行。如果工具之间有数据依赖（例如需要先读结果再决定怎么改），模型仍应分多轮调用。`edit_file` 匹配 `old_text` 时先按字面量查找，找不到且文件使用 CRLF 换行时，会把 `old_text` / `new_text` 中的 `\n` 转成 `\r\n` 再匹配，替换后保留文件原有换行风格。
+同一轮模型返回多个工具调用时，Hao CLI 只并行执行只读工具；写文件、执行命令、MCP 等有副作用的调用按模型给出的顺序逐个执行。如果工具之间有数据依赖（例如需要先读结果再决定怎么改），模型仍应分多轮调用。`edit_file` 匹配 `old_text` 时先按字面量查找，找不到且文件使用 CRLF 换行时，会把 `old_text` / `new_text` 中的 `\n` 转成 `\r\n` 再匹配，替换后保留文件原有换行风格。
 
 文件类与代码检索工具（`read_file` / `write_file` / `edit_file` / `list_dir` / `glob_files` / `grep_code` / `create_project`）路径强制限定在项目根之内，越界请求会被策略层拒绝。`edit_file` 使用 `path`、`old_text`、`new_text` 参数，原文必须在已有文件中恰好出现一次；多处匹配时请补充上下文。编辑后的文件上限为 5MB，编辑操作与整文件写入一样触发 HITL、审计、diff 展示和编辑后诊断。`execute_command` 通过命令黑名单拦截 `sudo` / `rm -rf 全盘` / `mkfs` / `dd of=/dev` / fork bomb / `curl|sh` 等。`revert_turn` 会批量回写工作区，默认触发 HITL 和审计。所有 `mcp__` 前缀工具默认触发 HITL 和审计。详见 `/policy`。
 
@@ -969,8 +969,8 @@ I
 
 - `/wechat` - 扫码绑定并启动微信 iLink 通道；已绑定时直接启动
 - `/wechat setup` - 重新扫码绑定并启动微信通道
-- `/wechat status` - 查看当前 PaiCLI 进程内微信通道状态
-- `/wechat stop` - 停止当前 PaiCLI 进程内微信通道
+- `/wechat status` - 查看当前 Hao CLI 进程内微信通道状态
+- `/wechat stop` - 停止当前 Hao CLI 进程内微信通道
 - `/plan` - 下一条任务使用 Plan-and-Execute 模式
 - `/plan <任务>` - 直接用 Plan-and-Execute 模式执行这条任务
 - `/team` - 下一条任务使用 Multi-Agent 协作模式
@@ -1038,7 +1038,7 @@ I
 ### 第三期：当前运行效果
 
 ```text
-   ████████    PaiCLI π  v16.1.0
+   ████████    Hao CLI π  v16.1.0
      ██  ██    Model glm-5.1 (glm)
      ██  ██    MCP 4/4 · 61 tools · 2/2 skills · ReAct
      ██  ██    ReAct · Plan · MCP · Browser · Image
