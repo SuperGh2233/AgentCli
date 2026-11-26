@@ -1,6 +1,6 @@
 # Hao CLI 后续路线：可嵌入的 Agent 运行时
 
-状态：已和用户逐条确认（2026-11-26），P0 未开始 · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
+状态：已和用户逐条确认（2026-11-26）；P0 除品牌 R0（等用户合并 PR #2）外已完成，下一步甲阶段 · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
 
 依据：用户提供的《Hao CLI 产品与架构演进实施计划》（docx，2026-11-26，未放进仓库）。本计划采纳它的定位、原则、非目标和评测纪律，按仓库实际情况调整了阶段顺序和范围，差异见文末“和原文档的差异”。
 
@@ -67,7 +67,7 @@
 4. 品牌 R0：审查 GitHub draft PR #2（只改 README 和 pom 的显示名），由用户合并
 5. 验收：公共结束条件 + Steering 自动化测试（`AGENTS.md` 验证命令表 Steering 那一行）全过
 
-#### P0 进展（2026-11-26，代码已提交、等用户本机运行）
+#### P0 进展（2026-11-26，已完成：`0396dcf` 第 13 轮用户本机编译通过，quick 1797 通过 / 0 失败 / 5 跳过，见 `docs/reviews/2026-11-26-macos-test-round13.md`；品牌 R0 等用户合并 PR #2）
 
 - 第 1 项完成：分支 `feat/harness-runtime`，`9ff2461` 是第 11、12 轮改动（和第 12 轮报告测的内容一致：混在一起的 5 个代码文件按 P0 改动逐处还原后单独暂存），`4fabe82` 是本计划和 3 份 ADR
 - 第 2 项：`RuntimeApiServer` 记下本轮的 `TurnFinished`，按上表发结束事件；runner 不发事件（比如测试里的 lambda）时按 completed 处理。`AgentEventJson.status` 改成 public
@@ -79,7 +79,14 @@
 - 测试：新增 `RunLimitsTest`（4 个）；`AgentBudgetTest` +2（时间上限用假时钟、上限只收紧不放宽）；`HeadlessOptionsTest` +2（参数优先于环境变量、非法和重复参数报错）；`HeadlessRunnerTest` +1（`--max-turns 1` → `partial`、退出码 3、收尾请求不带工具）；`RuntimeApiServerTest` +1（模型失败只收到 `turn.failed`，没有 `message.delta` 和 `turn.completed`）
 - 文档：`docs/specs/headless-mode.md` 新增“上限”一节，`docs/phase-20-runtime-api.md` 写结束事件规则，`README.md`、`.env.example`
 
-用户本机要做的事（JDK 21；新增了类，要 clean）：
+第 13 轮报告的跟进（另一个提交）：
+- 实机确认失败轮次只发 `turn.failed`；非法参数和环境变量都以退出码 2 报错；harness 11 个场景结果和上轮一致
+- 报告说“`--max-turns 1` 到 partial 的端到端没有用例”：其实有，`HeadlessRunnerTest.maxTurnsStopsToolUseAndReportsPartialWithExitCodeThree`（该类第 13 轮是 9 个用例）
+- 报告提醒“时间上限不是硬墙钟”“Plan / Team 不受上限约束”：在 `RunLimits` 注释和 `docs/specs/headless-mode.md` 里写明；工具自己有超时（命令 60 秒、一批 90 秒），最坏是上限再加一次请求和一批工具
+- 补了“交互命令行默认不限”的用例（`RunLimitsTest.interactiveAgentStartsUnlimitedUntilACallerSetsLimits`）
+- 成功路径的 `agent_status` 只有假模型覆盖；报告提出可以用真实模型跑一次几十 Token 的小任务确认，属于调用真实模型，等用户决定
+
+当时用户本机要做的事（JDK 21；新增了类，要 clean）：
 
 ```bash
 git rev-parse --short HEAD        # 报告第一行写这个提交号

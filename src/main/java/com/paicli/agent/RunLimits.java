@@ -10,7 +10,13 @@ import java.util.function.Function;
  *
  * <p>交互命令行有人看着，默认 {@link #UNLIMITED}；无人值守入口（{@code -p}、Runtime API、后台任务）
  * 默认用 {@link #unattended(Function)}：50 次请求、200 万 Token、30 分钟，环境变量可以改。
- * 时间在每次模型请求之前检查，正在进行的单次请求或工具不会被打断。
+ *
+ * <p>时间不是硬墙钟：它在每次模型请求之前检查，正在进行的那次请求或那批工具不会被打断。工具自己有超时
+ * （单条命令默认 60 秒、一批工具 90 秒），所以最坏情况是上限再加一次模型请求和一批工具的时间。
+ *
+ * <p>只接到 ReAct 内核（{@link Agent#setRunLimits} → {@code AgentLoop}）。Plan、Team 还用旧的
+ * {@code AgentBudget.fromSystemProperties()}，不受这里约束；目前无人值守入口都只走 ReAct，
+ * Plan / Team 迁进内核后（路线丙阶段）自动覆盖。
  *
  * @param timeout null 表示不限时间
  */

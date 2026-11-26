@@ -1,7 +1,11 @@
 package com.paicli.agent;
 
+import com.paicli.testing.ScriptedLlmClient;
+import com.paicli.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 
@@ -45,6 +49,19 @@ class RunLimitsTest {
         for (String bad : new String[]{"", "0", "-5", "abc", "10d", "m"}) {
             assertThrows(IllegalArgumentException.class, () -> RunLimits.parseDuration(bad, "--timeout"), bad);
         }
+    }
+
+    @Test
+    void interactiveAgentStartsUnlimitedUntilACallerSetsLimits(@TempDir Path projectDir) {
+        ToolRegistry registry = new ToolRegistry();
+        registry.setProjectPath(projectDir.toString());
+        Agent agent = new Agent(ScriptedLlmClient.of(), registry);
+
+        assertEquals(RunLimits.UNLIMITED, agent.runLimits(), "交互命令行有人看着，默认不能有上限");
+        agent.setRunLimits(RunLimits.unattended(key -> null));
+        assertEquals(50, agent.runLimits().maxModelRequests());
+        agent.setRunLimits(null);
+        assertEquals(RunLimits.UNLIMITED, agent.runLimits());
     }
 
     @Test

@@ -146,6 +146,10 @@ public class Agent {
         this.runLimits = limits == null ? RunLimits.UNLIMITED : limits;
     }
 
+    RunLimits runLimits() {
+        return runLimits;
+    }
+
     /**
      * 注入 HITL 启用状态的快照源，用于状态栏 / StatusInfo 显示。
      * Main 启动后用 {@code reactAgent.setHitlEnabledSupplier(hitlHandler::isEnabled)} 接进来。
