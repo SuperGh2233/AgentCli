@@ -215,15 +215,30 @@ public class Agent {
                 userInput,
                 Path.of(toolRegistry.getProjectPath())), "user_input");
 
+        // 终端和外部订阅者（无界面模式、Runtime API）看的是同一串事件；终端先画，订阅者后收。
+        TerminalEventRenderer terminal = new TerminalEventRenderer(renderer(), this::pushStatus);
+        com.paicli.agent.event.AgentEventListener external = eventListener;
         AgentLoop.Turn turn = new AgentLoop.Turn(
                 llmClient,
                 turnToolPolicy,
                 steeringSafePoint,
-                new ReActStreamRenderer(renderer()),
-                new ReActHost(submittedUserInput),
+                new ReActHost(submittedUserInput, terminal),
                 () -> memoryManager.getContextProfile().compressionTriggerTokens(),
-                eventListener);
+                event -> {
+                    deliver(terminal, event);
+                    deliver(external, event);
+                });
         return loop.run(turn).text();
+    }
+
+    /** 一个订阅者出错不能影响另一个，也不能打断任务。 */
+    private static void deliver(com.paicli.agent.event.AgentEventListener listener,
+                                com.paicli.agent.event.AgentEvent event) {
+        try {
+            listener.onEvent(event);
+        } catch (RuntimeException e) {
+            log.warn("Agent event listener failed on {}", event.getClass().getSimpleName(), e);
+        }
     }
 
     /**
@@ -559,32 +574,27 @@ public class Agent {
         return toolRegistry;
     }
 
-    /** 把当前预算/耗时/HITL 状态推送给 renderer 状态栏。 */
-    private void pushStatus(AgentBudget budget, long startNanos, String phase) {
+    /** 把本轮累计 Token、耗时、HITL 状态推送给 renderer 状态栏（数字来自 Agent 事件）。 */
+    private void pushStatus(long inputTokens, long outputTokens, long cachedInputTokens, long elapsedMs,
+                            String phase) {
         try {
             String model = llmClient == null ? "—" : com.paicli.llm.ModelCatalog.statusName(llmClient.getProviderName(), llmClient.getModelName());
-            long totalTokens = budget == null ? 0L
-                    : (long) (budget.totalInputTokens() + budget.totalOutputTokens());
             long contextWindow = llmClient == null ? 0L : llmClient.maxContextWindow();
             boolean hitl = Boolean.TRUE.equals(hitlEnabledSupplier.get());
-            long elapsed = (System.nanoTime() - startNanos) / 1_000_000L;
-            String cost = budget == null ? null : TokenUsageFormatter.estimatedCostCny(
-                    llmClient,
-                    budget.totalInputTokens(),
-                    budget.totalOutputTokens(),
-                    budget.totalCachedInputTokens());
+            String cost = TokenUsageFormatter.estimatedCostCny(
+                    llmClient, (int) inputTokens, (int) outputTokens, (int) cachedInputTokens);
             renderer().updateStatus(StatusInfo.tokens(
                     model,
                     contextWindow,
                     estimateCurrentContextTokens(),
-                    budget == null ? 0L : budget.totalInputTokens(),
-                    budget == null ? 0L : budget.totalOutputTokens(),
-                    budget == null ? 0L : budget.totalCachedInputTokens(),
+                    inputTokens,
+                    outputTokens,
+                    cachedInputTokens,
                     cost,
                     hitl,
-                    elapsed,
+                    elapsedMs,
                     phase == null || phase.isBlank()
-                            ? (totalTokens > 0 || elapsed > 0 ? "running" : "idle")
+                            ? (inputTokens + outputTokens > 0 || elapsedMs > 0 ? "running" : "idle")
                             : phase).withSessionMode(sessionModeSupplier.get()));
         } catch (Exception e) {
             log.debug("status push failed", e);
@@ -604,27 +614,19 @@ public class Agent {
         return "🧠 思考过程:\n" + normalizedReasoning + "\n\n▪ " + normalizedAnswer;
     }
 
-    /** 内核需要的显示和收尾动作，全部落到当前 Renderer 和记忆管理器上。 */
+    /** 内核需要的收尾动作（显示走事件，由 {@link TerminalEventRenderer} 负责）。 */
     private final class ReActHost implements AgentLoop.Host {
         private final String submittedUserInput;
+        private final TerminalEventRenderer terminal;
 
-        private ReActHost(String submittedUserInput) {
+        private ReActHost(String submittedUserInput, TerminalEventRenderer terminal) {
             this.submittedUserInput = submittedUserInput;
+            this.terminal = terminal;
         }
 
         @Override
-        public void printLine(String line) {
-            renderer().stream().println(line);
-        }
-
-        @Override
-        public void showToolCalls(List<LlmClient.ToolCall> visibleCalls) {
-            renderer().appendToolCalls(visibleCalls);
-        }
-
-        @Override
-        public void pushStatus(AgentBudget budget, long startNanos, String phase) {
-            Agent.this.pushStatus(budget, startNanos, phase);
+        public boolean answerStreamed() {
+            return terminal.hasStreamedOutput();
         }
 
         @Override

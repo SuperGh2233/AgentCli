@@ -14,30 +14,34 @@ final class ToolResultSummaries {
 
     /** 需要显示时返回已带样式的一行，不需要显示时返回 null。 */
     static String displayLine(ToolExecutionResult result) {
-        if (result == null || result.name() == null) {
+        return result == null ? null : displayLine(result.name(), result.argumentsJson(), result.result());
+    }
+
+    /** 终端从工具事件里拿到的是名字、参数原文和结果文字，和上面那个入口算法相同。 */
+    static String displayLine(String name, String argumentsJson, String result) {
+        if (name == null) {
             return null;
         }
-        String resultText = result.result() == null ? "" : result.result();
+        String resultText = result == null ? "" : result;
         if (resultText.startsWith("🛡️ 工具调用已拒绝")) {
             return AnsiStyle.subtle("  → " + resultText);
         }
-        String summary = switch (result.name()) {
-            case "web_search" -> webSearchSummary(result);
-            case "web_fetch" -> webFetchSummary(result);
+        String summary = switch (name) {
+            case "web_search" -> webSearchSummary(argumentsJson, resultText);
+            case "web_fetch" -> webFetchSummary(argumentsJson, resultText);
             default -> "";
         };
         return summary.isBlank() ? null : AnsiStyle.subtle("  → " + summary);
     }
 
-    private static String webSearchSummary(ToolExecutionResult result) {
-        String text = result.result() == null ? "" : result.result();
+    private static String webSearchSummary(String argumentsJson, String text) {
         boolean stepSearch = isStepSearchResult(text);
         if (text.startsWith("搜索失败") || text.startsWith("⚠️") || text.startsWith("🛡️")
                 || text.contains("未找到相关结果")) {
             return compactOneLine(text, 120);
         }
         long count = text.lines().filter(line -> line.matches("^\\d+\\.\\s+.*")).count();
-        String query = extractJsonArg(result.argumentsJson(), "query");
+        String query = extractJsonArg(argumentsJson, "query");
         String label = query.isBlank() ? "搜索结果" : "搜索 \"" + query + "\"";
         if (stepSearch) {
             label = "StepSearch · " + label;
@@ -47,10 +51,9 @@ final class ToolResultSummaries {
                 : label + " 已返回结果";
     }
 
-    private static String webFetchSummary(ToolExecutionResult result) {
-        String text = result.result() == null ? "" : result.result();
+    private static String webFetchSummary(String argumentsJson, String text) {
         boolean stepSearch = isStepSearchResult(text);
-        String url = extractJsonArg(result.argumentsJson(), "url");
+        String url = extractJsonArg(argumentsJson, "url");
         String target = url.isBlank() ? "页面" : compactOneLine(url.replaceFirst("^https?://", ""), 80);
         String verb = stepSearch ? "StepSearch · 抓取 " : "抓取 ";
         if (text.startsWith("抓取失败") || text.startsWith("❌") || text.startsWith("🛡️")) {

@@ -438,6 +438,7 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 - Worker Pool 默认 2 个后台 worker，可通过 `PAICLI_TASK_WORKERS` 调整
 - `java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080` 启动 localhost Runtime API
 - Runtime API 端点：`POST /v1/threads`、`POST /v1/threads/{id}/turns`、`GET /v1/threads/{id}/events`
+- 事件流里除了整段回答，还有 Agent 执行过程的 `agent.*` 事件（思考、正文增量、工具调用和结果、用量、本轮结束状态），格式和 `-p --output-format stream-json` 的每一行相同
 - Runtime API 强制要求 `PAICLI_RUNTIME_API_KEY` 或 `-Dpaicli.runtime.api.key`
 - Runtime API 和后台任务没人确认，工具按和 `-p` 相同的白名单放行：默认只读、不执行命令。`serve` 可加 `--permission-mode edit` 允许写文件、`--allow-command "精确命令"`（可重复）放行命令；后台任务用 `PAICLI_TASK_PERMISSION_MODE=edit` 允许写文件（后台任务不执行命令）。2026-11-26 之前这两条路径没有任何审批和白名单
 - 详细文档见 `docs/phase-20-runtime-api.md`

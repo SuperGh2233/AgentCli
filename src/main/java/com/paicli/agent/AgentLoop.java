@@ -36,9 +36,9 @@ import java.util.function.IntSupplier;
  * 预算检查和超预算收尾、Steering 安全点、工具执行（统一走 {@code TurnToolPolicy.execute}）、
  * 工具结果加不可信标记、Skill 正文注入、重复调用提醒。
  *
- * <p>内核不直接碰终端：显示通过 {@link Display}（流式文字）和 {@link Host}（其他提示、状态栏、
- * 最终回复的格式）交给调用方；同时把同样的过程发成 {@link AgentEvent}，无界面模式等前端只消费事件。
- * 交互终端暂时还走 Display / Host（显示细节多，下一步再迁到事件）；第 5 阶段 Plan 和子 Agent 也改为调用这个内核。
+ * <p>内核不碰终端：执行过程只发成 {@link AgentEvent}，交互终端（{@link TerminalEventRenderer}）、
+ * 无界面模式、Runtime API 都只消费事件。{@link Host} 只剩不属于显示的收尾动作（返回文字的格式、
+ * 记录 Token、自动提取记忆）和一个问题：回答是不是已经流式显示过。第 5 阶段 Plan 和子 Agent 也改为调用这个内核。
  */
 final class AgentLoop {
 
@@ -53,28 +53,13 @@ final class AgentLoop {
     static final String TRUNCATED_ANSWER_NOTICE =
             "  ⚠ 回答达到了模型输出长度上限，后面的内容被截断；可以让它“继续”";
 
-    /** 流式显示：接收思考 / 正文增量，并在请求之间、结束时收尾。 */
-    interface Display extends LlmClient.StreamListener {
-        void beginThinking();
-
-        void resetBetweenIterations();
-
-        void finish();
-
-        void clearThinkingPanel();
-
-        boolean hasStreamedOutput();
-    }
-
-    /** 调用方提供的显示和收尾动作。 */
+    /** 调用方提供的收尾动作（显示全部走事件，不在这里）。 */
     interface Host {
-        /** 打印一行已带样式的提示。 */
-        void printLine(String line);
-
-        /** 显示模型这次请求的工具调用（已按本轮策略过滤）。 */
-        void showToolCalls(List<LlmClient.ToolCall> visibleCalls);
-
-        void pushStatus(AgentBudget budget, long startNanos, String phase);
+        /**
+         * 前端是否已经把这轮的输出流式显示给用户了。是的话返回值里不再重复回答，
+         * 回答末尾的提示也改成单独的 {@link AgentEvent.Notice}；否则提示拼进返回文字。
+         */
+        boolean answerStreamed();
 
         /** 没有流式输出时，把思考过程和回答拼成给用户看的文字。 */
         String formatAnswer(String reasoningTranscript, String answer);
@@ -112,19 +97,18 @@ final class AgentLoop {
 
     /** 一轮用户输入需要的东西。steering 为 null 表示没开执行中动态指令。 */
     record Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
-                Display display, Host host, IntSupplier compressionTriggerTokens, AgentEventListener events) {
+                Host host, IntSupplier compressionTriggerTokens, AgentEventListener events) {
         Turn {
             Objects.requireNonNull(llm, "llm");
             Objects.requireNonNull(toolPolicy, "toolPolicy");
-            Objects.requireNonNull(display, "display");
             Objects.requireNonNull(host, "host");
             Objects.requireNonNull(compressionTriggerTokens, "compressionTriggerTokens");
             events = events == null ? AgentEventListener.NONE : events;
         }
 
         Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
-             Display display, Host host, IntSupplier compressionTriggerTokens) {
-            this(llm, toolPolicy, steering, display, host, compressionTriggerTokens, AgentEventListener.NONE);
+             Host host, IntSupplier compressionTriggerTokens) {
+            this(llm, toolPolicy, steering, host, compressionTriggerTokens, AgentEventListener.NONE);
         }
     }
 
@@ -145,7 +129,7 @@ final class AgentLoop {
         AgentBudget budget = AgentBudget.fromSystemProperties();
         modelRequests = 0;
         emit(turn, new AgentEvent.TurnStarted(turnId));
-        Result result = runLoop(turn, budget, startNanos);
+        Result result = runLoop(turn, budget);
         emit(turn, new AgentEvent.TurnFinished(
                 turnId,
                 AgentEvent.TurnStatus.valueOf(result.status().name()),
@@ -158,23 +142,20 @@ final class AgentLoop {
         return result;
     }
 
-    private Result runLoop(Turn turn, AgentBudget budget, long startNanos) {
+    private Result runLoop(Turn turn, AgentBudget budget) {
         Host host = turn.host();
-        Display display = turn.display();
         LlmClient llm = turn.llm();
         StringBuilder reasoningTranscript = new StringBuilder();
 
         RunawayGuard runawayGuard = new RunawayGuard();
         ResourceFailureObserver resourceFailureObserver =
                 new ResourceFailureObserver(Path.of(toolRegistry.getProjectPath()));
-        host.pushStatus(budget, startNanos, "running");
 
         // 主退出条件 = 模型自己决定（不再调用工具就返回）；
         // 预算只在显式 Token / 硬轮数上限命中或检测到停滞时兜底，默认不限制轮数。
         while (true) {
             if (CancellationContext.isCancelled()) {
                 log.info("ReAct run cancelled before iteration");
-                host.pushStatus(budget, startNanos, "idle");
                 return cancelled();
             }
             // 调模型前只评估真正发送的对话；不复制影子短期记忆。
@@ -182,7 +163,7 @@ final class AgentLoop {
             compactIfNeeded(turn);
             AgentBudget.ExitReason exitReason = budget.check();
             if (exitReason != AgentBudget.ExitReason.WITHIN_BUDGET) {
-                return finalizePartialResult(turn, exitReason, budget, startNanos, reasoningTranscript);
+                return finalizePartialResult(turn, exitReason, budget, reasoningTranscript);
             }
 
             int iteration = budget.beginIteration();
@@ -194,11 +175,9 @@ final class AgentLoop {
                 TurnToolPolicy.ToolExposure toolExposure = turn.toolPolicy().expose(toolDefinitions);
                 RequestContextLogger.log(log, "react iteration=" + iteration,
                         conversation.messages(), toolExposure.definitions());
-                display.beginThinking();
+                emit(turn, new AgentEvent.ModelRequestStarted());
                 Optional<ModelReply> requested = chatWithSteering(turn, toolExposure.definitions());
                 if (requested.isEmpty()) {
-                    display.finish();
-                    host.pushStatus(budget, startNanos, "idle");
                     return cancelled();
                 }
                 ModelReply reply = requested.orElseThrow();
@@ -206,8 +185,6 @@ final class AgentLoop {
                 LlmTraceLogger.logReasoning(log, "react iteration=" + iteration, llm, response.reasoningContent());
                 if (CancellationContext.isCancelled()) {
                     log.info("ReAct run cancelled after LLM response");
-                    display.finish();
-                    host.pushStatus(budget, startNanos, "idle");
                     return cancelled();
                 }
 
@@ -227,14 +204,12 @@ final class AgentLoop {
                             response.content(),
                             response.toolCalls()
                     ), "llm_response");
-                    display.resetBetweenIterations();
                     notice(turn, AnsiStyle.subtle("  ⚠ 模型输出达到长度上限，工具调用参数不完整，已跳过执行并让模型重试"));
                     for (LlmClient.ToolCall call : response.toolCalls()) {
                         conversation.append(LlmClient.Message.tool(call.id(), TRUNCATED_TOOL_CALL_RESULT),
                                 "tool_call_truncated");
                         emit(turn, new AgentEvent.ToolCallSkipped(call.id(), toolName(call), "output_truncated"));
                     }
-                    host.pushStatus(budget, startNanos, "running");
                     continue;
                 }
 
@@ -248,14 +223,10 @@ final class AgentLoop {
                             response.toolCalls()
                     ), "llm_response");
 
-                    // 工具执行前先收尾本轮流式显示，避免 Markdown 渲染器里按行缓冲的文字被
-                    // 审批提示“跨过”造成错位。下一轮的思考 / 正文会重新打印标题。
-                    display.resetBetweenIterations();
-                    host.showToolCalls(turn.toolPolicy().visibleToolCalls(response.toolCalls(), toolExposure));
-                    for (LlmClient.ToolCall call : response.toolCalls()) {
-                        emit(turn, new AgentEvent.ToolCallStarted(call.id(), toolName(call),
-                                call.function() == null ? "" : call.function().arguments()));
-                    }
+                    // 工具执行前整批发完开始事件：终端收到第一条就收尾本轮流式显示（避免按行缓冲的文字
+                    // 被审批提示“跨过”造成错位），收到最后一条时把放行的调用按工具名分组显示。
+                    emitToolCallsStarted(turn, response.toolCalls(),
+                            turn.toolPolicy().visibleToolCalls(response.toolCalls(), toolExposure));
 
                     List<ToolExecutionResult> executedResults =
                             executeToolCalls(turn, response.toolCalls(), iteration, toolExposure);
@@ -285,7 +256,6 @@ final class AgentLoop {
                         conversation.append(LlmClient.Message.user(reminder), "runaway_reminder");
                         notice(turn, AnsiStyle.subtle("  ↻ 检测到重复的工具调用，已提醒模型换个思路"));
                     });
-                    host.pushStatus(budget, startNanos, "running");
                     continue;
                 }
 
@@ -301,21 +271,16 @@ final class AgentLoop {
                 if (activeSteering != null) {
                     ReActSteeringSafePoint.FinalizationDecision finalization = activeSteering.finalizeOrContinue();
                     if (finalization == ReActSteeringSafePoint.FinalizationDecision.CANCELLED) {
-                        display.finish();
-                        host.pushStatus(budget, startNanos, "idle");
                         return cancelled();
                     }
                     if (finalization == ReActSteeringSafePoint.FinalizationDecision.CONTINUE) {
-                        // 这条回复已写入对话；先收尾流式显示，再带着新输入开始下一次请求。
-                        display.resetBetweenIterations();
-                        host.pushStatus(budget, startNanos, "running");
+                        // 这条回复已写入对话；带着新输入开始下一次请求（终端在下一个事件到来时收尾流式显示）。
                         continue;
                     }
                 }
 
                 host.recordTokenUsage(budget);
                 host.afterFinalAnswer();
-                host.pushStatus(budget, startNanos, "idle");
                 log.info("ReAct run finished: inputTokens={}, outputTokens={}, reasoningChars={}, answerChars={}",
                         budget.totalInputTokens(),
                         budget.totalOutputTokens(),
@@ -328,8 +293,8 @@ final class AgentLoop {
                 boolean unexecutedToolCall = llm.looksLikeUnexecutedToolCall(response.content());
                 boolean truncatedAnswer = reply.stopReason() == StopReason.MAX_TOKENS;
                 String content = response.content() == null ? "" : response.content().trim();
-                if (display.hasStreamedOutput()) {
-                    display.finish();
+                if (host.answerStreamed()) {
+                    // 回答已经流式显示：提示单独发出，终端收到时先收尾流式显示再打印。
                     if (unexecutedToolCall) {
                         notice(turn, AnsiStyle.subtle(Agent.UNEXECUTED_TOOL_CALL_NOTICE));
                     }
@@ -339,14 +304,13 @@ final class AgentLoop {
                     if (activeSteering != null) activeSteering.completeTurn();
                     return new Result(Status.COMPLETED, host.returnFinalResponseWhenStreamed() ? content : "", content);
                 }
-                // 没有流式输出时提示拼在返回文字里，这里只发事件，不再打印。
+                // 没有流式输出时提示拼在返回文字里，事件标成 attachedToAnswer，终端不再单独打印。
                 if (unexecutedToolCall) {
-                    emitNotice(turn, Agent.UNEXECUTED_TOOL_CALL_NOTICE);
+                    emitAttachedNotice(turn, Agent.UNEXECUTED_TOOL_CALL_NOTICE);
                 }
                 if (truncatedAnswer) {
-                    emitNotice(turn, TRUNCATED_ANSWER_NOTICE);
+                    emitAttachedNotice(turn, TRUNCATED_ANSWER_NOTICE);
                 }
-                display.clearThinkingPanel();
                 String answer = host.formatAnswer(reasoningTranscript.toString(), response.content());
                 if (unexecutedToolCall) {
                     answer = answer + "\n\n" + Agent.UNEXECUTED_TOOL_CALL_NOTICE;
@@ -359,7 +323,6 @@ final class AgentLoop {
 
             } catch (IOException e) {
                 log.error("LLM call failed in ReAct loop", e);
-                display.finish();
                 String failure = "❌ 调用 LLM 失败: " + e.getMessage();
                 return new Result(Status.FAILED, failure, failure);
             }
@@ -397,18 +360,15 @@ final class AgentLoop {
 
     /**
      * 经过新的模型层发请求：对话和工具定义原样交给原 Client（发给供应商的内容不变），
-     * 流式增量转给显示，同时拿到停止原因。
+     * 流式增量发成事件，同时拿到停止原因。
      */
     private ModelReply requestModel(Turn turn, List<LlmClient.Message> messages, List<LlmClient.Tool> tools)
             throws IOException {
-        Display display = turn.display();
         modelRequests++;
         LegacyModelClient.Exchange exchange = new LegacyModelClient(turn.llm()).exchange(messages, tools, event -> {
             if (event instanceof StreamEvent.ReasoningDelta reasoning) {
-                display.onReasoningDelta(reasoning.text());
                 emit(turn, new AgentEvent.ReasoningDelta(reasoning.text()));
             } else if (event instanceof StreamEvent.TextDelta text) {
-                display.onContentDelta(text.text());
                 emit(turn, new AgentEvent.TextDelta(text.text()));
             }
         });
@@ -420,9 +380,8 @@ final class AgentLoop {
      * 这次调用不重新进入循环，也不暴露任何工具。
      */
     private Result finalizePartialResult(Turn turn, AgentBudget.ExitReason exitReason, AgentBudget budget,
-                                         long startNanos, StringBuilder reasoningTranscript) {
+                                         StringBuilder reasoningTranscript) {
         Host host = turn.host();
-        Display display = turn.display();
         String description = budget.describeExit(exitReason);
         log.warn("ReAct run exhausted budget: reason={}, iteration={}, tokens={}/{}",
                 exitReason, budget.iteration(),
@@ -435,11 +394,9 @@ final class AgentLoop {
 
         try {
             while (true) {
-                display.beginThinking();
+                emit(turn, new AgentEvent.ModelRequestStarted());
                 Optional<ModelReply> requested = chatWithSteering(turn, List.of());
                 if (requested.isEmpty()) {
-                    display.finish();
-                    host.pushStatus(budget, startNanos, "idle");
                     return cancelled();
                 }
                 LlmClient.ChatResponse response = requested.orElseThrow().response();
@@ -452,8 +409,6 @@ final class AgentLoop {
                 if (activeSteering != null) {
                     ReActSteeringSafePoint.FinalizationDecision decision = activeSteering.finalizeOrContinue();
                     if (decision == ReActSteeringSafePoint.FinalizationDecision.CANCELLED) {
-                        display.finish();
-                        host.pushStatus(budget, startNanos, "idle");
                         return cancelled();
                     }
                     if (decision == ReActSteeringSafePoint.FinalizationDecision.CONTINUE) {
@@ -462,7 +417,6 @@ final class AgentLoop {
                         conversation.append(
                                 LlmClient.Message.assistant(responseContent),
                                 "budget_finalization_intermediate_response");
-                        display.resetBetweenIterations();
                         continue;
                     }
                     activeSteering.completeTurn();
@@ -473,21 +427,16 @@ final class AgentLoop {
                         LlmClient.Message.assistant(response.reasoningContent(), partialResult),
                         "budget_finalization_response");
                 host.recordTokenUsage(budget);
-                host.pushStatus(budget, startNanos, "idle");
 
-                if (display.hasStreamedOutput()) {
-                    display.finish();
+                if (host.answerStreamed()) {
                     return new Result(Status.PARTIAL, host.returnFinalResponseWhenStreamed() ? partialResult : "",
                             partialResult);
                 }
-                display.clearThinkingPanel();
                 return new Result(Status.PARTIAL, host.formatAnswer(reasoningTranscript.toString(), partialResult),
                         partialResult);
             }
         } catch (IOException e) {
             log.error("LLM finalization call failed after ReAct budget exhaustion", e);
-            display.finish();
-            host.pushStatus(budget, startNanos, "idle");
             String partial = formatPartialResult(description, "收尾调用失败：" + e.getMessage());
             return new Result(Status.PARTIAL, partial, partial);
         }
@@ -514,10 +463,6 @@ final class AgentLoop {
                 : turn.toolPolicy().execute(toolRegistry, invocations, toolExposure, activeSteering::toolStartRejection);
         for (ToolExecutionResult result : results) {
             log.debug("Tool result preview [{}]: {}", result.name(), preview(result.result(), 300));
-            String line = ToolResultSummaries.displayLine(result);
-            if (line != null) {
-                turn.host().printLine(line);
-            }
         }
         return results;
     }
@@ -570,16 +515,34 @@ final class AgentLoop {
         return new Result(Status.CANCELLED, CANCELLED_MESSAGE, CANCELLED_MESSAGE);
     }
 
-    /** 打印一行提示，同时发一条不带颜色的 Notice 事件。 */
+    /** 发一条提示：text 去掉颜色代码，终端按 styledText 原样打印。 */
     private static void notice(Turn turn, String styledLine) {
-        turn.host().printLine(styledLine);
-        emitNotice(turn, styledLine);
+        emitNotice(turn, styledLine, false);
     }
 
-    private static void emitNotice(Turn turn, String text) {
-        String plain = text == null ? "" : ANSI_ESCAPE.matcher(text).replaceAll("").trim();
+    /** 已经拼进返回文字的提示，只发事件（给无界面模式等），终端不再打印。 */
+    private static void emitAttachedNotice(Turn turn, String text) {
+        emitNotice(turn, text, true);
+    }
+
+    private static void emitNotice(Turn turn, String styledLine, boolean attachedToAnswer) {
+        String plain = styledLine == null ? "" : ANSI_ESCAPE.matcher(styledLine).replaceAll("").trim();
         if (!plain.isEmpty()) {
-            emit(turn, new AgentEvent.Notice(plain));
+            emit(turn, new AgentEvent.Notice(plain, styledLine, attachedToAnswer));
+        }
+    }
+
+    /** 每个调用一条开始事件；visibleCalls 是本轮策略放行的那部分（同一批对象）。 */
+    private static void emitToolCallsStarted(Turn turn, List<LlmClient.ToolCall> calls,
+                                             List<LlmClient.ToolCall> visibleCalls) {
+        java.util.Set<LlmClient.ToolCall> visible =
+                java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        visible.addAll(visibleCalls);
+        for (int i = 0; i < calls.size(); i++) {
+            LlmClient.ToolCall call = calls.get(i);
+            emit(turn, new AgentEvent.ToolCallStarted(call.id(), toolName(call),
+                    call.function() == null ? "" : call.function().arguments(),
+                    visible.contains(call), i == calls.size() - 1));
         }
     }
 

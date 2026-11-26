@@ -163,16 +163,15 @@ class HarnessScenarioSuiteTest {
                         List.of(), Map.of(),
                         new Expect("failed", 1, 1, 0, 0, 0, 0, 0)),
 
-                // 已知问题的“定格”场景：read_file 读不到文件时返回“读取文件失败: …”，这个前缀不在
-                // ToolRegistry.looksLikeFailureText 的失败名单里，于是被算成成功。修复需要确认不影响评测口径，
-                // 修好后把这里的 succeeded/failed 改成 0/1。
-                new Scenario("known_issue_read_failure_counted_as_success", "读不存在的文件目前被算成成功（待修）",
+                // 2026-11-26 修复：read_file 返回的“读取文件失败: …”以前不在 ToolRegistry.looksLikeFailureText
+                // 的失败名单里，被算成成功（原场景名 known_issue_read_failure_counted_as_success，succeeded/failed 为 1/0）。
+                new Scenario("read_missing_file_counted_as_failure", "读不存在的文件算失败",
                         files(Map.of()),
                         () -> ScriptedLlmClient.of(
                                 toolCalls(call("c1", "read_file", "{\"path\":\"missing.txt\"}")),
                                 answer("文件不存在")),
                         List.of(), Map.of(),
-                        new Expect("completed", 0, 2, 1, 1, 0, 0, 0))
+                        new Expect("completed", 0, 2, 1, 0, 1, 0, 0))
         );
     }
 

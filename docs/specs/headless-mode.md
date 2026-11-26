@@ -57,7 +57,7 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 - `status`：`completed` / `partial` / `cancelled` / `failed`；`is_error` 在 `failed`、`cancelled` 时为 true
 - `result`：完成时是模型的原始回答（不含思考过程和终端提示）；部分完成时是整理结果；失败和取消时是说明
 - `tools`：本轮工具统计（2026-11-26 新增）。`calls` 是真正交给执行的调用数（含被策略拒绝的），`skipped` 是没执行的（参数被截断），`success_rate` = succeeded /（succeeded + failed），一次都没执行时为 `null`；`notices` 是提示条数。口径和场景回归 `HarnessScenarioSuiteTest` 相同
-- 已知口径问题：`read_file` 读不到文件时返回“读取文件失败: …”，目前被算成成功（见升级计划“Harness 回归场景”一节）
+- 2026-11-26 起 `read_file` 读不到文件（“读取文件失败: …”）算失败，以前被误算成成功
 - 执行中途出现意外错误时只有 `type`、`status`、`is_error`、`result`、`session_id`、`provider`、`model` 这几个字段
 
 ### `stream-json`
@@ -67,6 +67,7 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 | type | 字段 | 说明 |
 |---|---|---|
 | `turn_started` | `turn_id` | 一轮开始 |
+| `model_request_started` | （无） | 即将发起一次模型请求，含超预算后的收尾请求（2026-11-26 新增） |
 | `reasoning_delta` | `text` | 思考内容增量 |
 | `text_delta` | `text` | 回答正文增量 |
 | `usage` | `input_tokens`、`output_tokens`、`cached_input_tokens`、`reported` | 每次模型请求一条；`reported=false` 表示供应商没给完整用量，数字不可信 |
@@ -76,13 +77,15 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 | `notice` | `text` | 提示，比如上下文压缩、重复调用提醒、预算触发 |
 | `turn_finished` | `turn_id`、`status`、`answer`、`model_requests`、`duration_ms`、`input_tokens`、`output_tokens`、`cached_input_tokens` | 一轮结束，Token 是本轮累计 |
 
-顺序：`turn_started` → 每次模型请求（若干 `reasoning_delta` / `text_delta`，然后一条 `usage`）→ 模型要调工具时每个调用一条 `tool_call_started`，整批执行完后每个调用一条 `tool_call_finished`（截断时改为 `tool_call_skipped`）→ 过程中可能穿插 `notice` → `turn_finished` → `result`。
+顺序：`turn_started` → 每次模型请求（一条 `model_request_started`，若干 `reasoning_delta` / `text_delta`，然后一条 `usage`）→ 模型要调工具时每个调用一条 `tool_call_started`，整批执行完后每个调用一条 `tool_call_finished`（截断时改为 `tool_call_skipped`）→ 过程中可能穿插 `notice` → `turn_finished` → `result`。
 
-事件文字不含终端颜色代码。字段名是对外约定，改动要同步这份文档并保留旧字段至少一个版本。
+事件文字不含终端颜色代码。字段名是对外约定，改动要同步这份文档并保留旧字段至少一个版本；新增事件种类不算破坏约定，解析方遇到不认识的 `type` 应该跳过。
+
+交互终端也只靠这串事件显示（`agent/TerminalEventRenderer`，2026-11-26）。进程内事件比 JSON 多几个只给终端用的字段：提示的带样式原文和“已拼进回答”标记、工具调用的“本轮策略是否放行”和“是不是这批最后一个”，它们不写进 JSON。
 
 ## 还没做到的
 
 - `tool_call_started` 和 `tool_call_finished` 按整批发：并行执行的只读工具没有各自的开始和结束时间
-- 没有审批事件（无界面模式不审批）；交互终端还没改成消费这套事件
-- Runtime API（`serve --http`）和后台任务还用自己的接口，没有改发这套事件。它们的工具白名单已经和本模式一致（2026-11-26，`UnattendedTaskRunner`）：`serve` 支持 `--permission-mode`、`--allow-command`，后台任务用 `PAICLI_TASK_PERMISSION_MODE`
+- 没有审批事件（无界面模式不审批；交互终端的审批框仍由 HITL 直接弹出，不经过事件）
+- Runtime API（`serve --http`）从 2026-11-26 起把同一套事件写进事件流，事件名是 `agent.<type>`，`data` 里的 `event` 就是这里的一行 JSON（外面包一层 Runtime API 的 `turn_id`，详见 `docs/phase-20-runtime-api.md`）；后台任务还不输出事件。它们的工具白名单已经和本模式一致（2026-11-26，`UnattendedTaskRunner`）：`serve` 支持 `--permission-mode`、`--allow-command`，后台任务用 `PAICLI_TASK_PERMISSION_MODE`
 - 不支持 `--resume` 接着上次的无界面会话继续

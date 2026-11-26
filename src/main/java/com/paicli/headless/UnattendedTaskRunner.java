@@ -2,6 +2,7 @@ package com.paicli.headless;
 
 import com.paicli.agent.Agent;
 import com.paicli.agent.event.AgentEvent;
+import com.paicli.agent.event.AgentEventListener;
 import com.paicli.history.ConversationLedger;
 import com.paicli.llm.LlmClient;
 import com.paicli.runtime.task.TaskRunner;
@@ -47,6 +48,13 @@ public final class UnattendedTaskRunner implements TaskRunner {
 
     @Override
     public String run(String prompt) {
+        return run(prompt, AgentEventListener.NONE);
+    }
+
+    /** 和 {@link #run(String)} 一样，另外把本轮每个事件转给 {@code events}（Runtime API 写进事件流）。 */
+    @Override
+    public String run(String prompt, AgentEventListener events) {
+        AgentEventListener forward = events == null ? AgentEventListener.NONE : events;
         HeadlessToolRegistry registry = new HeadlessToolRegistry(permissions.mode(), permissions.allowedCommands());
         registry.setProjectPath(projectDir.toString());
         CommandSandboxStatus sandbox = registry.configureCommandSandbox(CommandSandboxMode.fromConfiguration(), projectDir);
@@ -62,6 +70,7 @@ public final class UnattendedTaskRunner implements TaskRunner {
             if (event instanceof AgentEvent.TurnFinished turnFinished) {
                 finished.set(turnFinished);
             }
+            forward.onEvent(event);
         });
         String returned = agent.run(prompt);
         AgentEvent.TurnFinished result = finished.get();

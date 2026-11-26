@@ -233,7 +233,7 @@ mvn clean test -DskipTests=false -Dtest='AgentLoopTest,LegacyModelClientTest,ReA
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
 ```
 
-### 第 3 阶段进展（2026-11-25，第一步已完成：用户本机全部通过；第二步（交互终端改消费事件、Runtime API 发同一套事件和白名单）待排期）
+### 第 3 阶段进展（第一步已完成：用户本机全部通过；第二步的交互终端部分已完成：用户本机测试通过、真实终端显示正常；Runtime API 发事件 2026-11-26 代码已写、等用户本机运行）
 
 同样分两步：
 
@@ -297,7 +297,7 @@ mvn test -Pquick; bash tools/test-failures.sh                                  #
 - `HarnessScenarioSuiteTest`（新，11 个场景）：假模型固定脚本，走完整无界面链路，逐项精确断言指标：直接回答、读文件、并行读、改文件失败后恢复、参数缺失后改正、截断后重试、同一失败调用三次触发提醒、只读模式拒绝写、硬轮数上限出部分结果、供应商失败、一个“已知问题定格”场景。跑完写 `target/harness-metrics/scenarios.jsonl`（不含耗时，逐行可比）
 - 用法：改内核或工具层前后各跑一次，`diff` 两份 `scenarios.jsonl`；数字变化要么是有意的（同时改断言、在这里写明），要么是回归
 
-发现的问题（这次没改）：`read_file` 读不到文件时返回“读取文件失败: …”（`ToolRegistry.java:368`），这个前缀不在 `looksLikeFailureText`（`ToolRegistry.java:1664`）的失败名单里，于是被算成成功。影响：事件里的成功标记、harness 指标、`RunawayGuard` 的同类错误计数（它只数失败结果）。修法很小（失败名单加这个前缀，或让 `read_file` 直接返回 `ToolOutput.failure`），但会改变工具结果的成败口径，评测的工具调用统计可能依赖它，需要确认后再改。场景 `known_issue_read_failure_counted_as_success` 定格了现在的行为，修好后改断言
+发现的问题（2026-11-26 已在第 3 阶段第二步顺带修复，见下一节）：`read_file` 读不到文件时返回“读取文件失败: …”（`ToolRegistry.java:368`），这个前缀不在 `looksLikeFailureText`（`ToolRegistry.java:1664`）的失败名单里，于是被算成成功。影响：事件里的成功标记、harness 指标、`RunawayGuard` 的同类错误计数（它只数失败结果）。修法很小（失败名单加这个前缀，或让 `read_file` 直接返回 `ToolOutput.failure`），但会改变工具结果的成败口径，评测的工具调用统计可能依赖它，需要确认后再改。场景 `known_issue_read_failure_counted_as_success` 定格了现在的行为，修好后改断言
 
 验收（2026-11-26 用户本机，JDK 21）：`HarnessScenarioSuiteTest` 11/11、`HeadlessRunnerTest` 8/8 通过；quick 的 233 份报告里没有失败或报错。第一份 `scenarios.jsonl` 和上面每个场景的期望数字一致（精确数字就写在测试断言里，断言本身就是基线）。
 
@@ -306,6 +306,62 @@ mvn test -Pquick; bash tools/test-failures.sh                                  #
 ```bash
 mvn clean test -DskipTests=false -Dtest='HarnessScenarioSuiteTest,HeadlessRunnerTest'
 cat target/harness-metrics/scenarios.jsonl                                      # 第一份基线，可以存一份留着对比
+mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
+```
+
+### 第 3 阶段第二步：交互终端改成只消费事件（2026-11-26，已完成：用户本机针对性 9 个类、quick 1785 个测试 0 失败，真实终端显示和以前一样）
+
+用户回复“继续推进 按照你的推荐来，顺便修 read_file”后开始做。目标：内核不再碰终端，终端和无界面模式看同一串事件；终端输出不变。
+
+- `AgentLoop`：删掉 `Display` 接口；`Host` 只剩不属于显示的东西（`answerStreamed`、`formatAnswer`、`returnFinalResponseWhenStreamed`、`recordTokenUsage`、`afterFinalAnswer`）。原来调用显示方法的地方都改成发事件
+- 事件补了终端需要的信息（只加不改）：
+  - 新事件 `ModelRequestStarted`：每次模型请求前一条，终端据此打开思考面板；JSON 里是 `model_request_started`
+  - `ToolCallStarted` 加 `allowedByTurnPolicy`（本轮策略放行才显示）和 `lastInBatch`（整批到齐再按工具名分组显示）
+  - `Notice` 加 `styledText`（终端按原样式打印）和 `attachedToAnswer`（回答没流式显示时，提示已拼进返回文字，终端不再打印）
+  - 这三个字段只在进程内用，不写进 JSON
+- `agent/TerminalEventRenderer`（新）：把事件画到 `Renderer` 上。流式显示的收尾时机从事件推出来：请求开始时打开；之后第一个不是增量 / 用量的事件（工具调用、跳过、提示、下一次请求）先收尾再显示自己；一轮结束时还开着，就按有没有流式输出选完整收尾或只关思考面板。这和原来内核里直接调用显示方法的时机一一对应
+- 状态栏也由事件驱动：Token 从 `Usage` 累计，开始 / 一批工具执行完 / 跳过时推 running，结束时推 idle
+- `Agent`：每轮建一个 `TerminalEventRenderer`，和外部订阅者（无界面模式、Runtime API）合成一个监听器，各自出错互不影响
+- `ToolResultSummaries.displayLine` 多一个按“工具名 + 参数原文 + 结果文字”算的入口，终端从事件里拿这三样
+- 顺带修复 `read_file` 失败被算成成功：`looksLikeFailureText` 加上“读取文件失败”前缀。评测的 `F3FormalAdapterTest` 本来就把这条当失败（`success=false`），修完代码和评测口径一致。场景改名为 `read_missing_file_counted_as_failure`，succeeded/failed 从 1/0 改成 0/1
+
+和原来的差别（都在极少见的情况下）：
+- 监听器（包括终端显示）抛异常只记日志，不再打断任务
+- 一批工具执行完后的 running 状态更新，从“重复调用提醒之后”提前到“最后一个工具结束时”；状态栏不在输出流里，看不出区别
+- 超预算收尾请求本身调用失败、而且只有思考面板没有正文时，结束时只关面板，不再补打一段思考引用
+
+测试：`AgentLoopTest` 改成记录事件（新增 2 个：流式回答的尾部提示单独发出、工具调用的放行和分批标记）；新增 `TerminalEventRendererTest`（6 个：工具整批显示且隐藏被拒的、提示按样式打印且已拼进回答的不重复、流式回答先收尾再打提示且不重复收尾、搜索摘要用开始事件里的参数、只有思考时只关面板但失败时照常收尾、状态栏数字来自用量事件）；`HeadlessRunnerTest` 的 stream-json 顺序加上 `model_request_started`。
+
+用户本机要做的事（JDK 21，删了接口、加了类，要 clean）：
+
+```bash
+mvn clean test -DskipTests=false -Dtest='AgentLoopTest,TerminalEventRendererTest,AgentStreamRendererTest,HeadlessRunnerTest,HarnessScenarioSuiteTest,UnexecutedToolCallNoticeTest,AgentLspDiagnosticsTest,AgentRunawayReminderTest,AgentWebSearchDecisionTest'
+mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
+mvn test -Pphase16-smoke                                                        # 终端相关
+```
+
+另外建议在真实终端里跑一次带工具调用的任务（比如“读一下 README 然后总结”），看思考、工具分组、回答的显示和以前一样。
+
+### 第 3 阶段第二步（续）：Runtime API 发同一套事件（2026-11-26，代码已写，等用户本机运行）
+
+用户确认终端显示正常后开始做。原来 Runtime API（`serve --http`）一轮只写一条 `message.delta`（整段回答）和一条 `turn.completed`，看不到中间的思考、工具调用和用量。
+
+- `TaskRunner` 加一个带事件监听器的 `run(prompt, listener)`，默认实现忽略监听器、调原来的 `run(prompt)`；后台任务（`DurableTaskManager`）和测试里的 lambda 不用改
+- `UnattendedTaskRunner` 把本轮所有 `AgentEvent` 转给这个监听器
+- `RuntimeApiServer` 每收到一个事件就往这个 thread 写一条：SSE 事件名 `agent.<type>`（比如 `agent.tool_call_started`），`data` 是 `{"turn_id":"turn_…","event":{…}}`，`event` 里和无界面模式 stream-json 的一行完全一样（同一个 `AgentEventJson`）。包一层是因为 `turn_started` / `turn_finished` 自己也有 `turn_id`（Agent 内部的），直接合并会冲突
+- 思考 / 正文增量是一个 token 一条，每条都写 SQLite（每次写都要落盘）会拖慢模型输出；所以连续的同类增量先攒着，攒满 512 字符或者来了别的事件时合并成一条写入
+- 原来的 `thread.created`、`turn.started`、`message.delta`、`turn.completed`、`turn.failed` 保持不变，老客户端照常用。`turn.completed` 只表示执行没抛异常，模型那一轮真正的状态（completed / partial / failed）看 `agent.turn_finished` 里的 `status`
+- 顺带修：原来事件 JSON 用手写转义，只处理了反斜杠、引号、`\r`、`\n`，回答里有制表符等控制字符时写出的 JSON 不合法；改成用 Jackson 生成
+- `AgentEventJson` 改成 public（它就是对外格式），Runtime API 直接复用
+
+测试：`RuntimeApiServerTest` 加两个：
+- 端到端：真实的 `UnattendedTaskRunner` 配测试用假模型 `ScriptedLlmClient`（先调 `read_file`，再流式回答一段带制表符的话），走 HTTP 拿事件流，检查 `agent.*` 事件的名字和顺序、每条都带 Runtime API 的 `turn_id`、每条 `data` 都是合法 JSON、`message.delta` 里的制表符原样还原
+- 增量合并：直接测 `TurnEventWriter`，600 个单字增量写成 512 + 88 两条，换成思考增量时先把正文写出去，最后一段要等 `flush` 才写入
+
+用户本机要做的事（JDK 21）：
+
+```bash
+mvn test -DskipTests=false -Dtest='RuntimeApiServerTest,DurableTaskManagerTest,HeadlessRunnerTest,UnattendedTaskRunnerTest'
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
 ```
 

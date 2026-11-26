@@ -1,5 +1,6 @@
 package com.paicli.agent;
 
+import com.paicli.llm.LlmClient;
 import com.paicli.render.Renderer;
 import com.paicli.util.AnsiStyle;
 import com.paicli.util.TerminalMarkdownRenderer;
@@ -18,8 +19,10 @@ import java.io.PrintStream;
  * 3. content 一出现就收尾 reasoning 区，用低调标记进入正文并流式输出 content
  * 4. 如果 content 启动之后又收到 reasoning（服务器把思考内容追加在答案之后），
  *    缓冲到 lateReasoning，最终在 finish() 用"🧠 补充思考"标题独立展示，不会污染回复区
+ *
+ * 什么时候开始、收尾由 {@link TerminalEventRenderer} 根据 Agent 事件决定。
  */
-final class ReActStreamRenderer implements AgentLoop.Display {
+final class ReActStreamRenderer implements LlmClient.StreamListener {
     private final Renderer renderer;
     private final PrintStream boundOut;  // null 表示延迟读取 System.out（保持旧测试兼容）
     private final StringBuilder pendingReasoning = new StringBuilder();
@@ -55,14 +58,12 @@ final class ReActStreamRenderer implements AgentLoop.Display {
         return renderer == null || renderer.rendersReasoning();
     }
 
-    @Override
     public void beginThinking() {
         if (hasThinkingPanel()) {
             renderer.beginThinking("Thinking");
         }
     }
 
-    @Override
     public void clearThinkingPanel() {
         if (hasThinkingPanel()) {
             renderer.endThinking();
@@ -150,12 +151,10 @@ final class ReActStreamRenderer implements AgentLoop.Display {
         out().flush();
     }
 
-    @Override
     public boolean hasStreamedOutput() {
         return streamedOutput;
     }
 
-    @Override
     public void resetBetweenIterations() {
         if (hasThinkingPanel()) {
             finishThinkingPanelAndPrintQuote();
@@ -193,7 +192,6 @@ final class ReActStreamRenderer implements AgentLoop.Display {
         }
     }
 
-    @Override
     public void finish() {
         if (hasThinkingPanel()) {
             finishThinkingPanelAndPrintQuote();

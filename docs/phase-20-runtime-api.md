@@ -54,6 +54,11 @@ java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080
 - `message.delta`
 - `turn.completed`
 - `turn.failed`
+- `agent.<type>`（2026-11-26 起）：Agent 执行过程中的每个事件，`<type>` 和无界面模式 stream-json 的 `type` 一样（`turn_started`、`model_request_started`、`reasoning_delta`、`text_delta`、`tool_call_started`、`tool_call_finished`、`tool_call_skipped`、`notice`、`usage`、`turn_finished`），字段说明见 `docs/specs/headless-mode.md`
+
+`agent.*` 事件的 `data` 是 `{"turn_id":"turn_…","event":{…}}`：`turn_id` 是 `POST /turns` 返回的 id，`event` 和 stream-json 的一行完全相同（`event` 里的 `turn_started` / `turn_finished` 还有 Agent 内部自己的 `turn_id`，两者不是一回事）。连续的思考 / 正文增量会先合并（最多 512 个字符一条）再写入，所以条数比 token 少。以后可能加新的事件类型，客户端遇到不认识的事件名直接跳过。
+
+原来的 `message.delta`（整段回答）和 `turn.completed` 保留不变；`turn.completed` 只表示执行没有抛异常，模型那一轮的真实状态（`completed` / `partial` / `failed`）看 `agent.turn_finished` 的 `event.status`。所有事件的 `data` 都由 Jackson 生成，回答里有制表符等控制字符时也是合法 JSON（之前手写转义会写出不合法的 JSON）。
 
 ## 当前边界
 

@@ -2,6 +2,10 @@ package com.paicli.runtime.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.paicli.agent.event.AgentEvent;
+import com.paicli.agent.event.AgentEventListener;
+import com.paicli.headless.AgentEventJson;
 import com.paicli.runtime.task.TaskRunner;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -11,9 +15,17 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * 本机 Runtime API：threads / turns / events 三个端点，事件按 SSE 格式回放。
+ *
+ * <p>一轮执行时，除了原来的 {@code turn.started}、{@code message.delta}、{@code turn.completed} / {@code turn.failed}，
+ * 还把 Agent 的每个事件写成 {@code agent.<type>}（比如 {@code agent.tool_call_started}），
+ * {@code data} 是 {@code {"turn_id":…,"event":{…}}}，{@code event} 和无界面模式 stream-json 的一行相同。
+ */
 public class RuntimeApiServer implements AutoCloseable {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final RuntimeThreadStore store;
@@ -64,7 +76,7 @@ public class RuntimeApiServer implements AutoCloseable {
             String path = exchange.getRequestURI().getPath();
             if ("POST".equals(method) && "/v1/threads".equals(path)) {
                 String id = store.createThread();
-                writeJson(exchange, 200, "{\"id\":\"" + id + "\",\"object\":\"thread\"}");
+                writeJson(exchange, 200, json("id", id, "object", "thread"));
                 return;
             }
             if ("POST".equals(method) && path.matches("/v1/threads/[^/]+/turns")) {
@@ -77,7 +89,7 @@ public class RuntimeApiServer implements AutoCloseable {
             }
             writeJson(exchange, 404, "{\"error\":\"not_found\"}");
         } catch (Exception e) {
-            writeJson(exchange, 500, "{\"error\":\"" + escape(e.getMessage()) + "\"}");
+            writeJson(exchange, 500, json("error", Objects.toString(e.getMessage(), "")));
         }
     }
 
@@ -93,22 +105,85 @@ public class RuntimeApiServer implements AutoCloseable {
             return;
         }
         String turnId = "turn_" + Long.toHexString(System.nanoTime());
-        store.appendEvent(threadId, "turn.started",
-                "{\"turn_id\":\"" + turnId + "\",\"input\":\"" + escape(input) + "\"}");
+        store.appendEvent(threadId, "turn.started", json("turn_id", turnId, "input", input));
         executor.submit(() -> runTurn(threadId, turnId, input));
-        writeJson(exchange, 202, "{\"id\":\"" + turnId + "\",\"object\":\"turn\",\"status\":\"running\"}");
+        writeJson(exchange, 202, json("id", turnId, "object", "turn", "status", "running"));
     }
 
     private void runTurn(String threadId, String turnId, String input) {
+        TurnEventWriter agentEvents = new TurnEventWriter(store, threadId, turnId);
         try {
-            String result = runner.run(input);
+            String result = runner.run(input, agentEvents);
+            agentEvents.flush();
             store.appendEvent(threadId, "message.delta",
-                    "{\"turn_id\":\"" + turnId + "\",\"content\":\"" + escape(result) + "\"}");
-            store.appendEvent(threadId, "turn.completed",
-                    "{\"turn_id\":\"" + turnId + "\",\"status\":\"completed\"}");
+                    json("turn_id", turnId, "content", Objects.toString(result, "")));
+            store.appendEvent(threadId, "turn.completed", json("turn_id", turnId, "status", "completed"));
         } catch (Exception e) {
+            agentEvents.flush();
             store.appendEvent(threadId, "turn.failed",
-                    "{\"turn_id\":\"" + turnId + "\",\"error\":\"" + escape(e.getMessage()) + "\"}");
+                    json("turn_id", turnId, "error", Objects.toString(e.getMessage(), "")));
+        }
+    }
+
+    /**
+     * 把一轮的 Agent 事件写进 thread 的事件流。思考 / 正文增量一个 token 一条，每条都写库太慢，
+     * 所以连续的同类增量先攒着，攒满 {@link #MERGE_LIMIT} 个字符或来了别的事件时合并成一条写入。
+     */
+    static final class TurnEventWriter implements AgentEventListener {
+        static final int MERGE_LIMIT = 512;
+
+        private final RuntimeThreadStore store;
+        private final String threadId;
+        private final String turnId;
+        private final StringBuilder pending = new StringBuilder();
+        /** 正在攒的增量是哪一类；null 表示没有。 */
+        private Class<? extends AgentEvent> pendingType;
+
+        TurnEventWriter(RuntimeThreadStore store, String threadId, String turnId) {
+            this.store = store;
+            this.threadId = threadId;
+            this.turnId = turnId;
+        }
+
+        @Override
+        public synchronized void onEvent(AgentEvent event) {
+            String delta = event instanceof AgentEvent.TextDelta text ? text.text()
+                    : event instanceof AgentEvent.ReasoningDelta reasoning ? reasoning.text() : null;
+            if (delta == null) {
+                flush();
+                write(event);
+                return;
+            }
+            if (pendingType != null && pendingType != event.getClass()) {
+                flush();
+            }
+            pendingType = event.getClass();
+            pending.append(delta);
+            if (pending.length() >= MERGE_LIMIT) {
+                flush();
+            }
+        }
+
+        /** 把攒着的增量写出去；一轮结束时调用方也要调一次，免得最后一段丢掉。 */
+        synchronized void flush() {
+            if (pendingType == null) {
+                return;
+            }
+            String text = pending.toString();
+            AgentEvent merged = pendingType == AgentEvent.TextDelta.class
+                    ? new AgentEvent.TextDelta(text)
+                    : new AgentEvent.ReasoningDelta(text);
+            pendingType = null;
+            pending.setLength(0);
+            write(merged);
+        }
+
+        private void write(AgentEvent event) {
+            ObjectNode payload = AgentEventJson.toJson(event);
+            ObjectNode data = MAPPER.createObjectNode();
+            data.put("turn_id", turnId);
+            data.set("event", payload);
+            store.appendEvent(threadId, "agent." + payload.path("type").asText("unknown"), data.toString());
         }
     }
 
@@ -173,14 +248,13 @@ public class RuntimeApiServer implements AutoCloseable {
         }
     }
 
-    private static String escape(String value) {
-        if (value == null) {
-            return "";
+    /** 用成对的键和值拼一个 JSON 对象；交给 Jackson 转义，回答里有制表符等控制字符也是合法 JSON。 */
+    private static String json(String... keysAndValues) {
+        ObjectNode node = MAPPER.createObjectNode();
+        for (int i = 0; i + 1 < keysAndValues.length; i += 2) {
+            node.put(keysAndValues[i], keysAndValues[i + 1]);
         }
-        return value.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\r", "\\r")
-                .replace("\n", "\\n");
+        return node.toString();
     }
 
     @Override

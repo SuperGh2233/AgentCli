@@ -96,9 +96,9 @@ class HeadlessRunnerTest {
         Run run = run(llm, projectDir, "-p", "读 a.txt", "--output-format", "stream-json");
 
         List<String> types = run.jsonLines().stream().map(node -> node.path("type").asText()).toList();
-        assertEquals(List.of("turn_started", "usage", "tool_call_started", "tool_call_finished",
-                "usage", "turn_finished", "result"), types);
-        JsonNode finishedTool = run.jsonLines().get(3);
+        assertEquals(List.of("turn_started", "model_request_started", "usage", "tool_call_started",
+                "tool_call_finished", "model_request_started", "usage", "turn_finished", "result"), types);
+        JsonNode finishedTool = run.jsonLines().get(4);
         assertEquals("call_1", finishedTool.path("id").asText());
         assertTrue(finishedTool.path("success").asBoolean());
         assertTrue(finishedTool.path("output").asText().contains("content-a"));

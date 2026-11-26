@@ -1673,6 +1673,7 @@ public class ToolRegistry {
                 || value.startsWith("用户取消了")
                 || value.startsWith("工具执行失败")
                 || value.startsWith("工具执行超时")
+                || value.startsWith("读取文件失败")
                 || value.startsWith("未知工具")
                 || value.startsWith("MCP 工具返回错误")
                 || value.startsWith("MCP 工具调用失败")

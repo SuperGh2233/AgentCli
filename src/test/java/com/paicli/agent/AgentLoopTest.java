@@ -28,8 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 直接测内核 {@link AgentLoop}，不经过 {@link Agent}：结果状态、显示和收尾回调的调用时机。
- * ReAct 的端到端行为由 {@code ReActLoopReplayTest} 等已有测试覆盖。
+ * 直接测内核 {@link AgentLoop}，不经过 {@link Agent}：结果状态、事件顺序和收尾回调的调用时机。
+ * 终端怎么根据事件显示由 {@code TerminalEventRendererTest} 测；ReAct 的端到端行为由 {@code ReActLoopReplayTest} 等覆盖。
  */
 @Timeout(20)
 class AgentLoopTest {
@@ -37,20 +37,11 @@ class AgentLoopTest {
     /** 记录内核对调用方的每次回调。 */
     private static final class RecordingHost implements AgentLoop.Host {
         final List<String> calls = new ArrayList<>();
+        boolean streamed;
 
         @Override
-        public void printLine(String line) {
-            calls.add("print:" + line);
-        }
-
-        @Override
-        public void showToolCalls(List<LlmClient.ToolCall> visibleCalls) {
-            calls.add("toolCalls:" + visibleCalls.size());
-        }
-
-        @Override
-        public void pushStatus(AgentBudget budget, long startNanos, String phase) {
-            calls.add("status:" + phase);
+        public boolean answerStreamed() {
+            return streamed;
         }
 
         @Override
@@ -75,38 +66,15 @@ class AgentLoopTest {
         }
     }
 
-    /** 不输出任何东西的流式显示，记录收尾动作。 */
-    private static final class SilentDisplay implements AgentLoop.Display {
-        final List<String> calls = new ArrayList<>();
-
-        @Override
-        public void beginThinking() {
-            calls.add("begin");
-        }
-
-        @Override
-        public void resetBetweenIterations() {
-            calls.add("reset");
-        }
-
-        @Override
-        public void finish() {
-            calls.add("finish");
-        }
-
-        @Override
-        public void clearThinkingPanel() {
-            calls.add("clear");
-        }
-
-        @Override
-        public boolean hasStreamedOutput() {
-            return false;
-        }
-    }
-
     private record Fixture(AgentLoop loop, ConversationContext conversation, RecordingHost host,
-                           SilentDisplay display, AgentLoop.Turn turn) {
+                           List<AgentEvent> events, AgentLoop.Turn turn) {
+        List<Class<?>> eventTypes() {
+            return events.stream().<Class<?>>map(Object::getClass).toList();
+        }
+
+        <T extends AgentEvent> List<T> eventsOf(Class<T> type) {
+            return events.stream().filter(type::isInstance).map(type::cast).toList();
+        }
     }
 
     private static Fixture fixture(ScriptedLlmClient llm, Path projectDir, String userInput) {
@@ -117,10 +85,10 @@ class AgentLoopTest {
         conversation.messages().add(LlmClient.Message.system("system"));
         conversation.append(LlmClient.Message.user(userInput), "user_input");
         RecordingHost host = new RecordingHost();
-        SilentDisplay display = new SilentDisplay();
+        List<AgentEvent> events = new ArrayList<>();
         AgentLoop.Turn turn = new AgentLoop.Turn(llm, TurnToolPolicy.fromUserInput(userInput), null,
-                display, host, () -> Integer.MAX_VALUE);
-        return new Fixture(new AgentLoop(registry, conversation), conversation, host, display, turn);
+                host, () -> Integer.MAX_VALUE, events::add);
+        return new Fixture(new AgentLoop(registry, conversation), conversation, host, events, turn);
     }
 
     @Test
@@ -135,15 +103,8 @@ class AgentLoopTest {
 
         assertEquals(AgentLoop.Status.COMPLETED, result.status());
         assertEquals("formatted:读完了", result.text());
-        assertEquals(List.of(
-                "status:running",
-                "toolCalls:1",
-                "status:running",
-                "tokens:20",
-                "afterFinalAnswer",
-                "status:idle",
-                "format"), f.host().calls);
-        assertEquals(List.of("begin", "reset", "begin", "clear"), f.display().calls);
+        assertEquals(List.of("tokens:20", "afterFinalAnswer", "format"), f.host().calls);
+        assertEquals(2, f.eventsOf(AgentEvent.ModelRequestStarted.class).size(), "每次模型请求前一条");
         List<LlmClient.Message> messages = f.conversation().messages();
         assertEquals("assistant", messages.get(messages.size() - 1).role());
         assertToolCallsPaired(messages);
@@ -158,7 +119,8 @@ class AgentLoopTest {
 
         assertEquals(AgentLoop.Status.FAILED, result.status());
         assertTrue(result.text().startsWith("❌ 调用 LLM 失败"), result.text());
-        assertTrue(f.display().calls.contains("finish"));
+        assertEquals(List.of(AgentEvent.TurnStarted.class, AgentEvent.ModelRequestStarted.class,
+                AgentEvent.TurnFinished.class), f.eventTypes(), "终端靠 TurnFinished 收尾已打开的流式显示");
         assertTrue(f.host().calls.stream().noneMatch("afterFinalAnswer"::equals), "失败时不能跑正常收尾");
     }
 
@@ -226,9 +188,9 @@ class AgentLoopTest {
         assertEquals("tool", toolResult.role());
         assertEquals("call_w", toolResult.toolCallId());
         assertEquals(AgentLoop.TRUNCATED_TOOL_CALL_RESULT, toolResult.content());
-        assertTrue(f.host().calls.stream().anyMatch(c -> c.startsWith("print:") && c.contains("长度上限")),
-                f.host().calls.toString());
-        assertTrue(f.host().calls.stream().noneMatch(c -> c.startsWith("toolCalls:")), "没执行的调用不显示成工具调用");
+        assertTrue(f.eventsOf(AgentEvent.Notice.class).stream()
+                        .anyMatch(n -> n.text().contains("长度上限") && !n.attachedToAnswer()), f.events().toString());
+        assertTrue(f.eventsOf(AgentEvent.ToolCallStarted.class).isEmpty(), "没执行的调用不显示成工具调用");
         assertToolCallsPaired(f.conversation().messages());
     }
 
@@ -242,6 +204,42 @@ class AgentLoopTest {
         assertEquals(AgentLoop.Status.COMPLETED, result.status());
         assertTrue(result.text().startsWith("formatted:第一部分……"), result.text());
         assertTrue(result.text().endsWith(AgentLoop.TRUNCATED_ANSWER_NOTICE), result.text());
+        AgentEvent.Notice notice = f.eventsOf(AgentEvent.Notice.class).get(0);
+        assertTrue(notice.attachedToAnswer(), "回答没流式显示时提示已拼进返回文字，终端不能再打印一遍");
+    }
+
+    @Test
+    void streamedAnswerSendsTrailingNoticeSeparately(@TempDir Path projectDir) {
+        ScriptedLlmClient llm = ScriptedLlmClient.ofSteps(truncated(answer("第一部分……")));
+        Fixture f = fixture(llm, projectDir, "写一篇长文");
+        f.host().streamed = true;
+
+        AgentLoop.Result result = f.loop().run(f.turn());
+
+        assertEquals("", result.text(), "流式显示过的回答不再放进返回文字");
+        assertEquals("第一部分……", result.answer());
+        AgentEvent.Notice notice = f.eventsOf(AgentEvent.Notice.class).get(0);
+        assertFalse(notice.attachedToAnswer());
+        assertTrue(notice.styledText().contains(AgentLoop.TRUNCATED_ANSWER_NOTICE), "终端按带样式的原文打印");
+    }
+
+    @Test
+    void toolCallsAreMarkedWithTurnPolicyAndBatchEnd(@TempDir Path projectDir) throws Exception {
+        Files.writeString(projectDir.resolve("a.txt"), "content-a");
+        ScriptedLlmClient llm = ScriptedLlmClient.of(
+                toolCalls(call("c1", "read_file", "{\"path\":\"a.txt\"}"),
+                        call("c2", "no_such_tool", "{}")),
+                answer("好"));
+        Fixture f = fixture(llm, projectDir, "读 a.txt");
+
+        f.loop().run(f.turn());
+
+        List<AgentEvent.ToolCallStarted> started = f.eventsOf(AgentEvent.ToolCallStarted.class);
+        assertEquals(2, started.size());
+        assertTrue(started.get(0).allowedByTurnPolicy());
+        assertFalse(started.get(0).lastInBatch());
+        assertFalse(started.get(1).allowedByTurnPolicy(), "没向本轮开放的工具不放行，终端不显示");
+        assertTrue(started.get(1).lastInBatch());
     }
 
     @Test
@@ -265,24 +263,23 @@ class AgentLoopTest {
                 toolCalls(call("call_1", "read_file", "{\"path\":\"a.txt\"}")),
                 answer("读完了"));
         Fixture f = fixture(llm, projectDir, "读 a.txt");
-        List<AgentEvent> events = new ArrayList<>();
-        AgentLoop.Turn turn = new AgentLoop.Turn(llm, f.turn().toolPolicy(), null, f.display(), f.host(),
-                () -> Integer.MAX_VALUE, events::add);
+        List<AgentEvent> events = f.events();
 
-        f.loop().run(turn);
+        f.loop().run(f.turn());
 
-        List<Class<?>> types = events.stream().<Class<?>>map(Object::getClass).toList();
         assertEquals(List.of(
                 AgentEvent.TurnStarted.class,
+                AgentEvent.ModelRequestStarted.class,
                 AgentEvent.Usage.class,
                 AgentEvent.ToolCallStarted.class,
                 AgentEvent.ToolCallFinished.class,
+                AgentEvent.ModelRequestStarted.class,
                 AgentEvent.Usage.class,
-                AgentEvent.TurnFinished.class), types);
-        AgentEvent.ToolCallFinished tool = (AgentEvent.ToolCallFinished) events.get(3);
+                AgentEvent.TurnFinished.class), f.eventTypes());
+        AgentEvent.ToolCallFinished tool = (AgentEvent.ToolCallFinished) events.get(4);
         assertEquals("call_1", tool.id());
         assertTrue(tool.success());
-        AgentEvent.TurnFinished finished = (AgentEvent.TurnFinished) events.get(5);
+        AgentEvent.TurnFinished finished = (AgentEvent.TurnFinished) events.get(7);
         assertEquals(((AgentEvent.TurnStarted) events.get(0)).turnId(), finished.turnId());
         assertEquals(AgentEvent.TurnStatus.COMPLETED, finished.status());
         assertEquals("读完了", finished.answer(), "answer 是原始回答，不经过 Host 格式化");
@@ -294,7 +291,7 @@ class AgentLoopTest {
     void failingListenerDoesNotBreakTheTurn(@TempDir Path projectDir) {
         ScriptedLlmClient llm = ScriptedLlmClient.of(answer("好"));
         Fixture f = fixture(llm, projectDir, "你好");
-        AgentLoop.Turn turn = new AgentLoop.Turn(llm, f.turn().toolPolicy(), null, f.display(), f.host(),
+        AgentLoop.Turn turn = new AgentLoop.Turn(llm, f.turn().toolPolicy(), null, f.host(),
                 () -> Integer.MAX_VALUE, event -> {
                     throw new IllegalStateException("listener bug");
                 });
@@ -311,11 +308,9 @@ class AgentLoopTest {
                 truncated(toolCalls(call("call_w", "write_file", "{\"path\":\"big.txt\",\"content\":\"abc"))),
                 step(answer("好")));
         Fixture f = fixture(llm, projectDir, "写大文件");
-        List<AgentEvent> events = new ArrayList<>();
-        AgentLoop.Turn turn = new AgentLoop.Turn(llm, f.turn().toolPolicy(), null, f.display(), f.host(),
-                () -> Integer.MAX_VALUE, events::add);
+        List<AgentEvent> events = f.events();
 
-        f.loop().run(turn);
+        f.loop().run(f.turn());
 
         assertTrue(events.stream().anyMatch(e -> e instanceof AgentEvent.ToolCallSkipped skipped
                 && "call_w".equals(skipped.id()) && "output_truncated".equals(skipped.reason())), events.toString());
