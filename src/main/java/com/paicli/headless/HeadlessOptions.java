@@ -1,18 +1,22 @@
 package com.paicli.headless;
 
+import com.paicli.agent.RunLimits;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 
 /**
  * 无界面模式的启动参数：{@code -p "任务" [--output-format text|json|stream-json]
- * [--permission-mode read-only|edit] [--allow-command "精确命令"]...}。
+ * [--permission-mode read-only|edit] [--allow-command "精确命令"]... [--max-turns N] [--max-tokens N] [--timeout 30m]}。
  *
  * @param prompt          任务；null 表示从标准输入读取（{@code -p} 后面不跟内容或跟 {@code -}）
  * @param allowedCommands 允许执行的精确命令（逐字比较），默认一条都不允许
+ * @param limits          本次任务的上限；null 时用无人值守默认值（环境变量可改）
  */
 public record HeadlessOptions(String prompt, OutputFormat outputFormat, PermissionMode permissionMode,
-                              List<String> allowedCommands) {
+                              List<String> allowedCommands, RunLimits limits) {
 
     public enum OutputFormat {
         /** 只把最终回答写到标准输出。 */
@@ -34,6 +38,12 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
         outputFormat = outputFormat == null ? OutputFormat.TEXT : outputFormat;
         permissionMode = permissionMode == null ? PermissionMode.READ_ONLY : permissionMode;
         allowedCommands = allowedCommands == null ? List.of() : List.copyOf(allowedCommands);
+        limits = limits == null ? RunLimits.unattendedFromEnvironment() : limits;
+    }
+
+    public HeadlessOptions(String prompt, OutputFormat outputFormat, PermissionMode permissionMode,
+                           List<String> allowedCommands) {
+        this(prompt, outputFormat, permissionMode, allowedCommands, null);
     }
 
     public static boolean isHeadless(String[] args) {
@@ -49,6 +59,15 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
     }
 
     public static HeadlessOptions parse(String[] args) {
+        return parse(args, System::getenv);
+    }
+
+    /** 上限的优先级：命令行参数 > 环境变量 > 默认值。 */
+    static HeadlessOptions parse(String[] args, Function<String, String> env) {
+        RunLimits limits = RunLimits.unattended(env);
+        boolean turnsSeen = false;
+        boolean tokensSeen = false;
+        boolean timeoutSeen = false;
         String prompt = null;
         boolean printSeen = false;
         OutputFormat format = null;
@@ -86,17 +105,36 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
                     }
                     commands.add(command);
                 }
+                case "--max-turns" -> {
+                    turnsSeen = once(turnsSeen, arg);
+                    limits = limits.withMaxModelRequests(RunLimits.parsePositiveInt(requireValue(args, ++i, arg), arg));
+                }
+                case "--max-tokens" -> {
+                    tokensSeen = once(tokensSeen, arg);
+                    limits = limits.withMaxTotalTokens(RunLimits.parsePositiveInt(requireValue(args, ++i, arg), arg));
+                }
+                case "--timeout" -> {
+                    timeoutSeen = once(timeoutSeen, arg);
+                    limits = limits.withTimeout(RunLimits.parseDuration(requireValue(args, ++i, arg), arg));
+                }
                 default -> throw new IllegalArgumentException("无界面模式不认识的参数: " + arg);
             }
         }
         if (!printSeen) {
             throw new IllegalArgumentException("缺少 -p");
         }
-        return new HeadlessOptions(prompt, format, mode, commands);
+        return new HeadlessOptions(prompt, format, mode, commands, limits);
     }
 
     public HeadlessOptions withPrompt(String newPrompt) {
-        return new HeadlessOptions(newPrompt, outputFormat, permissionMode, allowedCommands);
+        return new HeadlessOptions(newPrompt, outputFormat, permissionMode, allowedCommands, limits);
+    }
+
+    private static boolean once(boolean seen, String flag) {
+        if (seen) {
+            throw new IllegalArgumentException(flag + " 只能出现一次");
+        }
+        return true;
     }
 
     public static String usage() {
@@ -106,6 +144,10 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
                   --output-format <格式>      text（默认，只输出最终回答）| json | stream-json（每个事件一行）
                   --permission-mode <模式>    read-only（默认，只读工具）| edit（另外允许写文件和改文件）
                   --allow-command <命令>      允许执行的精确命令，可重复；默认不允许执行任何命令
+                  --max-turns <次数>          最多发多少次模型请求，默认 50（环境变量 PAICLI_UNATTENDED_MAX_TURNS）
+                  --max-tokens <数量>         输入加输出 Token 总上限，默认 2000000（PAICLI_UNATTENDED_MAX_TOKENS）
+                  --timeout <时长>            运行时间上限，默认 30m；纯数字按秒，可带 s/m/h（PAICLI_UNATTENDED_TIMEOUT）
+                  到达任一上限时停止调用工具、整理已完成的部分，退出码 3
                 退出码: 0 完成，1 调用模型失败，2 参数或配置错误，3 只完成了一部分，130 已取消""";
     }
 

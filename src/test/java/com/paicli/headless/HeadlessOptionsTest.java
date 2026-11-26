@@ -1,8 +1,11 @@
 package com.paicli.headless;
 
+import com.paicli.agent.RunLimits;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -63,5 +66,32 @@ class HeadlessOptionsTest {
         assertTrue(HeadlessOptions.isHeadless(new String[]{"--output-format", "json", "--print"}));
         assertFalse(HeadlessOptions.isHeadless(new String[]{"--continue"}));
         assertFalse(HeadlessOptions.isHeadless(null));
+    }
+
+    @Test
+    void limitsDefaultToUnattendedValuesAndFlagsOverrideEnvironment() {
+        HeadlessOptions defaults = HeadlessOptions.parse(new String[]{"-p", "x"}, key -> null);
+        assertEquals(RunLimits.unattended(key -> null), defaults.limits());
+
+        Map<String, String> env = Map.of(RunLimits.ENV_MAX_TURNS, "10", RunLimits.ENV_MAX_TOKENS, "9000");
+        HeadlessOptions options = HeadlessOptions.parse(new String[]{
+                "-p", "x", "--max-turns", "3", "--timeout", "2m"}, env::get);
+
+        assertEquals(3, options.limits().maxModelRequests(), "参数优先于环境变量");
+        assertEquals(9000, options.limits().maxTotalTokens(), "没给参数的用环境变量");
+        assertEquals(Duration.ofMinutes(2), options.limits().timeout());
+        assertEquals(options.limits(), options.withPrompt("y").limits(), "换任务不丢上限");
+    }
+
+    @Test
+    void invalidOrRepeatedLimitFlagsAreRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> HeadlessOptions.parse(new String[]{"-p", "x", "--max-turns", "0"}, key -> null));
+        assertThrows(IllegalArgumentException.class,
+                () -> HeadlessOptions.parse(new String[]{"-p", "x", "--max-tokens", "many"}, key -> null));
+        assertThrows(IllegalArgumentException.class,
+                () -> HeadlessOptions.parse(new String[]{"-p", "x", "--timeout", "1d"}, key -> null));
+        assertThrows(IllegalArgumentException.class,
+                () -> HeadlessOptions.parse(new String[]{"-p", "x", "--max-turns", "1", "--max-turns", "2"}, key -> null));
     }
 }

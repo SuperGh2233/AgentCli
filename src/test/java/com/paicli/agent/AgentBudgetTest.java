@@ -178,4 +178,49 @@ class AgentBudgetTest {
         return new LlmClient.ToolCall("call_" + name + "_" + args.hashCode(),
                 new LlmClient.ToolCall.Function(name, args));
     }
+
+    @Test
+    void timeLimitTriggersOnceTheConfiguredDurationHasPassed() {
+        long[] now = {0};
+        AgentBudget budget = new AgentBudget(Integer.MAX_VALUE, 5, AgentBudget.UNLIMITED_ITERATIONS,
+                java.time.Duration.ofSeconds(30), () -> now[0]);
+
+        assertEquals(AgentBudget.ExitReason.WITHIN_BUDGET, budget.check());
+        now[0] = java.time.Duration.ofSeconds(29).toNanos();
+        assertEquals(AgentBudget.ExitReason.WITHIN_BUDGET, budget.check());
+        now[0] = java.time.Duration.ofSeconds(30).toNanos();
+        assertEquals(AgentBudget.ExitReason.TIME_LIMIT_EXCEEDED, budget.check());
+        assertTrue(budget.describeExit(AgentBudget.ExitReason.TIME_LIMIT_EXCEEDED).contains("30 秒"));
+    }
+
+    @Test
+    void runLimitsOnlyTightenSystemProperties() {
+        String oldTokens = System.getProperty("paicli.react.token.budget");
+        String oldIterations = System.getProperty("paicli.react.hard.max.iterations");
+        try {
+            System.setProperty("paicli.react.token.budget", "1000");
+            System.clearProperty("paicli.react.hard.max.iterations");
+
+            AgentBudget budget = AgentBudget.fromSystemProperties(
+                    new RunLimits(50, 2_000_000, java.time.Duration.ofMinutes(30)));
+
+            assertEquals(1000, budget.tokenBudget(), "系统属性更严时用系统属性");
+            assertEquals(50, budget.hardMaxIterations(), "RunLimits 更严时用 RunLimits");
+            assertEquals(java.time.Duration.ofMinutes(30), budget.timeout());
+
+            AgentBudget unlimited = AgentBudget.fromSystemProperties(RunLimits.UNLIMITED);
+            assertTrue(!unlimited.hasHardIterationLimit() && unlimited.timeout() == null, "交互命令行仍然不限");
+        } finally {
+            restore("paicli.react.token.budget", oldTokens);
+            restore("paicli.react.hard.max.iterations", oldIterations);
+        }
+    }
+
+    private static void restore(String key, String value) {
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
 }

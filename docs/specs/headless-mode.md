@@ -8,12 +8,29 @@
 
 ```bash
 java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--permission-mode read-only|edit] [--allow-command "精确命令"]...
+                     [--max-turns 50] [--max-tokens 2000000] [--timeout 30m]
 ```
 
 - `-p` / `--print` 后面不写任务或写 `-` 时，从标准输入读到结束
 - 不能和 `--continue`、`--session` 等交互参数混用；不认识的参数直接报错（退出码 2）
 - 模型选择沿用交互模式的配置（环境变量 → 项目 `.env` → 用户 `.env` → 上次保存的模型 → 默认值）
 - 会话照常写进 `~/.paicli/history/raw/`，结果里的 `session_id` 就是那条记录的 ID；记录目录不可用时为 `null`
+
+## 上限（2026-11-26 起）
+
+无人值守没有“无限执行”。`-p`、Runtime API、后台任务每个任务默认最多 50 次模型请求、输入加输出 200 万 Token、30 分钟：
+
+| 上限 | 默认 | `-p` 参数 | 环境变量（`-p`、Runtime API、后台任务都读） |
+|---|---|---|---|
+| 模型请求次数 | 50 | `--max-turns` | `PAICLI_UNATTENDED_MAX_TURNS` |
+| 总 Token | 2000000 | `--max-tokens` | `PAICLI_UNATTENDED_MAX_TOKENS` |
+| 时间 | 30m | `--timeout`（纯数字按秒，可带 s / m / h） | `PAICLI_UNATTENDED_TIMEOUT` |
+
+- 优先级：参数 > 环境变量 > 默认值；取值不合法直接报错（`-p` 退出码 2），不悄悄用默认值
+- 到达任一上限：停止调用工具，再发一次不带工具的请求让模型整理已完成的部分，状态 `partial`、退出码 3。所以实际请求数最多是上限加 1
+- 时间在每次模型请求之前检查，正在进行的那次请求或工具不会被打断
+- 系统属性 `paicli.react.token.budget` / `paicli.react.hard.max.iterations` 仍然有效，和这里取更严的那个
+- 交互命令行有人看着，仍然不限
 
 ## 权限
 
@@ -34,7 +51,7 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 | 0 | 完成 |
 | 1 | 调用模型失败，或执行中出现意外错误 |
 | 2 | 参数错误、任务为空、没有可用的 API Key |
-| 3 | 超出预算或判定停滞，只整理出部分结果 |
+| 3 | 到达上限（见“上限”）或判定停滞，只整理出部分结果 |
 | 130 | 已取消 |
 
 ## 输出格式

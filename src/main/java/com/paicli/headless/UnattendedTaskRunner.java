@@ -1,6 +1,7 @@
 package com.paicli.headless;
 
 import com.paicli.agent.Agent;
+import com.paicli.agent.RunLimits;
 import com.paicli.agent.event.AgentEvent;
 import com.paicli.agent.event.AgentEventListener;
 import com.paicli.history.ConversationLedger;
@@ -29,21 +30,35 @@ public final class UnattendedTaskRunner implements TaskRunner {
     private final Path projectDir;
     private final UnattendedPermissions permissions;
     private final Path historyHome;
+    private final RunLimits limits;
 
     /**
+     * 上限用无人值守默认值（50 次请求、200 万 Token、30 分钟），环境变量 {@code PAICLI_UNATTENDED_*} 可改。
+     *
      * @param llm         每个任务开始时取当前模型（交互会话里切换模型后，新任务跟着变）
      * @param historyHome 会话记录所在的用户目录；null 表示不记录
      */
     public UnattendedTaskRunner(Supplier<LlmClient> llm, Path projectDir, UnattendedPermissions permissions,
                                 Path historyHome) {
+        this(llm, projectDir, permissions, historyHome, RunLimits.unattendedFromEnvironment());
+    }
+
+    /** @param limits 每个任务的上限；null 时用无人值守默认值 */
+    public UnattendedTaskRunner(Supplier<LlmClient> llm, Path projectDir, UnattendedPermissions permissions,
+                                Path historyHome, RunLimits limits) {
         this.llm = Objects.requireNonNull(llm, "llm");
         this.projectDir = projectDir.toAbsolutePath().normalize();
         this.permissions = permissions == null ? UnattendedPermissions.READ_ONLY : permissions;
         this.historyHome = historyHome;
+        this.limits = limits == null ? RunLimits.unattendedFromEnvironment() : limits;
     }
 
     public UnattendedPermissions permissions() {
         return permissions;
+    }
+
+    public RunLimits limits() {
+        return limits;
     }
 
     @Override
@@ -65,6 +80,7 @@ public final class UnattendedTaskRunner implements TaskRunner {
         Agent agent = new Agent(llm.get(), registry);
         agent.setRenderer(new SilentRenderer());
         agent.setConversationLedger(openLedger());
+        agent.setRunLimits(limits);
         AtomicReference<AgentEvent.TurnFinished> finished = new AtomicReference<>();
         agent.setEventListener(event -> {
             if (event instanceof AgentEvent.TurnFinished turnFinished) {

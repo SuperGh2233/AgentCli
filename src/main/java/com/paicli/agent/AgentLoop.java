@@ -95,20 +95,29 @@ final class AgentLoop {
     private record ModelReply(LlmClient.ChatResponse response, StopReason stopReason) {
     }
 
-    /** 一轮用户输入需要的东西。steering 为 null 表示没开执行中动态指令。 */
+    /**
+     * 一轮用户输入需要的东西。steering 为 null 表示没开执行中动态指令；limits 为 null 表示不设上限
+     * （系统属性 {@code paicli.react.*} 仍然生效）。
+     */
     record Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
-                Host host, IntSupplier compressionTriggerTokens, AgentEventListener events) {
+                Host host, IntSupplier compressionTriggerTokens, AgentEventListener events, RunLimits limits) {
         Turn {
             Objects.requireNonNull(llm, "llm");
             Objects.requireNonNull(toolPolicy, "toolPolicy");
             Objects.requireNonNull(host, "host");
             Objects.requireNonNull(compressionTriggerTokens, "compressionTriggerTokens");
             events = events == null ? AgentEventListener.NONE : events;
+            limits = limits == null ? RunLimits.UNLIMITED : limits;
+        }
+
+        Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
+             Host host, IntSupplier compressionTriggerTokens, AgentEventListener events) {
+            this(llm, toolPolicy, steering, host, compressionTriggerTokens, events, RunLimits.UNLIMITED);
         }
 
         Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
              Host host, IntSupplier compressionTriggerTokens) {
-            this(llm, toolPolicy, steering, host, compressionTriggerTokens, AgentEventListener.NONE);
+            this(llm, toolPolicy, steering, host, compressionTriggerTokens, AgentEventListener.NONE, RunLimits.UNLIMITED);
         }
     }
 
@@ -126,7 +135,7 @@ final class AgentLoop {
     Result run(Turn turn) {
         String turnId = UUID.randomUUID().toString();
         long startNanos = System.nanoTime();
-        AgentBudget budget = AgentBudget.fromSystemProperties();
+        AgentBudget budget = AgentBudget.fromSystemProperties(turn.limits());
         modelRequests = 0;
         emit(turn, new AgentEvent.TurnStarted(turnId));
         Result result = runLoop(turn, budget);

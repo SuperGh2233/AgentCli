@@ -2,10 +2,12 @@ package com.paicli.agent;
 
 import com.paicli.llm.LlmClient;
 
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.LongSupplier;
 
 /**
  * Agent 循环的退出预算。
@@ -16,8 +18,9 @@ import java.util.Locale;
  * 1. Token 预算：累计 input + output token 超过阈值后强制收尾（**默认无限**，仅显式配置时生效）
  * 2. 停滞检测：连续 N 次工具调用使用完全相同的工具名 + 参数，判定为死循环
  * 3. 可选硬轮数兜底：只有显式配置 hardMaxIterations 时才限制迭代轮数
+ * 4. 可选时间上限：只有传入 {@link RunLimits#timeout()} 时才生效（无人值守入口默认 30 分钟）
  *
- * 这三个条件按"先到先触发"判定。命中后调用方关闭工具，再请求一次模型做部分完成收尾。
+ * 这几个条件按"先到先触发"判定。命中后调用方关闭工具，再请求一次模型做部分完成收尾。
  * 停滞检测是兜底：重复达到 {@link RunawayGuard} 的提醒阈值时会先提醒模型换思路，
  * 默认窗口比提醒阈值大，提醒之后仍原样重复才会触发这里。
  *
@@ -39,7 +42,8 @@ public class AgentBudget {
         WITHIN_BUDGET,
         TOKEN_BUDGET_EXCEEDED,
         STAGNATION_DETECTED,
-        HARD_ITERATION_LIMIT
+        HARD_ITERATION_LIMIT,
+        TIME_LIMIT_EXCEEDED
     }
 
     static final int DEFAULT_STAGNATION_WINDOW = 5;
@@ -49,6 +53,10 @@ public class AgentBudget {
     private final int tokenBudget;
     private final int stagnationWindow;
     private final int hardMaxIterations;
+    /** null 表示不限时间。 */
+    private final Duration timeout;
+    private final LongSupplier nanoClock;
+    private final long startNanos;
 
     private final Deque<String> recentToolSignatures = new ArrayDeque<>();
     private int iteration;
@@ -58,6 +66,16 @@ public class AgentBudget {
     private boolean stagnant;
 
     public AgentBudget(int tokenBudget, int stagnationWindow, int hardMaxIterations) {
+        this(tokenBudget, stagnationWindow, hardMaxIterations, null, System::nanoTime);
+    }
+
+    public AgentBudget(int tokenBudget, int stagnationWindow, int hardMaxIterations, Duration timeout) {
+        this(tokenBudget, stagnationWindow, hardMaxIterations, timeout, System::nanoTime);
+    }
+
+    /** 测试用：可以换掉时钟。计时从构造时开始。 */
+    AgentBudget(int tokenBudget, int stagnationWindow, int hardMaxIterations, Duration timeout,
+                LongSupplier nanoClock) {
         if (tokenBudget <= 0) {
             throw new IllegalArgumentException("tokenBudget must be positive");
         }
@@ -70,6 +88,25 @@ public class AgentBudget {
         this.tokenBudget = tokenBudget;
         this.stagnationWindow = stagnationWindow;
         this.hardMaxIterations = hardMaxIterations;
+        if (timeout != null && (timeout.isZero() || timeout.isNegative())) {
+            throw new IllegalArgumentException("timeout must be positive");
+        }
+        this.timeout = timeout;
+        this.nanoClock = nanoClock;
+        this.startNanos = nanoClock.getAsLong();
+    }
+
+    /**
+     * 系统属性和 {@link RunLimits} 取更严的那个：两边都配了 Token 或轮数上限时用较小值；时间上限只来自 RunLimits。
+     */
+    public static AgentBudget fromSystemProperties(RunLimits limits) {
+        RunLimits effective = limits == null ? RunLimits.UNLIMITED : limits;
+        return new AgentBudget(
+                Math.min(readIntProperty("paicli.react.token.budget", Integer.MAX_VALUE), effective.maxTotalTokens()),
+                readIntProperty("paicli.react.stagnation.window", DEFAULT_STAGNATION_WINDOW),
+                Math.min(readIntProperty("paicli.react.hard.max.iterations", DEFAULT_HARD_MAX_ITERATIONS),
+                        effective.maxModelRequests()),
+                effective.timeout());
     }
 
     public static AgentBudget fromSystemProperties() {
@@ -130,6 +167,9 @@ public class AgentBudget {
         if (hasHardIterationLimit() && iteration >= hardMaxIterations) {
             return ExitReason.HARD_ITERATION_LIMIT;
         }
+        if (timeout != null && nanoClock.getAsLong() - startNanos >= timeout.toNanos()) {
+            return ExitReason.TIME_LIMIT_EXCEEDED;
+        }
         return ExitReason.WITHIN_BUDGET;
     }
 
@@ -165,6 +205,11 @@ public class AgentBudget {
         return stagnationWindow;
     }
 
+    /** null 表示不限时间。 */
+    public Duration timeout() {
+        return timeout;
+    }
+
     public String describeExit(ExitReason reason) {
         return switch (reason) {
             case WITHIN_BUDGET -> "未触发兜底条件";
@@ -176,6 +221,8 @@ public class AgentBudget {
                     stagnationWindow);
             case HARD_ITERATION_LIMIT -> String.format(Locale.ROOT,
                     "达到显式硬轮数上限（%d），将停止工具执行并收尾", hardMaxIterations);
+            case TIME_LIMIT_EXCEEDED -> String.format(Locale.ROOT,
+                    "运行时间达到上限（%d 秒），将停止工具执行并收尾", timeout == null ? 0 : timeout.toSeconds());
         };
     }
 

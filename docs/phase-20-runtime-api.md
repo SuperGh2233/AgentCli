@@ -58,7 +58,19 @@ java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080
 
 `agent.*` 事件的 `data` 是 `{"turn_id":"turn_…","event":{…}}`：`turn_id` 是 `POST /turns` 返回的 id，`event` 和 stream-json 的一行完全相同（`event` 里的 `turn_started` / `turn_finished` 还有 Agent 内部自己的 `turn_id`，两者不是一回事）。连续的思考 / 正文增量会先合并（最多 512 个字符一条）再写入，所以条数比 token 少。以后可能加新的事件类型，客户端遇到不认识的事件名直接跳过。
 
-原来的 `message.delta`（整段回答）和 `turn.completed` 保留不变；`turn.completed` 只表示执行没有抛异常，模型那一轮的真实状态（`completed` / `partial` / `failed`）看 `agent.turn_finished` 的 `event.status`。所有事件的 `data` 都由 Jackson 生成，回答里有制表符等控制字符时也是合法 JSON（之前手写转义会写出不合法的 JSON）。
+结束事件按模型那一轮的执行状态发（2026-11-26 起，`docs/adr/ADR-0002-result-semantics.md`）：
+
+| 执行状态 | 结束事件 |
+|---|---|
+| `completed` | `message.delta`（整段回答）+ `turn.completed`，`data` 带 `"agent_status":"completed"` |
+| `partial`（到达上限或停滞后整理出的部分结果） | `message.delta` + `turn.completed`，带 `"agent_status":"partial"` |
+| `failed` / `cancelled` | 只发 `turn.failed`，`error` 是失败原因，带 `agent_status`；不发 `message.delta` |
+
+之前模型调用失败时也发 `message.delta`（内容是错误文本）和 `turn.completed`，只看外层事件的客户端会把失败当成功（第 12 轮测试报告发现）。客户端判断“这一轮结束了”要同时监听 `turn.completed` 和 `turn.failed`。
+
+每个任务默认最多 50 次模型请求、200 万 Token、30 分钟，用环境变量 `PAICLI_UNATTENDED_MAX_TURNS`、`PAICLI_UNATTENDED_MAX_TOKENS`、`PAICLI_UNATTENDED_TIMEOUT` 调整（细则见 `docs/specs/headless-mode.md` 的“上限”）。
+
+所有事件的 `data` 都由 Jackson 生成，回答里有制表符等控制字符时也是合法 JSON（之前手写转义会写出不合法的 JSON）。
 
 ## 当前边界
 

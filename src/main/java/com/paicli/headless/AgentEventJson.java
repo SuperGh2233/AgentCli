@@ -62,7 +62,8 @@ public final class AgentEventJson {
         return node;
     }
 
-    static String status(AgentEvent.TurnStatus status) {
+    /** 状态的对外写法：completed / partial / failed / cancelled。 */
+    public static String status(AgentEvent.TurnStatus status) {
         return status.name().toLowerCase(Locale.ROOT);
     }
 }

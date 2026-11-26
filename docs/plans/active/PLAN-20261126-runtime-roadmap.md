@@ -67,6 +67,28 @@
 4. 品牌 R0：审查 GitHub draft PR #2（只改 README 和 pom 的显示名），由用户合并
 5. 验收：公共结束条件 + Steering 自动化测试（`AGENTS.md` 验证命令表 Steering 那一行）全过
 
+#### P0 进展（2026-11-26，代码已提交、等用户本机运行）
+
+- 第 1 项完成：分支 `feat/harness-runtime`，`9ff2461` 是第 11、12 轮改动（和第 12 轮报告测的内容一致：混在一起的 5 个代码文件按 P0 改动逐处还原后单独暂存），`4fabe82` 是本计划和 3 份 ADR
+- 第 2 项：`RuntimeApiServer` 记下本轮的 `TurnFinished`，按上表发结束事件；runner 不发事件（比如测试里的 lambda）时按 completed 处理。`AgentEventJson.status` 改成 public
+- 第 3 项：新增 `agent/RunLimits`（三个上限 + 环境变量解析 + 时长写法：纯数字按秒，可带 s / m / h）。`AgentBudget` 加时间上限（`TIME_LIMIT_EXCEEDED`），`fromSystemProperties(RunLimits)` 和系统属性取更严的那个。`AgentLoop.Turn` 带上限，`Agent.setRunLimits`；`HeadlessRunner`、`UnattendedTaskRunner` 设置上限，交互命令行仍不限
+  - 和上表的差别：`--max-turns` / `--max-tokens` / `--timeout` 只加在 `-p` 上；Runtime API（`serve`）和后台任务只读环境变量 `PAICLI_UNATTENDED_*`，不改 `serve` 的启动参数
+  - 时间只在每次模型请求之前检查，正在进行的单次请求或工具不打断；到达上限后还有一次不带工具的收尾请求，所以实际请求数最多是上限加 1
+  - Plan / Team 还用旧的 `AgentBudget.fromSystemProperties()`，等丙阶段迁进内核后自动带上限
+- 第 4 项（品牌 R0）：等用户审查合并 PR #2
+- 测试：新增 `RunLimitsTest`（4 个）；`AgentBudgetTest` +2（时间上限用假时钟、上限只收紧不放宽）；`HeadlessOptionsTest` +2（参数优先于环境变量、非法和重复参数报错）；`HeadlessRunnerTest` +1（`--max-turns 1` → `partial`、退出码 3、收尾请求不带工具）；`RuntimeApiServerTest` +1（模型失败只收到 `turn.failed`，没有 `message.delta` 和 `turn.completed`）
+- 文档：`docs/specs/headless-mode.md` 新增“上限”一节，`docs/phase-20-runtime-api.md` 写结束事件规则，`README.md`、`.env.example`
+
+用户本机要做的事（JDK 21；新增了类，要 clean）：
+
+```bash
+git rev-parse --short HEAD        # 报告第一行写这个提交号
+mvn clean test -DskipTests=false -Dtest='RunLimitsTest,AgentBudgetTest,HeadlessOptionsTest,HeadlessRunnerTest,RuntimeApiServerTest,UnattendedTaskRunnerTest,AgentLoopTest,HarnessScenarioSuiteTest,AgentSecurityRegressionTest'
+mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
+mvn test -DskipTests=false -Dtest='ToolRegistryTest,PathGuardTest,CommandGuardTest,AuditLogTest'   # 安全专项
+mvn test -DskipTests=false -Dtest='*Steering*Test,TurnInputManagerTest,InputCoordinatorTest,TerminalInputGateway*Test,JLineInputAdapterTest,InlineApprovalGatewayTest,AgentBudgetFinalizationTest,ToolRegistryToolStartGateTest'
+```
+
 ### 甲 契约
 
 这一阶段定下来的东西会成为对外接口，之后改就是破坏兼容，所以放在最前面。分多个小提交，每批用户跑一次测试。

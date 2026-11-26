@@ -50,6 +50,35 @@ class RuntimeApiServerTest {
             assertTrue(events.contains("event: message.delta"));
             assertTrue(events.contains("reply:hello"));
             assertTrue(events.contains("event: turn.completed"));
+            assertTrue(events.contains("\"agent_status\":\"completed\""), "runner 不发事件时按 completed 处理: " + events);
+        }
+    }
+
+    @Test
+    void modelFailureIsReportedAsTurnFailedWithoutAnAnswer(@TempDir Path tempDir) throws Exception {
+        Path project = Files.createDirectories(tempDir.resolve("project"));
+        ScriptedLlmClient llm = ScriptedLlmClient.of(answer("不会用到")).failOnRequest(1);
+        UnattendedTaskRunner runner = new UnattendedTaskRunner(() -> llm, project, UnattendedPermissions.READ_ONLY, null);
+
+        try (RuntimeThreadStore store = new RuntimeThreadStore(tempDir.resolve("runtime.db"));
+             RuntimeApiServer server = new RuntimeApiServer(store, runner, 0, "secret")) {
+            server.start();
+            HttpClient client = HttpClient.newHttpClient();
+            String base = "http://127.0.0.1:" + server.port();
+            String threadId = extract(client.send(request(base + "/v1/threads", "POST", "").build(),
+                    HttpResponse.BodyHandlers.ofString()).body(), "thread_");
+            client.send(request(base + "/v1/threads/" + threadId + "/turns", "POST", "{\"input\":\"你好\"}").build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            List<String[]> events = parseSse(waitForEvents(client, base, threadId));
+            List<String> names = events.stream().map(e -> e[0]).toList();
+            assertInOrder(names, "turn.started", "agent.turn_finished", "turn.failed");
+            assertFalse(names.contains("message.delta"), "失败时的错误说明不能当回答发出去: " + names);
+            assertFalse(names.contains("turn.completed"), "失败不能报成完成: " + names);
+
+            JsonNode failed = new ObjectMapper().readTree(events.get(names.indexOf("turn.failed"))[1]);
+            assertEquals("failed", failed.path("agent_status").asText());
+            assertFalse(failed.path("error").asText().isBlank(), "要带失败原因");
         }
     }
 
@@ -200,7 +229,7 @@ class RuntimeApiServerTest {
             HttpResponse<String> response = client.send(request(base + "/v1/threads/" + threadId + "/events", "GET", "")
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
-            if (response.body().contains("turn.completed")) {
+            if (response.body().contains("event: turn.completed") || response.body().contains("event: turn.failed")) {
                 return response.body();
             }
             Thread.sleep(30);

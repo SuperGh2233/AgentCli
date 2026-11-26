@@ -64,6 +64,22 @@ class HeadlessRunnerTest {
     }
 
     @Test
+    void maxTurnsStopsToolUseAndReportsPartialWithExitCodeThree(@TempDir Path projectDir) throws Exception {
+        Files.writeString(projectDir.resolve("a.txt"), "content-a");
+        ScriptedLlmClient llm = ScriptedLlmClient.of(
+                toolCalls(call("call_1", "read_file", "{\"path\":\"a.txt\"}")),
+                answer("只读了 a.txt，还没来得及做别的"));
+
+        Run run = run(llm, projectDir, "-p", "读完所有文件", "--max-turns", "1", "--output-format", "json");
+
+        assertEquals(HeadlessRunner.EXIT_PARTIAL, run.exitCode(), run.out() + run.err());
+        JsonNode result = run.jsonLines().get(0);
+        assertEquals("partial", result.path("status").asText());
+        assertEquals(2, result.path("model_requests").asInt(), "1 次正常请求 + 1 次不带工具的收尾请求");
+        assertTrue(llm.toolRequests().get(1).isEmpty(), "收尾请求不能再给工具");
+    }
+
+    @Test
     void jsonModeWritesOneResultObject(@TempDir Path projectDir) throws Exception {
         ScriptedLlmClient llm = ScriptedLlmClient.of(answer("42"));
 

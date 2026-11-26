@@ -42,6 +42,7 @@ public final class HeadlessRunner {
         Agent agent = new Agent(llm, registry);
         agent.setRenderer(new SilentRenderer());
         agent.setConversationLedger(ledger);
+        agent.setRunLimits(options.limits());
         AtomicReference<AgentEvent.TurnFinished> finished = new AtomicReference<>();
         HarnessMetrics.Collector metrics = new HarnessMetrics.Collector();
         boolean streamEvents = options.outputFormat() == HeadlessOptions.OutputFormat.STREAM_JSON;

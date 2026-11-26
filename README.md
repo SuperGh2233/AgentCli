@@ -88,7 +88,7 @@ echo "列出 src 下的入口类" | java -jar target/paicli-1.0-SNAPSHOT.jar -p 
 java -jar target/paicli-1.0-SNAPSHOT.jar -p "修复编译错误" --permission-mode edit --allow-command "mvn -q compile" --output-format stream-json
 ```
 
-执行一次任务后退出，不弹任何确认。默认只读（读文件、搜代码、联网读取）；`--permission-mode edit` 另外允许写文件和改文件；命令默认一条都不执行，要用 `--allow-command` 逐条精确列出。`text` 只输出最终回答，`json` 结束时输出一个结果对象，`stream-json` 每个事件一行 JSON。退出码：0 完成、1 调用模型失败、2 参数或配置错误、3 只完成一部分、130 已取消。输出格式见 `docs/specs/headless-mode.md`。
+执行一次任务后退出，不弹任何确认。默认只读（读文件、搜代码、联网读取）；`--permission-mode edit` 另外允许写文件和改文件；命令默认一条都不执行，要用 `--allow-command` 逐条精确列出。`text` 只输出最终回答，`json` 结束时输出一个结果对象，`stream-json` 每个事件一行 JSON。每个任务默认最多 50 次模型请求、200 万 Token、30 分钟（`--max-turns`、`--max-tokens`、`--timeout` 或 `PAICLI_UNATTENDED_*` 环境变量调整，Runtime API 和后台任务同样适用），到了就整理已完成的部分。退出码：0 完成、1 调用模型失败、2 参数或配置错误、3 只完成一部分、130 已取消。输出格式见 `docs/specs/headless-mode.md`。
 
 ## 安全边界
 

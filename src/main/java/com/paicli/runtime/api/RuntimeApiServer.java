@@ -25,6 +25,10 @@ import java.util.concurrent.Executors;
  * <p>一轮执行时，除了原来的 {@code turn.started}、{@code message.delta}、{@code turn.completed} / {@code turn.failed}，
  * 还把 Agent 的每个事件写成 {@code agent.<type>}（比如 {@code agent.tool_call_started}），
  * {@code data} 是 {@code {"turn_id":…,"event":{…}}}，{@code event} 和无界面模式 stream-json 的一行相同。
+ *
+ * <p>结束事件按内核的执行状态发（docs/adr/ADR-0002-result-semantics.md）：completed / partial 发
+ * {@code message.delta} + {@code turn.completed}；failed / cancelled 发 {@code turn.failed}，不发 {@code message.delta}。
+ * 两种结束事件都带 {@code agent_status}。runner 没发事件（比如测试里的 lambda）时按 completed 处理。
  */
 public class RuntimeApiServer implements AutoCloseable {
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -115,13 +119,25 @@ public class RuntimeApiServer implements AutoCloseable {
         try {
             String result = runner.run(input, agentEvents);
             agentEvents.flush();
+            AgentEvent.TurnFinished finished = agentEvents.finished();
+            AgentEvent.TurnStatus status = finished == null ? AgentEvent.TurnStatus.COMPLETED : finished.status();
+            String agentStatus = AgentEventJson.status(status);
+            if (status == AgentEvent.TurnStatus.FAILED || status == AgentEvent.TurnStatus.CANCELLED) {
+                // 失败或取消时回答只是一句错误说明，不能当成回答发出去，否则只看外层事件的客户端会把它当成功。
+                String error = finished.answer() == null || finished.answer().isBlank()
+                        ? Objects.toString(result, "") : finished.answer();
+                store.appendEvent(threadId, "turn.failed",
+                        json("turn_id", turnId, "error", error, "agent_status", agentStatus));
+                return;
+            }
             store.appendEvent(threadId, "message.delta",
                     json("turn_id", turnId, "content", Objects.toString(result, "")));
-            store.appendEvent(threadId, "turn.completed", json("turn_id", turnId, "status", "completed"));
+            store.appendEvent(threadId, "turn.completed",
+                    json("turn_id", turnId, "status", "completed", "agent_status", agentStatus));
         } catch (Exception e) {
             agentEvents.flush();
             store.appendEvent(threadId, "turn.failed",
-                    json("turn_id", turnId, "error", Objects.toString(e.getMessage(), "")));
+                    json("turn_id", turnId, "error", Objects.toString(e.getMessage(), ""), "agent_status", "failed"));
         }
     }
 
@@ -138,6 +154,8 @@ public class RuntimeApiServer implements AutoCloseable {
         private final StringBuilder pending = new StringBuilder();
         /** 正在攒的增量是哪一类；null 表示没有。 */
         private Class<? extends AgentEvent> pendingType;
+        /** 本轮的结束事件；runner 不发事件时一直是 null。 */
+        private AgentEvent.TurnFinished finished;
 
         TurnEventWriter(RuntimeThreadStore store, String threadId, String turnId) {
             this.store = store;
@@ -147,6 +165,9 @@ public class RuntimeApiServer implements AutoCloseable {
 
         @Override
         public synchronized void onEvent(AgentEvent event) {
+            if (event instanceof AgentEvent.TurnFinished turnFinished) {
+                finished = turnFinished;
+            }
             String delta = event instanceof AgentEvent.TextDelta text ? text.text()
                     : event instanceof AgentEvent.ReasoningDelta reasoning ? reasoning.text() : null;
             if (delta == null) {
@@ -162,6 +183,10 @@ public class RuntimeApiServer implements AutoCloseable {
             if (pending.length() >= MERGE_LIMIT) {
                 flush();
             }
+        }
+
+        synchronized AgentEvent.TurnFinished finished() {
+            return finished;
         }
 
         /** 把攒着的增量写出去；一轮结束时调用方也要调一次，免得最后一段丢掉。 */

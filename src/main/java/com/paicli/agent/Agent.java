@@ -61,6 +61,8 @@ public class Agent {
     private Supplier<String> sessionModeSupplier = () -> null;
     private boolean returnFinalResponseWhenStreamed;
     private com.paicli.agent.event.AgentEventListener eventListener = com.paicli.agent.event.AgentEventListener.NONE;
+    /** 每轮的硬上限；交互命令行不限，无人值守入口由调用方设置。 */
+    private RunLimits runLimits = RunLimits.UNLIMITED;
     // Phase 3A: opt-in only for the gated interactive inline ReAct path; Main
     // installs one safe point per Turn and clears it only after the worker stops.
     private ReActSteeringSafePoint steeringSafePoint;
@@ -137,6 +139,11 @@ public class Agent {
     /** 订阅每轮执行的结构化事件（无界面模式、Runtime API 等用）；传 null 取消订阅。 */
     public void setEventListener(com.paicli.agent.event.AgentEventListener listener) {
         this.eventListener = listener == null ? com.paicli.agent.event.AgentEventListener.NONE : listener;
+    }
+
+    /** 每轮的硬上限（模型请求次数、总 Token、时间）；传 null 表示不限。 */
+    public void setRunLimits(RunLimits limits) {
+        this.runLimits = limits == null ? RunLimits.UNLIMITED : limits;
     }
 
     /**
@@ -227,7 +234,8 @@ public class Agent {
                 event -> {
                     deliver(terminal, event);
                     deliver(external, event);
-                });
+                },
+                runLimits);
         return loop.run(turn).text();
     }
 
