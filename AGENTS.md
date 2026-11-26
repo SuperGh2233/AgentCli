@@ -188,7 +188,7 @@ mvn test -DskipTests=false                  # 全量
 
 先看本文件 → `README.md` → `Main.java`，再按任务进入对应模块：命令行命令看 `Main` + `CliCommandParser`；规划看 `PlanExecuteAgent` + `Planner` + `ExecutionPlan`；工具看 `ToolRegistry` + `AgentLoop`；模型看 `llm/*Client` + `LlmClientFactory`；Multi-Agent 看 `AgentOrchestrator` + `SubAgent`；MCP 看 `McpServerManager` + `McpClient`；界面输出看 `render/Renderer` + `RendererFactory`；评测看 `eval/benchmark/BenchmarkCoordinatorMain` + `BenchmarkWorkerMain`。
 
-做分阶段的功能前，先找对应的计划和规格：`docs/plans/active/PLAN-*.md`（进行中的计划）、`docs/specs/`（协议和行为规格）、`docs/*-implementation-plan.md`（比如执行中动态指令）。
+做分阶段的功能前，先找对应的计划和规格：当前主线 `docs/plans/active/PLAN-20261126-runtime-roadmap.md`、架构决定 `docs/adr/`、`docs/plans/active/PLAN-*.md`（进行中的计划）、`docs/specs/`（协议和行为规格）、`docs/*-implementation-plan.md`（比如执行中动态指令）。
 
 ## 还没做到的
 

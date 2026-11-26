@@ -2,6 +2,12 @@
 
 | 文件 | 状态 | 用途 |
 |---|---|---|
+| [后续路线：可嵌入的 Agent 运行时](plans/active/PLAN-20261126-runtime-roadmap.md) | active | 当前主线：P0 → 契约 → 统一执行 → 目标循环 → 安全 → 拆 Main → 上下文 → 拆模块 → 收尾 |
+| [ADR-0001 架构边界](adr/ADR-0001-architecture-boundaries.md) | accepted | 4 个模块、只做显式注册、包名不改 |
+| [ADR-0002 结果语义](adr/ADR-0002-result-semantics.md) | accepted | 工具状态自己报告；执行状态和目标状态分开；Runtime API 失败改发 `turn.failed` |
+| [ADR-0003 命令沙箱](adr/ADR-0003-sandbox-escalation.md) | accepted | 交互默认 auto，沙箱外重跑只能由人批准，无人值守永不升级 |
+| [Harness 升级计划（第 0–3 阶段）](plans/active/PLAN-20261124-harness-upgrade.md) | completed | 内核 `AgentLoop`、事件协议、无界面模式的实施和验收历史；后续顺序已被新路线取代 |
+| [无界面模式约定](specs/headless-mode.md) | active | `-p` 参数、事件 JSON 格式、退出码 |
 | [HITL 显示修复](plans/active/PLAN-20261103-hitl-display.md) | completed | 审批显示编码、完整命令与七类 / 97 项离线回归记录 |
 | [Side-Git 恢复安全](plans/active/PLAN-20261103-sidegit-restore-safety.md) | completed | 最终修复后 18 项隔离离线定向回归通过；含已记录的 TOCTOU 边界 |
 | [agents-reference.md](agents-reference.md) | active | 项目行为和模块说明 |

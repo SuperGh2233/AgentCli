@@ -1,6 +1,6 @@
 # Hao CLI Harness 审视与升级计划
 
-状态：草案，待用户确认“需要你决定的事”之后再开工 · 编写日期：2026-11-24 · 基线：`feat/steering-phase2b` / `0ebb6fa`（工作区里另有未提交的 Phase4A-3 Plan Steering 改动）
+状态：第 0–3 阶段已完成；第 4 阶段以后的顺序由 `docs/plans/active/PLAN-20261126-runtime-roadmap.md` 取代（2026-11-26 用户确认），本文件保留为实施历史，不再往下推进 · 编写日期：2026-11-24 · 基线：`feat/steering-phase2b` / `0ebb6fa`（工作区里另有未提交的 Phase4A-3 Plan Steering 改动）
 
 这里的 harness 指“包在大模型外面的那层运行框架”：Agent 循环、工具、权限、上下文管理、会话存储、对外接口。模型本身不在范围内。
 
@@ -233,7 +233,7 @@ mvn clean test -DskipTests=false -Dtest='AgentLoopTest,LegacyModelClientTest,ReA
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
 ```
 
-### 第 3 阶段进展（第一步已完成：用户本机全部通过；第二步的交互终端部分已完成：用户本机测试通过、真实终端显示正常；Runtime API 发事件 2026-11-26 代码已写、等用户本机运行）
+### 第 3 阶段进展（第一步已完成：用户本机全部通过；第二步已完成：交互终端部分用户本机测试通过、真实终端显示正常；Runtime API 发事件第 12 轮用户本机 quick 1787 通过 / 0 失败）
 
 同样分两步：
 
@@ -342,7 +342,7 @@ mvn test -Pphase16-smoke                                                        
 
 另外建议在真实终端里跑一次带工具调用的任务（比如“读一下 README 然后总结”），看思考、工具分组、回答的显示和以前一样。
 
-### 第 3 阶段第二步（续）：Runtime API 发同一套事件（2026-11-26，代码已写，等用户本机运行）
+### 第 3 阶段第二步（续）：Runtime API 发同一套事件（2026-11-26，已完成：第 12 轮用户本机 quick 1787 通过 / 0 失败，见 `docs/reviews/2026-11-26-macos-test-round12.md`；报告指出的失败语义问题转入新路线 P0）
 
 用户确认终端显示正常后开始做。原来 Runtime API（`serve --http`）一轮只写一条 `message.delta`（整段回答）和一条 `turn.completed`，看不到中间的思考、工具调用和用量。
 
@@ -367,11 +367,13 @@ mvn test -Pquick; bash tools/test-failures.sh                                  #
 
 ## 7. 需要你决定的事
 
-1. **包名和配置目录要不要从 paicli 改成 haocli**：改了简历上更统一，但影响所有用户配置和文档；建议放到最后一阶段，并保留旧路径兼容
-2. **要不要拆多模块**：建议拆，但会动构建脚本和 CI
-3. **Lanterna 全屏界面和微信通道还要不要继续维护**：如果不常用，建议冻结只修 bug，把精力放在内核和无界面模式
-4. **“DeepSeek harness”指哪个项目**：请给链接
-5. **Steering 的真实终端验收**：Phase3B-3A 一直等你在真实终端手工验收，内核重构前最好先做完，否则重构后要重新验收
+2026-11-26 的答复（详见新计划和 `docs/adr/`）：
+
+1. **包名和配置目录要不要从 paicli 改成 haocli**：~~改了简历上更统一，但影响所有用户配置和文档~~ → 显示名先改（R0）；收尾阶段做新旧名字都认（R1）和迁移工具（R2）；包名和 Maven 坐标整体迁移（R3）不做（`docs/adr/ADR-0001-architecture-boundaries.md`）
+2. **要不要拆多模块**：→ 拆，4 个模块（`hao-core` / `hao-runtime` / `hao-cli` / `hao-eval`），先用依赖测试守边界，放在拆 Main 之后
+3. **Lanterna 全屏界面和微信通道还要不要继续维护**：→ 冻结，只修崩溃和安全问题；微信的默认拒绝策略在安全阶段并进统一策略入口
+4. **“DeepSeek harness”指哪个项目**：仍未回答，不影响新路线
+5. **Steering 的真实终端验收**：→ 内核已经重构，放到新计划丙阶段（Plan / Team 迁进内核）之后，ReAct 和 Plan 一起验；在那之前 Steering 自动化测试必须一直通过
 
 ## 8. 这一轮不做的事
 
