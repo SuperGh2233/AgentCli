@@ -544,8 +544,9 @@ public class AgentOrchestrator {
             if (observation != null) observation.reviewed(1, workerActivation, reviewerActivation,
                     ReviewDecision.ERROR, reviewResult.content(), null);
             log.warn("Reviewer failed for step {}: {}", step.id(), reviewResult.content());
-            out.println("⚠️ 步骤 [" + step.id() + "] 审查阶段 LLM 调用失败，保留当前执行结果\n");
-            markStepCompleted(steps, step, result.content(), stepPolicy, stepTrustedUrls);
+            // A completed worker invocation is not a verified step. Block dependent DAG nodes.
+            updateStep(steps, step.id(), step.withFailed(result.content()));
+            out.println("❌ 步骤 [" + step.id() + "] 审查调用失败，标记失败并阻止依赖步骤继续执行\n");
             return;
         }
 
@@ -602,9 +603,10 @@ public class AgentOrchestrator {
                 if (observation != null) observation.reviewed(retries + 1, workerActivation,
                         reviewerActivation, ReviewDecision.ERROR, retryReview.content(), null);
                 log.warn("Reviewer failed for step {} retry {}: {}", step.id(), retries, retryReview.content());
-                approved = true;
-                issues = "";
-                break;
+                // Do not promote an unverified retry to COMPLETED when the reviewer is unavailable.
+                updateStep(steps, step.id(), step.withFailed(acceptedResult));
+                out.println("❌ 步骤 [" + step.id() + "] 重试后审查调用失败，标记失败并阻止依赖步骤\n");
+                return;
             }
 
             TeamReviewVerdict retryVerdict = TeamReviewVerdict.parse(retryReview.content());
@@ -615,11 +617,13 @@ public class AgentOrchestrator {
                     retryReview.content(), issues);
         }
 
-        markStepCompleted(steps, step, acceptedResult, stepPolicy, stepTrustedUrls);
         if (approved) {
+            markStepCompleted(steps, step, acceptedResult, stepPolicy, stepTrustedUrls);
             out.println("✅ 步骤 [" + step.id() + "] 重试后审查通过\n");
         } else {
-            out.println("⚠️ 步骤 [" + step.id() + "] 超过最大重试次数，保留当前结果\n");
+            // Exhausting the review budget is a failed verification, not a successful step.
+            updateStep(steps, step.id(), step.withFailed(acceptedResult));
+            out.println("❌ 步骤 [" + step.id() + "] 达到审查重试上限，标记失败并阻止依赖步骤\n");
         }
     }
 
