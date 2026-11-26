@@ -65,6 +65,12 @@ public final class ResourceFailureObserver {
             Path safeRoot = root.toRealPath();
             Path raw = Path.of(args.path("path").asText());
             Path lexical = safeRoot.resolve(raw).normalize();
+            Path lexicalRoot = root.toAbsolutePath().normalize();
+            if (!lexical.startsWith(safeRoot) && lexical.startsWith(lexicalRoot)) {
+                // 项目根本身经过符号链接（比如 macOS 的 /var → /private/var）时，模型给的绝对路径还带着原来的前缀，
+                // 换成真实根再比较；只换根这一段，项目里面的符号链接别名照旧不合并。
+                lexical = safeRoot.resolve(lexicalRoot.relativize(lexical));
+            }
             if (!lexical.startsWith(safeRoot)) return null;
             Path safe = lexical.toRealPath(); // 解析失败就跳过，不做宽松回退。
             if (!safe.startsWith(safeRoot) || !Files.isRegularFile(safe)) return null;

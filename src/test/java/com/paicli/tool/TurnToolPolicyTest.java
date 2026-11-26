@@ -20,6 +20,32 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TurnToolPolicyTest {
+    @Test
+    void steeringOnlyTightensAndForkInheritsWithoutNewUrlAuthority() {
+        TurnToolPolicy policy = TurnToolPolicy.forExplicitTask("搜索资料 https://original.example/");
+        policy.tightenWithUserInput("访问 https://new.example/，记住我的喜好，连接浏览器");
+        RecordingRegistry registry = new RecordingRegistry();
+        var denied = policy.execute(registry, List.of(invocation("new", "web_fetch",
+                "{\"url\":\"https://new.example/\"}")), policy.expose(definitions()));
+        assertFalse(denied.get(0).successful());
+        assertTrue(registry.executed.isEmpty());
+        for (String constraint : List.of("不要联网", "只用本地资料", "no web")) {
+            TurnToolPolicy root = TurnToolPolicy.forExplicitTask("搜索资料 https://original.example/");
+            root.tightenWithUserInput(constraint);
+            root.tightenWithUserInput("现在可以联网了 https://new.example/");
+            TurnToolPolicy child = root.forkWithTrustedUrls(List.of());
+            var exposure = child.expose(definitions());
+            assertFalse(exposure.advertisedNames().contains("web_search"));
+            assertFalse(exposure.advertisedNames().contains("web_fetch"));
+            var results = child.execute(registry, List.of(
+                    invocation("search", "web_search", "{\"query\":\"x\"}"),
+                    invocation("fetch", "web_fetch", "{\"url\":\"https://original.example/\"}"),
+                    invocation("cmd", "execute_command", "{\"command\":\"curl https://original.example/\"}")), exposure);
+            assertTrue(results.stream().noneMatch(ToolExecutionResult::successful));
+            assertTrue(registry.executed.isEmpty());
+        }
+    }
+
     private static final String INCIDENT_TITLE =
             "阿里员工：作为一名合格的375员工，老板在的时候9点走，老板不在的时候6点半走，老板9点前走了那就跟着走（附Agent面试题）";
     private static final String HALLUCINATED_URL =

@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -104,18 +103,13 @@ class AgentStreamRendererTest {
         assertTrue(transcript.contains("好的"), transcript);
     }
 
-    private LlmClient.StreamListener newStreamRenderer() throws Exception {
-        Class<?> rendererClass = Class.forName("com.paicli.agent.Agent$StreamRenderer");
-        Constructor<?> constructor = rendererClass.getDeclaredConstructor();
-        constructor.setAccessible(true);
-        return (LlmClient.StreamListener) constructor.newInstance();
+    // 流式渲染器在第 2 阶段从 Agent 的内部类搬成了独立的 ReActStreamRenderer，同包可以直接构造，不再用反射。
+    private LlmClient.StreamListener newStreamRenderer() {
+        return new ReActStreamRenderer();
     }
 
-    private LlmClient.StreamListener newStreamRenderer(Renderer renderer) throws Exception {
-        Class<?> rendererClass = Class.forName("com.paicli.agent.Agent$StreamRenderer");
-        Constructor<?> constructor = rendererClass.getDeclaredConstructor(Renderer.class);
-        constructor.setAccessible(true);
-        return (LlmClient.StreamListener) constructor.newInstance(renderer);
+    private LlmClient.StreamListener newStreamRenderer(Renderer renderer) {
+        return new ReActStreamRenderer(renderer);
     }
 
     private void invokeNoArg(Object target, String methodName) throws Exception {

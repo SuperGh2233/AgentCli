@@ -27,6 +27,16 @@ java -jar target/paicli-1.0-SNAPSHOT.jar --session <id>
 
 只恢复 ReAct 对话，沿用 `/resume` 对未完成最后一轮的处理，恢复后清除人工确认授权并刷新状态。找不到会话或记录不可用时明确报错并退出。实际选择 Lanterna 全屏 TUI 时拒绝这些参数；终端太小而退回 CLI 时可以恢复。不增加持久化机制或任务检查点，`/resume` 行为不变。
 
+## 无界面模式（一次执行，给脚本和 CI 用）
+
+```bash
+java -jar target/paicli-1.0-SNAPSHOT.jar -p "总结 README 的要点"
+echo "列出 src 下的入口类" | java -jar target/paicli-1.0-SNAPSHOT.jar -p --output-format json
+java -jar target/paicli-1.0-SNAPSHOT.jar -p "修复编译错误" --permission-mode edit --allow-command "mvn -q compile" --output-format stream-json
+```
+
+执行一次任务后退出，不弹任何确认。默认只读（读文件、搜代码、联网读取）；`--permission-mode edit` 另外允许写文件和改文件；命令默认一条都不执行，要用 `--allow-command` 逐条精确列出。`text` 只输出最终回答，`json` 结束时输出一个结果对象，`stream-json` 每个事件一行 JSON。退出码：0 完成、1 调用模型失败、2 参数或配置错误、3 只完成一部分、130 已取消。输出格式见 `docs/specs/headless-mode.md`。
+
 ## 测试策略
 
 MRTR-3 历史验收与相关 MCP/界面离线回归：18 个测试类、170 项全部通过，保留原 159 项，新增能力声明测试 11 项。MRTR-4 Lanterna UI 已纳入完整离线回归：本轮 43 个测试类、387 项全部通过（0 失败、0 错误、0 跳过）；真实终端手工验收仍待执行。构建和测试输出隔离在 `/tmp`；没有调用模型、外网、真实浏览器或 Docker。命令和剩余限制见 [MRTR 实施记录](docs/plans/active/PLAN-20261103-mcp-mrtr.md)。
@@ -357,6 +367,7 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 - `java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080` 启动 localhost Runtime API
 - Runtime API 端点：`POST /v1/threads`、`POST /v1/threads/{id}/turns`、`GET /v1/threads/{id}/events`
 - Runtime API 强制要求 `PAICLI_RUNTIME_API_KEY` 或 `-Dpaicli.runtime.api.key`
+- Runtime API 和后台任务没人确认，工具按和 `-p` 相同的白名单放行：默认只读、不执行命令。`serve` 可加 `--permission-mode edit` 允许写文件、`--allow-command "精确命令"`（可重复）放行命令；后台任务用 `PAICLI_TASK_PERMISSION_MODE=edit` 允许写文件（后台任务不执行命令）。2026-11-26 之前这两条路径没有任何审批和白名单
 - 详细文档见 `docs/phase-20-runtime-api.md`
 
 ### 第二十一期：图片复制粘贴输入（MVP）

@@ -256,7 +256,9 @@ public final class McpTrustStore {
     private static void ensurePrivateDirectory(Path directory) throws IOException {
         if (directory == null) throw new IOException("MCP trust 目录不能为空");
         for (Path current = directory; current != null; current = current.getParent()) {
-            if (Files.isSymbolicLink(current)) throw new IOException("MCP trust 目录不能包含符号链接");
+            if (Files.isSymbolicLink(current) && !isRootOwnedLink(current)) {
+                throw new IOException("MCP trust 目录不能包含符号链接");
+            }
         }
         if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
             try {
@@ -269,6 +271,19 @@ public final class McpTrustStore {
             throw new IOException("MCP trust 存储位置不是安全目录");
         }
         secureDirectory(directory);
+    }
+
+    /**
+     * 属主是 root 的符号链接（比如 macOS 自带的 /var → /private/var、/tmp → /private/tmp）普通用户改不了，
+     * 放行；用户自己或其他普通用户能建、能改的符号链接仍然拒绝。读不到属主（比如 Windows）时按不安全处理。
+     */
+    private static boolean isRootOwnedLink(Path link) {
+        try {
+            Object uid = Files.getAttribute(link, "unix:uid", LinkOption.NOFOLLOW_LINKS);
+            return uid instanceof Integer value && value == 0;
+        } catch (UnsupportedOperationException | IllegalArgumentException | IOException error) {
+            return false;
+        }
     }
 
     private static void createPrivateFile(Path path) throws IOException {

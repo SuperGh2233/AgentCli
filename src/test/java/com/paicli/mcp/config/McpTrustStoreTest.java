@@ -77,6 +77,24 @@ class McpTrustStoreTest {
         assertTrue(Files.isSymbolicLink(file));
     }
 
+    /** 系统自带的 root 符号链接放行，但用户自己建的目录符号链接仍然拒绝。 */
+    @Test
+    void userCreatedSymlinkedParentDirectoryIsRejected() throws Exception {
+        Path real = Files.createDirectories(temp.resolve("real"));
+        Path link = temp.resolve("link");
+        try {
+            Files.createSymbolicLink(link, real);
+        } catch (UnsupportedOperationException | IOException error) {
+            Assumptions.assumeTrue(false, "symbolic links unavailable in this environment");
+        }
+        McpTrustStore store = new McpTrustStore(link.resolve("state/mcp-trust.json"));
+
+        IOException error = assertThrows(IOException.class,
+                () -> store.trust(projectConfig("a"), "repo", fingerprint('a')));
+        assertTrue(error.getMessage().contains("符号链接"), error.getMessage());
+        assertFalse(Files.exists(real.resolve("state/mcp-trust.json")));
+    }
+
     @Test
     void trustFileAndDirectoryAreRestrictedToOwner() throws Exception {
         Path file = trustFile();

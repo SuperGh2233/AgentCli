@@ -52,6 +52,136 @@ public class ExecutionPlan {
     }
 
     /**
+     * 对一个尚未开始的任务提出修订。调用方必须在当前执行批次全部收尾后使用。
+     */
+    public record PendingTaskRevision(String taskId, String description,
+                                      Task.TaskType type, List<String> dependencies) {
+        public PendingTaskRevision {
+            if (taskId == null || taskId.isBlank()) {
+                throw new IllegalArgumentException("修订任务 ID 不能为空");
+            }
+            if (description == null || description.isBlank()) {
+                throw new IllegalArgumentException("修订后的任务描述不能为空");
+            }
+            Objects.requireNonNull(type, "任务类型不能为空");
+            dependencies = List.copyOf(Objects.requireNonNull(dependencies, "任务依赖不能为空"));
+            if (new HashSet<>(dependencies).size() != dependencies.size()) {
+                throw new IllegalArgumentException("任务依赖不能重复");
+            }
+        }
+    }
+
+    /**
+     * 原子修订待执行节点。已完成节点对象及其结果保持不变；
+     * 校验全部通过后才替换任务描述、类型和依赖关系。
+     */
+    public synchronized void revisePendingTasks(List<PendingTaskRevision> revisions) {
+        Objects.requireNonNull(revisions, "任务修订列表不能为空");
+        if (revisions.isEmpty()) {
+            throw new IllegalArgumentException("至少需要一项任务修订");
+        }
+        if (status != PlanStatus.CREATED && status != PlanStatus.RUNNING) {
+            throw new IllegalStateException("当前计划状态不允许修订：" + status);
+        }
+        if (tasks.values().stream().anyMatch(task -> task.getStatus() == Task.TaskStatus.RUNNING)) {
+            throw new IllegalStateException("当前执行批次尚未结束，不能修订计划");
+        }
+
+        Map<String, Task> proposedTasks = new LinkedHashMap<>(tasks);
+        Set<String> revisedIds = new HashSet<>();
+        for (PendingTaskRevision revision : revisions) {
+            Objects.requireNonNull(revision, "任务修订项不能为空");
+            if (!revisedIds.add(revision.taskId())) {
+                throw new IllegalArgumentException("同一任务不能在一次修订中重复出现：" + revision.taskId());
+            }
+            Task current = tasks.get(revision.taskId());
+            if (current == null) {
+                throw new IllegalArgumentException("修订目标不存在：" + revision.taskId());
+            }
+            if (current.getStatus() != Task.TaskStatus.PENDING) {
+                throw new IllegalArgumentException("只能修订尚未开始的任务：" + revision.taskId());
+            }
+            proposedTasks.put(revision.taskId(), new Task(
+                    revision.taskId(), revision.description(), revision.type(), revision.dependencies()));
+        }
+
+        for (Task task : proposedTasks.values()) {
+            for (String dependencyId : task.getDependencies()) {
+                Task dependency = proposedTasks.get(dependencyId);
+                if (dependency == null) {
+                    throw new IllegalArgumentException("任务 " + task.getId()
+                            + " 依赖不存在的任务：" + dependencyId);
+                }
+                // 终止节点的旧依赖保留作执行记录，不妨碍独立 PENDING 节点修订。
+                if (task.getStatus() != Task.TaskStatus.FAILED
+                        && task.getStatus() != Task.TaskStatus.SKIPPED
+                        && (dependency.getStatus() == Task.TaskStatus.FAILED
+                        || dependency.getStatus() == Task.TaskStatus.SKIPPED)) {
+                    throw new IllegalArgumentException("任务 " + task.getId()
+                            + " 不能依赖失败或已跳过的任务：" + dependencyId);
+                }
+            }
+        }
+
+        List<String> proposedOrder = buildExecutionOrder(proposedTasks);
+        if (proposedOrder == null) {
+            throw new IllegalArgumentException("修订后的任务依赖存在循环，已保留原计划");
+        }
+
+        // 所有校验通过后再更新反向依赖，避免校验失败留下半套关系。
+        for (Task task : tasks.values()) {
+            for (String dependentId : task.getDependents()) {
+                task.removeDependent(dependentId);
+            }
+        }
+        tasks.putAll(proposedTasks);
+        for (Task task : tasks.values()) {
+            for (String dependencyId : task.getDependencies()) {
+                tasks.get(dependencyId).addDependent(task.getId());
+            }
+        }
+        executionOrder.clear();
+        executionOrder.addAll(proposedOrder);
+    }
+
+    private static List<String> buildExecutionOrder(Map<String, Task> candidateTasks) {
+        List<String> order = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+        Set<String> visiting = new HashSet<>();
+        for (Task task : candidateTasks.values()) {
+            if (!visited.contains(task.getId())
+                    && !topologicalSort(task, candidateTasks, visited, visiting, order)) {
+                return null;
+            }
+        }
+        return order;
+    }
+
+    private static boolean topologicalSort(Task task, Map<String, Task> candidateTasks,
+                                           Set<String> visited, Set<String> visiting,
+                                           List<String> order) {
+        String taskId = task.getId();
+        if (visiting.contains(taskId)) {
+            return false;
+        }
+        if (visited.contains(taskId)) {
+            return true;
+        }
+        visiting.add(taskId);
+        for (String dependencyId : task.getDependencies()) {
+            Task dependency = candidateTasks.get(dependencyId);
+            if (dependency == null
+                    || !topologicalSort(dependency, candidateTasks, visited, visiting, order)) {
+                return false;
+            }
+        }
+        visiting.remove(taskId);
+        visited.add(taskId);
+        order.add(taskId);
+        return true;
+    }
+
+    /**
      * 获取任务
      */
     public Task getTask(String id) {

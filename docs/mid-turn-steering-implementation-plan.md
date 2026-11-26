@@ -1,9 +1,9 @@
 # PaiCLI 执行中动态指令（Mid-turn Steering）与任务控制：设计及实施计划
 
-> 状态：**Phase1、Phase2A 与 Phase2B-1 独立输入桥已验证；Main 尚未接线** · 编写日期：2026-10-20；更新：2026-10-21
+> 状态（2026-11-24 按代码核对）：**Phase3A ReAct 安全点和 Phase3B-3A 的 `Main` 接线已实现，默认关闭**，只有 `paicli.steering.enabled=true` 且走交互式 inline ReAct 时启用；离线定向回归已通过，真实终端人工验收未完成。Phase4A-3 的 Plan 安全点只有代码和单元测试，`Main` 还没接。各阶段详情见下文 · 编写日期：2026-10-20
 > 当前实施仓库：`projects/paicli-agentcli-public-export-20261021-6c9049d020`；早期记录来自原仓库，本批不访问原仓库。
 > 范围：前台 CLI 的 ReAct / Plan-and-Execute / Multi-Agent 运行时输入控制，以及必要的上下文、工具、持久化衔接。  
-> 变更边界：本文是开发依据，**不代表完整功能已实现**；当前只完成 Phase1 和下述 Phase2A 边界，后续每阶段单独验收。
+> 变更边界：本文是开发依据，**不代表完整功能已实现**；完成到哪一步以上面的状态行、下文各阶段记录和代码为准，后续每阶段单独验收。
 > 目标定位：以 Codex 的 Steer / Queue 思路作为交互参考，按照 PaiCLI 的 Java、JLine、工具调用架构重新设计，不照搬产品内部实现。
 
 ## 0. 一句话目标与设计原则
@@ -542,6 +542,33 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 ### Phase 4：Plan-and-Execute
 - 增加计划约束修订和批次安全检查点，不静默重跑已完成节点。
 - **验收**：DAG A、B 并行、C 依赖 A/B 时，Steer 调整后续要求只影响未启动步骤；旧任务状态、审批、失败重规划保持正确。
+
+#### Phase4A-3（2026-11-06，安全点与单元测试完成）
+- 基线：`feat/steering-phase2b` / `3d394ef9260a6841b547589ce3a2f6ec2ce71063`，保留 Phase4A-2 的五个已有修改文件。
+- 只增加完整 DAG 批次后的安全点及单元测试。先写测试，再实现；不改变默认开关，不改终端、审批或 Renderer。
+- 当前批次全部结果写回后，按 sequence 合并当前 Turn 的 STEER，调用 `Planner.revisePendingTasks`，以 `ExecutionPlan` 原子校验应用。ENQUEUE 不进入当前 DAG。
+- 返回合法提案（包括空 revisions）后提交输入；模型返回但提案非法时提交并停止，原 DAG 保留；请求异常时标记 DELIVERY_UNCERTAIN 并停止，不自动重发。取消优先，尚未发送的预留输入退回。
+- 最终收尾通过 `finalizeOrContinue` 原子关闭输入窗口；CONTINUE 时继续处理 Steer，FINALIZE 后才 completeTurn。失败重规划在整个批次写回和 Steering 处理之后执行，保留上限与 skip 规则。
+- Steering 只收紧 no-web / local-only 限制，不增加可信 URL 或其他权限；后续任务继承根策略限制。
+- **范围限制**：Plan 模式尚未接入 Main / SteeringRunLoop。`createPlanReviewHandler` 仍有独立 Terminal / LineReader 读取路径，与 SteeringRunLoop 的唯一 Reader 模型冲突，需独立完成计划审阅输入桥接后再接线。
+- 验证仅运行 `mvn test -Dtest=PlanExecuteAgentTest,PlanSteeringSafePointTest,TurnToolPolicyTest,ExecutionPlanTest,PlannerTest -DskipTests=false`；测试前只 touch 本次修改的 Java 文件。本轮不运行 quick、真实模型、Docker 或评测。
+- 实际实现：`PlanExecuteAgent.configurePlanSteeringSafePoint(manager, turnId)` / `clearPlanSteeringSafePoint()` 显式安装和移除安全点，默认 null；调用方须先把 Turn 标为 RUNNING。没有安装时保留旧调用方式。新 Turn 的 Queue 初始输入须由调用方处理，安全点发现混入时整批 requeue 并报错。
+- 模型返回 null 按普通 IOException 处理，标记交付不确定；仅非空响应的解析/提案校验错误使用 `Planner.RevisionResponseException`。取消时不发起新的修订；请求中取消则提交已送达输入、停止应用提案和启动任务。停止路径释放预留，输入管理器保留已提交/交付不确定状态，未交付输入明确标为取消。
+- 失败批次先写回全部结果。需要 replan 时先处理 Steering，并把已接收的补充要求带进 replan；无需 replan 时先 skipDependentsOf，达到上限时先 skipAllPending，再处理 Steering，避免把已不再执行的节点交给 Planner 修订。保留原来的重规划触发条件与次数上限。
+- 用户追加授权的最小修复：`ExecutionPlan.java` 对 FAILED/SKIPPED 终止节点保留旧依赖记录，不因它们指向 FAILED/SKIPPED 而拒绝独立 PENDING 节点的合法修订；PENDING 节点仍不能依赖失败/跳过节点，全图缺失节点和循环校验不变。`ExecutionPlanTest.java` 新增一条精确回归，原 Phase4A-2 修改全部保留。
+- 验证过程：首次沙箱内 Maven 因 `~/.m2` 依赖锁不可写退出 1（BUILD FAILURE，未执行测试）；获准沙箱外运行后，测试先因缺少新 API 编译失败，退出 1（BUILD FAILURE，五类均未执行）。实现后同一集合首次通过 83 项；补充审阅意见和回归后最终通过 87 项，真实退出码 **0**，**BUILD SUCCESS**。只对本次修改的八个 Java 源码/测试文件执行 touch，没有 touch 文档或其余文件。
+
+| 最终测试类 | Tests run | Failures | Errors | Skipped |
+|---|---:|---:|---:|---:|
+| PlanExecuteAgentTest | 11 | 0 | 0 | 0 |
+| PlanSteeringSafePointTest | 17 | 0 | 0 | 0 |
+| TurnToolPolicyTest | 39 | 0 | 0 | 0 |
+| ExecutionPlanTest | 13 | 0 | 0 | 0 |
+| PlannerTest | 7 | 0 | 0 | 0 |
+| 合计 | 87 | 0 | 0 | 0 |
+
+- 测试覆盖：A/B 并行后只修订 C、输入 sequence 和 Queue 隔离、空 revisions、非法 JSON/节点/循环提案原子拒绝、请求异常与 null 响应、取消前后释放预留、联网限制向后续分支继承、无 PENDING 时仍请求 Planner、收尾竞争（接收并处理或明确 stale）、重规划顺序与上限，以及关闭安全点后的旧调用方式。
+- 最终检查：`git diff --check` 通过；分支和 HEAD 不变，未提交/推送。dirty paths 共 11 个：原五个（ExecutionPlan、Planner、Task、ExecutionPlanTest、PlannerTest），以及 PlanExecuteAgent、PlanSteeringSafePoint、PlanSteeringSafePointTest、TurnToolPolicy、TurnToolPolicyTest 和本文件。没有修改 Main/TUI/SteeringRunLoop 或默认开关；下一阶段仍是独立的计划审阅输入桥接。
 
 ### Phase 5：Multi-Agent / 任务持久化（增强）
 - 主控传播约束版本到 Worker，防重复处理；可靠校验工具写入冲突。

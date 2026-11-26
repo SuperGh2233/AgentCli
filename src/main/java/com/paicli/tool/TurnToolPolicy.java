@@ -117,8 +117,8 @@ public final class TurnToolPolicy {
 
     /** 输入带明确的标题 / 摘录标记且没有提出请求：本轮只收掉联网工具，本地工具照常开放。 */
     private final boolean headlineOnly;
-    private final boolean explicitNoWeb;
-    private final boolean webForbidden;
+    private volatile boolean explicitNoWeb;
+    private volatile boolean webForbidden;
     private final BrowserIntent browserIntent;
     private final boolean existingBrowserContextRequested;
     private final boolean browserTabManagementRequested;
@@ -211,6 +211,14 @@ public final class TurnToolPolicy {
     /** Isolates URL discovery state for a parallel plan task or team worker. */
     public TurnToolPolicy fork() {
         return new TurnToolPolicy(this);
+    }
+
+    /** 批次安全点只增加禁止联网限制；不解析新 URL、浏览器权限或记忆授权。 */
+    public void tightenWithUserInput(String input) {
+        if (input != null && EXPLICIT_NO_WEB.matcher(input).find()) {
+            explicitNoWeb = true;
+            webForbidden = true;
+        }
     }
 
     /**

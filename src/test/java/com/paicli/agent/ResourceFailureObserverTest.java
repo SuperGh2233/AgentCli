@@ -158,4 +158,21 @@ class ResourceFailureObserverTest {
                                      boolean success, boolean timeout) {
         return new ToolExecutionResult(f.id(), tool, args, text, 1, timeout, List.of(), success, List.of(), f.failureCode());
     }
+
+    /** 项目根经过符号链接时（macOS 的临时目录就在 /var → /private/var 下），绝对路径和相对路径要算同一个文件。 */
+    @Test void absolutePathThroughSymlinkedRootMatchesRelativePath() throws Exception {
+        Path real = Files.createDirectories(root.resolve("real"));
+        Files.writeString(real.resolve("a"), "source");
+        Path link = root.resolve("link");
+        try {
+            Files.createSymbolicLink(link, real);
+        } catch (UnsupportedOperationException | java.io.IOException error) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false, "symbolic links unavailable in this environment");
+        }
+        var observer = new ResourceFailureObserver(link, true);
+        assertTrue(observer.observe(List.of(failure("a", 1))).isEmpty());
+        assertTrue(observer.observe(List.of(failure(link.resolve("a").toString(), 2))).isEmpty());
+        assertEquals(ResourceFailureObserver.Notice.REPEATED_EDIT_SOURCE_NOT_FOUND,
+                observer.observe(List.of(failure("./a", 3))).orElseThrow());
+    }
 }

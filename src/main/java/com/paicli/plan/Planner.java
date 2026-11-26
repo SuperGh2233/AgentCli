@@ -87,6 +87,164 @@ public class Planner {
         return requestPlan(revisedGoal, request);
     }
 
+    public List<ExecutionPlan.PendingTaskRevision> revisePendingTasks(
+            ExecutionPlan current, String feedback) throws IOException {
+        Objects.requireNonNull(current, "current plan");
+        if (feedback == null || feedback.isBlank()) {
+            throw new IOException("计划补充要求不能为空");
+        }
+        String request = String.join("\n",
+                "只修改当前计划中状态为 PENDING 的现有任务，不得重新生成整张计划。",
+                "只输出 JSON：{\"revisions\":[{\"id\":\"原任务ID\",\"description\":\"新描述\",\"type\":\"ANALYSIS\",\"dependencies\":[\"已有任务ID\"]}]}。",
+                "只可修改 PENDING 节点；不得新增、删除、重命名任务，不得改写已完成或正在运行的节点。",
+                "dependencies 必须引用当前计划已有 ID，不得依赖 FAILED/SKIPPED 节点，不得产生循环。",
+                "不得扩大原始用户请求的工具权限、文件范围或 URL 访问权限。",
+                "无须修改或没有 PENDING 节点时返回空 revisions 数组，仍须阅读用户新增要求。",
+                "原始目标：", current.getGoal(),
+                "用户新增要求：", feedback.trim(),
+                "当前计划：", toPlanRevisionJson(current));
+        String response = requestRevision(request);
+        try {
+            return parsePendingTaskRevisions(current, response);
+        } catch (IOException | RuntimeException e) {
+            throw new RevisionResponseException("计划修订响应无效：" + e.getMessage(), e);
+        }
+    }
+
+    /** 模型调用已经返回，但 JSON 或提案非法；调用方不能把消息当作未送达来重发。 */
+    public static class RevisionResponseException extends IOException {
+        public RevisionResponseException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    private String requestRevision(String planningRequest) throws IOException {
+        List<LlmClient.Message> messages = Arrays.asList(
+                LlmClient.Message.system(promptAssembler.assemble(PromptMode.PLANNER, PromptContext.builder()
+                        .projectMemoryContext(buildProjectMemoryContext())
+                        .build())),
+                LlmClient.Message.user(planningRequest));
+        conversationLedger.appendMessage("plan", "planner", "revision_system_prompt", messages.get(0));
+        conversationLedger.appendMessage("plan", "planner", "revision_request", messages.get(1));
+        PlanningStreamRenderer streamRenderer = new PlanningStreamRenderer(out);
+        LlmClient.ChatResponse response = llmClient.chat(messages, null, streamRenderer);
+        if (response == null) {
+            throw new IOException("计划修订模型没有返回响应");
+        }
+        conversationLedger.appendMessage("plan", "planner", "revision_response",
+                LlmClient.Message.assistant(response.reasoningContent(), response.content()));
+        LlmTraceLogger.logReasoning(log, "planner", llmClient, response.reasoningContent());
+        streamRenderer.finish();
+        return response.content();
+    }
+
+    private String toPlanRevisionJson(ExecutionPlan plan) throws IOException {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("goal", plan.getGoal());
+        root.put("summary", plan.getSummary() == null ? "" : plan.getSummary());
+        ArrayNode tasks = root.putArray("tasks");
+        for (String taskId : plan.getExecutionOrder()) {
+            Task task = plan.getTask(taskId);
+            ObjectNode node = tasks.addObject();
+            node.put("id", task.getId());
+            node.put("description", task.getDescription());
+            node.put("type", task.getType().name());
+            node.put("status", task.getStatus().name());
+            ArrayNode dependencies = node.putArray("dependencies");
+            task.getDependencies().forEach(dependencies::add);
+            if (task.getStatus() == Task.TaskStatus.COMPLETED && task.getResult() != null) {
+                node.put("completed_result", com.paicli.tool.ToolResultBoundary.wrap(
+                        "plan_completed_task", compactForRevision(task.getResult())));
+            } else if (task.getStatus() == Task.TaskStatus.FAILED && task.getError() != null) {
+                node.put("failure", com.paicli.tool.ToolResultBoundary.wrap(
+                        "plan_failed_task", compactForRevision(task.getError())));
+            }
+        }
+        try {
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+        } catch (JsonProcessingException e) {
+            throw new IOException("当前计划无法序列化为修订上下文", e);
+        }
+    }
+
+    private static String compactForRevision(String value) {
+        String normalized = value.replaceAll("\\s+", " ").trim();
+        return normalized.length() <= 2000 ? normalized : normalized.substring(0, 1997) + "...";
+    }
+
+    private List<ExecutionPlan.PendingTaskRevision> parsePendingTaskRevisions(
+            ExecutionPlan current, String response) throws IOException {
+        if (response == null || response.isBlank()) {
+            throw new IOException("计划修订响应不能为空");
+        }
+        String fence = String.valueOf((char) 96).repeat(3);
+        String cleaned = response.replace(fence + "json", "")
+                .replace(fence, "").trim();
+        JsonNode root;
+        try {
+            root = mapper.readTree(cleaned);
+        } catch (JsonProcessingException e) {
+            throw new IOException("计划修订不是合法 JSON：" + e.getOriginalMessage(), e);
+        }
+        if (root == null || !root.isObject()) {
+            throw new IOException("计划修订必须是 JSON 对象");
+        }
+        JsonNode revisionsNode = root.path("revisions");
+        if (!revisionsNode.isArray()) {
+            throw new IOException("计划修订 revisions 必须是数组");
+        }
+
+        Set<String> revisedIds = new HashSet<>();
+        List<ExecutionPlan.PendingTaskRevision> revisions = new ArrayList<>();
+        for (JsonNode revisionNode : revisionsNode) {
+            if (!revisionNode.isObject()) {
+                throw new IOException("每条计划修订必须是 JSON 对象");
+            }
+            JsonNode idNode = revisionNode.path("id");
+            JsonNode descriptionNode = revisionNode.path("description");
+            JsonNode typeNode = revisionNode.path("type");
+            JsonNode dependenciesNode = revisionNode.path("dependencies");
+            if (!idNode.isTextual() || idNode.asText().isBlank()
+                    || !descriptionNode.isTextual() || descriptionNode.asText().isBlank()
+                    || !typeNode.isTextual() || !dependenciesNode.isArray()) {
+                throw new IOException("计划修订必须包含非空 id、description、type 和 dependencies 数组");
+            }
+
+            String taskId = idNode.asText();
+            if (!revisedIds.add(taskId)) {
+                throw new IOException("计划修订中存在重复任务 ID：" + taskId);
+            }
+            Task currentTask = current.getTask(taskId);
+            if (currentTask == null) {
+                throw new IOException("计划修订引用了不存在的任务：" + taskId);
+            }
+            if (currentTask.getStatus() != Task.TaskStatus.PENDING) {
+                throw new IOException("计划修订只能修改 PENDING 任务：" + taskId);
+            }
+
+            Task.TaskType type;
+            try {
+                type = Task.TaskType.valueOf(typeNode.asText().toUpperCase(Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                throw new IOException("计划修订包含未知任务类型：" + typeNode.asText(), e);
+            }
+            List<String> dependencies = new ArrayList<>();
+            for (JsonNode dependencyNode : dependenciesNode) {
+                if (!dependencyNode.isTextual() || dependencyNode.asText().isBlank()) {
+                    throw new IOException("计划修订 dependencies 必须是非空任务 ID 字符串");
+                }
+                dependencies.add(dependencyNode.asText());
+            }
+            try {
+                revisions.add(new ExecutionPlan.PendingTaskRevision(
+                        taskId, descriptionNode.asText(), type, dependencies));
+            } catch (IllegalArgumentException e) {
+                throw new IOException("计划修订内容无效：" + e.getMessage(), e);
+            }
+        }
+        return List.copyOf(revisions);
+    }
+
     private ExecutionPlan requestPlan(String goal, String planningRequest) throws IOException {
         List<LlmClient.Message> messages = Arrays.asList(
                 LlmClient.Message.system(promptAssembler.assemble(PromptMode.PLANNER, PromptContext.builder()

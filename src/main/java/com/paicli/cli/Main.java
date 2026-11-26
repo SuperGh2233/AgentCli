@@ -292,6 +292,11 @@ public class Main {
             startRuntimeApiAndBlock(args);
             return;
         }
+        if (com.paicli.headless.HeadlessCommand.isHeadless(args)) {
+            // 无界面模式：日志只写文件，标准输出只放约定格式的结果。
+            configureLogging();
+            System.exit(com.paicli.headless.HeadlessCommand.run(args, System.in, System.out, System.err));
+        }
 
         configureLogging();
 
@@ -1240,11 +1245,21 @@ public class Main {
             System.exit(1);
         }
         int port = parseServePort(args, 8080);
+        com.paicli.headless.UnattendedPermissions permissions;
+        try {
+            // 无人值守：和 -p 同一套白名单，默认只读；--permission-mode edit / --allow-command 显式放宽。
+            permissions = com.paicli.headless.UnattendedPermissions.fromArgs(args);
+        } catch (IllegalArgumentException e) {
+            System.err.println("❌ " + e.getMessage());
+            System.exit(2);
+            return;
+        }
         try {
             RuntimeThreadStore store = new RuntimeThreadStore(RuntimeThreadStore.defaultDbPath());
             RuntimeApiServer server = new RuntimeApiServer(
                     store,
-                    prompt -> runHeadlessTask(prompt, client),
+                    new com.paicli.headless.UnattendedTaskRunner(() -> client, Path.of("."), permissions,
+                            Path.of(System.getProperty("user.home"))),
                     port,
                     RuntimeApiServer.configuredApiKey());
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -1254,6 +1269,7 @@ public class Main {
             server.start();
             System.out.println("✅ PaiCLI Runtime API 已启动: http://127.0.0.1:" + server.port());
             System.out.println("   认证: Authorization: Bearer <PAICLI_RUNTIME_API_KEY>");
+            System.out.println("   " + permissions.describe());
             new CountDownLatch(1).await();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -1279,28 +1295,13 @@ public class Main {
         return defaultPort;
     }
 
-    private static String runHeadlessTask(String prompt, LlmClient llmClient) {
-        ToolRegistry registry = new ToolRegistry();
-        registry.setProjectPath(Path.of(".").toAbsolutePath().normalize().toString());
-        com.paicli.tool.CommandSandboxStatus sandboxStatus = registry.configureCommandSandbox(
-                com.paicli.tool.CommandSandboxMode.fromConfiguration(),
-                Path.of(registry.getProjectPath()));
-        if (!sandboxStatus.message().isBlank()) {
-            System.err.println(sandboxStatus.message());
-        }
-        Agent agent = new Agent(llmClient, registry);
-        try {
-            agent.setConversationLedger(ConversationLedger.openDefault(
-                    Path.of(System.getProperty("user.home"))));
-        } catch (IOException ignored) {
-            // A background task should still run if its audit directory is temporarily unavailable.
-        }
-        return agent.run(prompt);
-    }
-
     private static DurableTaskManager openTaskManager(AtomicReference<LlmClient> llmClientRef) {
         try {
-            return DurableTaskManager.openDefault(prompt -> runHeadlessTask(prompt, llmClientRef.get()));
+            // 后台任务没人确认：默认只读，PAICLI_TASK_PERMISSION_MODE=edit 才能写文件；不执行命令。
+            com.paicli.headless.UnattendedPermissions permissions = com.paicli.headless.UnattendedPermissions
+                    .fromModeValue(loadConfigValue("PAICLI_TASK_PERMISSION_MODE", "read-only"));
+            return DurableTaskManager.openDefault(new com.paicli.headless.UnattendedTaskRunner(
+                    llmClientRef::get, Path.of("."), permissions, Path.of(System.getProperty("user.home"))));
         } catch (Exception e) {
             throw new IllegalStateException("后台任务管理器初始化失败: " + e.getMessage(), e);
         }

@@ -263,6 +263,7 @@ OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 202
 - resources 有两种用法：作为虚拟工具调用，或在输入里用 @ 引用
 - CLI 首屏默认最多等 MCP 启动 8 秒，慢的 server 在后台继续初始化，状态保持 `starting`，可以用 `/mcp`、`/mcp logs <name>` 查看
 - 旧协议通知处理：tools/list_changed → 整体替换工具列表；resources 变化 → 缓存失效
+- stdio server 自动重启：意外退出或连续 2 次 ping 不回（判定卡死）时，移除工具、结束整棵进程树，按 1s/2s/4s 重启，连续 3 次没救回来就停下等用户 `/mcp restart`。ping 只发给旧协议本地 stdio server，server 正在处理请求时跳过。HTTP server 不做断线重连
 
 ### Chrome DevTools MCP
 
@@ -499,8 +500,9 @@ TuiBootstrap、LanternaWindow、TuiSessionController、pane/、hitl/、history/�
 - `/model <provider>/<id>` 支持指定供应商，也支持 ID 本身带 `/`；裸 ID 匹配到多个供应商时报歧义。补全读取当前配置，新添加的条目不用重启就能出现。
 
 ### LLM 客户端
+- 和厂商无关的新接口在 `llm/core/`（升级计划第 1 阶段，Agent 还没切过去）：`ChatMessage`（角色 + 内容块：文字、思考、图片、工具调用；工具结果单独一种角色）、`StreamEvent`（思考 / 正文增量 → 每个工具调用一条完成事件 → 用量 → 结束）、`StopReason`（正常答完、要调工具、被长度截断、被审核拦下、不明）、`ModelClient`。`LegacyModelClient` 把现有 `LlmClient` 包成新接口，`LegacyMessageCodec` 负责两种消息格式互转。停止原因来自 `StreamListener.onFinishReason`（只在请求成功返回前回调一次），包装 listener 的类要转发它；被长度截断时即使有工具调用也报 MAX_TOKENS，DeepSeek 的 DSML 调用报 TOOL_USE。工具调用事件要等整条回复结束才发，避免重试或 DSML 解析造成重复或错误的调用显示
 - GLMClient：glm-5.3-flash 是 1M 的 Coding 模型，glm-5.1 是 200k，glm-5v 开头的切到多模态接口；用 `/model glm-5.3-flash` 明确切换
-- DeepSeekClient：默认 deepseek-flash（V4.1 Flash），1M 多模态模型；用 `/model deepseek-flash` 明确切换，思考模式调工具时带回 reasoning_content。旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 由官方转到新版，同样支持图片；deepseek-v4-pro 仍按文本模型处理。显式配置的模型不会被默认值覆盖。
+- DeepSeekClient：默认 deepseek-flash（V4.1 Flash），1M 多模态模型；用 `/model deepseek-flash` 明确切换，思考模式调工具时带回 reasoning_content。旧名 deepseek-v4-flash / deepseek-v4-flash-vision-exp 由官方转到新版，同样支持图片；deepseek-v4-pro 仍按文本模型处理。显式配置的模型不会被默认值覆盖。旧名只写成兼容说明，不作为单独的内置模型，刷新时也不新增；用户已有的选择和手动配置保留并注明对应关系。
 - HunyuanClient：hy4-preview，默认 `https://tokenhub.tencentmaas.com/v1`，Bearer 鉴权、1M 文本模型，支持流式 tools 和 prompt cache；用 `/model hy4-preview` 明确切换，`/model hunyuan` 读取 provider 配置
 - StepClient：step-3.5-flash，可以通过 STEP_BASE_URL 切换通道
 - KimiClient：kimi-k2.6，思考模式调工具时带回 reasoning_content
@@ -680,7 +682,7 @@ Seatbelt profile 额外放行了对根目录 "/" 本身的读取（literal，只
 
 - 已交付 23 期（ReAct → Plan+DAG → Memory → RAG → Multi-Agent → HITL → 并行工具 → 多模型 → 联网 → MCP 核心 → MCP 高级 → 长上下文 → Chrome DevTools → CDP 会话复用 → Skill → TUI → LSP 诊断 → Side-Git 快照 → Prompt 分层 → Runtime API → 图片输入 → 微信 iLink 通道文本 MVP）
 
-核心内置工具见 AGENTS.md 里的 18 个清单。`edit_file` 默认只替换唯一匹配的 `old_text`，`replace_all=true` 时全部替换；匹配规则由 `TextEditMatcher` 实现（精确匹配 → 逐行归一化后模糊匹配 → 剥掉 read_file 行号前缀再试一次），有多处匹配时报告出现次数和起始行，局部修改时模型不用输出整个文件；它和 `write_file` 一样受路径限制、HITL 审批和审计约束。
+核心内置工具见 AGENTS.md 里的 18 个清单。`edit_file` 默认只替换唯一匹配的 `old_text`，`replace_all=true` 时全部替换；匹配规则由 `TextEditMatcher` 实现（精确匹配 → 逐行统一写法后再匹配（NFKC、行尾空白、引号、横线、特殊空格）→ 片段每行都带 read_file 行号前缀时，剥掉前缀再试一次），CRLF 文件保留原来的换行符，有多处匹配时报告出现次数和起始行，局部修改时模型不用输出整个文件；它和 `write_file` 一样受路径限制、HITL 审批和审计约束。
 
 代码库理解默认走 Claude Code 那种实时探索：`glob_files` 找候选文件，`grep_code` 精确定位符号或字符串，`read_file` 按需读取具体行段。`grep_code` 优先用本机的 `ripgrep`，没有时退回 Java 扫描；结果受 `max_results` / `head_limit` / `max_chars` 上限约束，返回 `partial: true` 或 `suggested_reads` 时，应继续缩小搜索范围，或按建议读取行段。`search_code` 是 RAG 语义辅助，适合自然语言描述模糊、关键词不明确、常规搜索没结果、代码量巨大或需要跨知识检索的场景，不作为精确定位代码的首选。
 
