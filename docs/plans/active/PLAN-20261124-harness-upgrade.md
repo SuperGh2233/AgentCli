@@ -282,14 +282,16 @@ java -jar target/paicli-1.0-SNAPSHOT.jar -p "列出 src/main/java/com/paicli 下
   - `security/AgentSecurityRegressionTest`（5 个，评估报告 Phase 1 的“安全回归集”第一批）：假模型完全听从注入内容的最坏情况下——路径穿越和绝对路径读不到项目外文件、项目内符号链接逃不出去、文件里的注入命令不会被执行（且文件内容带不可信标记）、工具结果里出现的网址不能被抓取、只读模式下注入不能写文件
   - `ScriptedLlmClient` 加 `streamingContent()`，模拟真实供应商的流式正文
 
-用户本机要做的事（JDK 21，新增了类，要 clean）：
+验收（2026-11-26 用户本机，JDK 21）：`HarnessScenarioSuiteTest` 11/11、`HeadlessRunnerTest` 8/8 通过；quick 的 233 份报告里没有失败或报错。第一份 `scenarios.jsonl` 和上面每个场景的期望数字一致（精确数字就写在测试断言里，断言本身就是基线）。
+
+复跑命令：
 
 ```bash
 mvn clean test -DskipTests=false -Dtest='UnattendedTaskRunnerTest,AgentSecurityRegressionTest,HeadlessRunnerTest,HeadlessOptionsTest'
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
 ```
 
-### 技术评估后的 Phase 1：Harness 回归场景（2026-11-26，代码已写，等用户本机运行）
+### 技术评估后的 Phase 1：Harness 回归场景（2026-11-26，已完成：用户本机 11 个场景 + HeadlessRunnerTest 8 个全部通过，quick 没有失败）
 
 依据：评估报告 3.4 节 / ADR-004 的“免费层评测”。用户回复“继续推进 按照你的推荐来”后开始做。
 
