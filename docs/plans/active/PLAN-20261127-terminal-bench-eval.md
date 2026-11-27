@@ -61,6 +61,20 @@
 - Terminal-Bench 每题是全新容器，长期记忆、项目记忆、LSP 在这里基本是空的，消融它们测不出差别；记忆要另设跨会话的测试
 - ReAct 是内核本身，不做消融；“先规划再执行”这类属于策略变体对比
 
+## 第一组正式实验：上下文处理策略消融（2026-11-27 用户确认）
+
+起因：全功能版本第一次正式跑（`d5fff23`，跑了约 20 分钟后停掉）发现，DeepSeek V4.1 Flash 窗口 100 万，压缩阈值约 95 万，裁剪层也要约 38 万才触发；而 50 次请求上限下对话只有几万 Token，五层压缩一次都没有触发，3 次尝试里 2 次撞了请求上限。按这个条件跑新旧版本对比，量到的只是噪声。
+
+调整：
+- 上下文预算 `HAOCLI_CONTEXT_BUDGET_TOKENS=128000`：压缩阈值按 min(模型窗口, 预算) 计算（摘要约 9.5 万、裁剪约 3.8 万、折叠约 4.7 万、清理约 5.7 万），结果 JSON 带 `context_budget_tokens`
+- 运行上限放宽：`--max-turns 150 --max-tokens 10000000`（原来 50 次 / 200 万）
+
+两轮只差一个开关，其余全同（同一提交、2.0 的 30 题 × 3 次、并发 2）：
+1. 全开：`HAOCLI_CONTEXT_BUDGET_TOKENS=128000 HAOCLI_EXTRA_ARGS="--max-turns 150 --max-tokens 10000000" HAOCLI_EVAL_LABEL=ctx-on benchmarks/harbor/run.sh dev`
+2. 关掉上下文处理策略：同上，`HAOCLI_EXTRA_ARGS` 里加 `--harness-disable context`，标签 `ctx-off`
+
+两轮的差就是上下文处理策略的效果；同时看 Token 用量（压缩的另一个目的是省钱）。
+
 ## 评测纪律
 
 - 每次对比只改一件事；提交号、模型、数据集版本、并发、超时、Hao CLI 的上限参数都要和基线一致，有变化写进台账

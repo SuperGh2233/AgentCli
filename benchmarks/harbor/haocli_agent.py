@@ -36,7 +36,8 @@ EXIT_FILE = "haocli.exit_code"
 FINISHED_EXIT_CODES = (0, 3)
 
 # Forwarded from the host into the agent process when set.
-FORWARDED_ENV = ("DEEPSEEK_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY", "HAOCLI_LOG_LEVEL")
+FORWARDED_ENV = ("DEEPSEEK_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY", "HAOCLI_LOG_LEVEL",
+                 "HAOCLI_CONTEXT_BUDGET_TOKENS", "HAOCLI_HARNESS_DISABLE")
 
 
 def _host_path(env_name: str) -> Path:
@@ -113,6 +114,7 @@ class HaoCliAgent(BaseInstalledAgent):
             "haocli_exit_code": exit_code,
             "haocli_status": result.get("status"),
             "harness_disabled": result.get("harness_disabled"),
+            "context_budget_tokens": result.get("context_budget_tokens"),
             "model_requests": result.get("model_requests"),
             "provider": result.get("provider"),
             "model": result.get("model"),

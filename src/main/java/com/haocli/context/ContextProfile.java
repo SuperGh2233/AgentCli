@@ -29,8 +29,34 @@ public record ContextProfile(
     private static final int MIN_WINDOW = 8_000;
     private static final int MCP_RESOURCE_INDEX_MIN_WINDOW = 32_000;
 
+    /** 上下文预算：设置后，压缩阈值等按 min(模型窗口, 预算) 计算，让对话保持在较小的规模。 */
+    public static final String BUDGET_PROPERTY = "haocli.context.budget.tokens";
+    public static final String BUDGET_ENV = "HAOCLI_CONTEXT_BUDGET_TOKENS";
+
+    /** 配置的上下文预算；没设置时返回 0。写错（不是正整数）直接报错，不悄悄当成没设置。 */
+    public static int configuredBudgetTokens() {
+        String raw = System.getProperty(BUDGET_PROPERTY);
+        if (raw == null || raw.isBlank()) {
+            raw = System.getenv(BUDGET_ENV);
+        }
+        if (raw == null || raw.isBlank()) {
+            return 0;
+        }
+        try {
+            int value = Integer.parseInt(raw.trim());
+            if (value > 0) {
+                return value;
+            }
+        } catch (NumberFormatException ignored) {
+            // fall through
+        }
+        throw new IllegalArgumentException(BUDGET_ENV + " 必须是正整数（Token 数）: " + raw);
+    }
+
     public static ContextProfile from(LlmClient llmClient) {
-        int window = Math.max(MIN_WINDOW, llmClient == null ? 128_000 : llmClient.maxContextWindow());
+        int modelWindow = llmClient == null ? 128_000 : llmClient.maxContextWindow();
+        int budget = configuredBudgetTokens();
+        int window = Math.max(MIN_WINDOW, budget > 0 ? Math.min(modelWindow, budget) : modelWindow);
         return new ContextProfile(
                 window,
                 compressionTriggerRatio(window),

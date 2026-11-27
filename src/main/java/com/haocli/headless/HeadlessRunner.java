@@ -120,6 +120,8 @@ public final class HeadlessRunner {
         // 本次关掉的 harness 模块（消融实验记录）；全开时是空数组。
         com.fasterxml.jackson.databind.node.ArrayNode disabled = node.putArray("harness_disabled");
         com.haocli.agent.HarnessFeatures.fromSystem().disabledNames().forEach(disabled::add);
+        // 上下文预算（0 = 没设置，按模型窗口）。
+        node.put("context_budget_tokens", com.haocli.context.ContextProfile.configuredBudgetTokens());
         return node;
     }
 
