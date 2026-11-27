@@ -122,6 +122,42 @@ class AutoCompactionManagerTest {
     }
 
     @Test
+    void emergencyCompactionTriesCheapLayersBeforeSummarizing() {
+        StubFullCompactor full = new StubFullCompactor(true);
+        StubSessionCompactor session = new StubSessionCompactor(true);
+        AutoCompactionManager manager = new AutoCompactionManager(full, session,
+                new ToolResultClearer(new ToolResultClearer.Config(true, 0, 3, java.util.Set.of())));
+        List<LlmClient.Message> history = ToolResultClearerTest.historyWithToolRounds(10, "read_file");
+
+        AutoCompactionManager.Result cheap = manager.compactEmergency(history, AutoCompactionManager.Layers.ALL);
+
+        assertTrue(cheap.changed());
+        assertFalse(cheap.compacted(), "不调用模型的层能减就不做摘要");
+        assertEquals(0, full.manualCalls.get());
+
+        AutoCompactionManager.Result nothingLeft = manager.compactEmergency(largeHistory(), AutoCompactionManager.Layers.ALL);
+        assertTrue(nothingLeft.compacted(), "没什么可减时才做完整摘要");
+        assertEquals(1, full.manualCalls.get());
+    }
+
+    @Test
+    void emergencyCompactionRespectsDisabledLayers() {
+        StubFullCompactor full = new StubFullCompactor(true);
+        StubSessionCompactor session = new StubSessionCompactor(true);
+        AutoCompactionManager manager = new AutoCompactionManager(full, session,
+                new ToolResultClearer(new ToolResultClearer.Config(true, 0, 3, java.util.Set.of())));
+        List<LlmClient.Message> history = ToolResultClearerTest.historyWithToolRounds(10, "read_file");
+        List<LlmClient.Message> before = new ArrayList<>(history);
+
+        AutoCompactionManager.Result result = manager.compactEmergency(history,
+                new AutoCompactionManager.Layers(false, false, false, false));
+
+        assertFalse(result.changed());
+        assertEquals(before, history);
+        assertEquals(0, full.manualCalls.get());
+    }
+
+    @Test
     void systemPropertyEnablesExperimentalPath() {
         String old = System.getProperty(AutoCompactionManager.SESSION_MEMORY_PROPERTY);
         try {

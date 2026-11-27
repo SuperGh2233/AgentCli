@@ -118,19 +118,43 @@ final class ConversationContext {
 
     /** clearing / summary 分别控制“清理旧工具结果”和“摘要压缩”两层（消融实验用）。 */
     AutoCompactionManager.Result compactIfNeeded(int triggerTokens, boolean clearing, boolean summary) {
+        return compactIfNeeded(triggerTokens, new AutoCompactionManager.Layers(false, false, clearing, summary));
+    }
+
+    /** 按层压缩（五层里的第 2–5 层）；任何一层改动了对话就写压缩记录和检查点。 */
+    AutoCompactionManager.Result compactIfNeeded(int triggerTokens, AutoCompactionManager.Layers layers) {
         int beforeMessages = messages.size();
         long beforeTokens = estimateRequestTokens();
-        AutoCompactionManager.Result result = compaction.compactIfNeeded(messages, triggerTokens, clearing, summary);
+        AutoCompactionManager.Result result = compaction.compactIfNeeded(messages, triggerTokens, layers);
+        record("automatic", result, beforeMessages, beforeTokens);
+        return result;
+    }
+
+    /** 模型报上下文超长时的紧急压缩；有改动就写压缩记录和检查点。 */
+    AutoCompactionManager.Result compactEmergency(AutoCompactionManager.Layers layers) {
+        int beforeMessages = messages.size();
+        long beforeTokens = estimateRequestTokens();
+        AutoCompactionManager.Result result = compaction.compactEmergency(messages, layers);
+        record("emergency", result, beforeMessages, beforeTokens);
+        return result;
+    }
+
+    private void record(String kind, AutoCompactionManager.Result result, int beforeMessages, long beforeTokens) {
+        if (result.trimmed() > 0) {
+            recordCompaction(kind + ":history_trimming", beforeMessages, beforeTokens);
+        }
+        if (result.folded() > 0) {
+            recordCompaction(kind + ":local_folding", beforeMessages, beforeTokens);
+        }
         if (result.clearedToolResults() > 0) {
-            recordCompaction("automatic:tool_result_clearing", beforeMessages, beforeTokens);
+            recordCompaction(kind + ":tool_result_clearing", beforeMessages, beforeTokens);
         }
         if (result.compacted()) {
-            recordCompaction("automatic:" + result.strategy().name().toLowerCase(), beforeMessages, beforeTokens);
+            recordCompaction(kind + ":" + result.strategy().name().toLowerCase(), beforeMessages, beforeTokens);
         }
-        if (result.clearedToolResults() > 0 || result.compacted()) {
-            recordViewCheckpoint("automatic_compaction", Map.of());
+        if (result.changed()) {
+            recordViewCheckpoint(kind + "_compaction", Map.of());
         }
-        return result;
     }
 
     /** 用户手动 /compact，不等触发线。 */

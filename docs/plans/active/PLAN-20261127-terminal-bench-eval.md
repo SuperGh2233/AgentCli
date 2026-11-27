@@ -54,8 +54,8 @@
 
 ## 消融实验（2026-11-27 用户决定）
 
-- 内核 `AgentLoop` 只认 `TurnHook`（发请求前 / 工具结果之后两个挂载点）；模块：`LspDiagnosticsHook`、`ContextCompactionHook`、`RunawayReminderHook`，大结果落盘在 `ToolRegistry` 里单独开关
-- 开关 `HarnessFeatures`：`context`（上下文处理策略 = 大结果落盘 + 清理旧工具结果 + 摘要压缩 + 重复调用提醒）、四个细分名、`lsp`。`-p --harness-disable <名字>` 或环境变量 `HAOCLI_HARNESS_DISABLE`；写错名字直接报错
+- 内核 `AgentLoop` 只认 `TurnHook`（发请求前 / 工具结果之后 / 上下文超长三个挂载点）；五层按从便宜到贵依次触发：裁剪（摘要阈值 × 0.4）→ 折叠（× 0.5）→ 清理（× 0.6）→ 摘要（达到阈值）；模型报上下文超长时紧急压缩一次再重试；模块：`LspDiagnosticsHook`、`ContextCompactionHook`、`RunawayReminderHook`，大结果落盘在 `ToolRegistry` 里单独开关
+- 开关 `HarnessFeatures`：`context`（上下文处理策略 = 五层压缩 + 重复调用提醒）、细分名 `context.offload`（1 大结果落盘）/ `context.trim`（2 历史裁剪）/ `context.fold`（3 局部折叠）/ `context.clearing`（4 清理旧工具结果）/ `context.summary`（5 摘要压缩）/ `context.runaway`、`lsp`。`-p --harness-disable <名字>` 或环境变量 `HAOCLI_HARNESS_DISABLE`；写错名字直接报错
 - 每次运行的结果 JSON 带 `harness_disabled`，适配器写进每次尝试的元数据；`run.sh` 用 `HAOCLI_EVAL_LABEL` 给任务名加标签
 - 第一批只消融一项：上下文处理策略整体关掉。跑法：`HAOCLI_EXTRA_ARGS="--harness-disable context" HAOCLI_EVAL_LABEL=no-context benchmarks/harbor/run.sh dev`，和同一提交的全开基线比
 - Terminal-Bench 每题是全新容器，长期记忆、项目记忆、LSP 在这里基本是空的，消融它们测不出差别；记忆要另设跨会话的测试

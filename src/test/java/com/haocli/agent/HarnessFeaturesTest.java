@@ -1,5 +1,6 @@
 package com.haocli.agent;
 
+import com.haocli.memory.AutoCompactionManager;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,31 +19,27 @@ class HarnessFeaturesTest {
         assertEquals(HarnessFeatures.ALL_ON, HarnessFeatures.parse(" "));
         assertEquals(HarnessFeatures.ALL_ON, HarnessFeatures.parse("none"));
         assertEquals(List.of(), HarnessFeatures.ALL_ON.disabledNames());
+        assertEquals(AutoCompactionManager.Layers.ALL, HarnessFeatures.ALL_ON.compactionLayers());
     }
 
     @Test
-    void contextGroupTurnsOffTheWholeContextStrategyOnly() {
+    void contextGroupTurnsOffAllFiveLayersAndTheReminderOnly() {
         HarnessFeatures features = HarnessFeatures.parse("context");
 
-        assertFalse(features.contextOffload());
-        assertFalse(features.contextClearing());
-        assertFalse(features.contextSummary());
-        assertFalse(features.runawayReminder());
+        assertEquals(List.of("context.offload", "context.trim", "context.fold", "context.clearing",
+                "context.summary", "context.runaway"), features.disabledNames());
         assertTrue(features.lspDiagnostics());
-        assertEquals(List.of("context.offload", "context.clearing", "context.summary", "context.runaway"),
-                features.disabledNames());
+        assertFalse(features.compactionLayers().any());
     }
 
     @Test
-    void individualModulesCanBeCombined() {
-        HarnessFeatures features = HarnessFeatures.parse("context.summary, LSP");
+    void individualLayersCanBeCombined() {
+        HarnessFeatures features = HarnessFeatures.parse("context.trim, context.summary, LSP");
 
+        assertEquals(List.of("context.trim", "context.summary", "lsp"), features.disabledNames());
+        assertEquals(new AutoCompactionManager.Layers(false, true, true, false), features.compactionLayers());
         assertTrue(features.contextOffload());
-        assertTrue(features.contextClearing());
-        assertFalse(features.contextSummary());
         assertTrue(features.runawayReminder());
-        assertFalse(features.lspDiagnostics());
-        assertEquals(List.of("context.summary", "lsp"), features.disabledNames());
     }
 
     @Test

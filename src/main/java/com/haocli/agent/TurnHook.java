@@ -20,6 +20,11 @@ interface TurnHook {
     default void afterToolResults(List<ToolExecutionResult> results, Context context) {
     }
 
+    /** 模型报上下文超长时调用（每轮最多一次）；返回 true 表示对话变小了，内核会重试这次请求。 */
+    default boolean onContextOverflow(Context context) {
+        return false;
+    }
+
     /** 内核交给模块的能力：只能改对话、发提示，不能跳过内核的取消、预算和策略检查。 */
     interface Context {
         ConversationContext conversation();

@@ -24,7 +24,7 @@ class HarnessDisableFlagTest {
 
         assertArrayEquals(new String[]{"-p", "task", "--output-format", "json"}, rest);
         assertEquals("context", System.getProperty(HarnessFeatures.PROPERTY));
-        assertEquals(4, HarnessFeatures.fromSystem().disabledNames().size());
+        assertEquals(6, HarnessFeatures.fromSystem().disabledNames().size(), "五层压缩 + 重复调用提醒");
     }
 
     @Test

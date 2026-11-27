@@ -145,8 +145,9 @@ final class AgentLoop {
         if (features.lspDiagnostics()) {
             hooks.add(new LspDiagnosticsHook(toolRegistry));
         }
-        if (features.contextClearing() || features.contextSummary()) {
-            hooks.add(new ContextCompactionHook(features.contextClearing(), features.contextSummary()));
+        com.haocli.memory.AutoCompactionManager.Layers layers = features.compactionLayers();
+        if (layers.any()) {
+            hooks.add(new ContextCompactionHook(layers));
         }
         if (features.runawayReminder()) {
             hooks.add(new RunawayReminderHook());
@@ -200,6 +201,7 @@ final class AgentLoop {
 
         List<TurnHook> hooks = createHooks();
         TurnHook.Context hookContext = hookContext(turn);
+        boolean emergencyCompactionTried = false;
         ResourceFailureObserver resourceFailureObserver =
                 new ResourceFailureObserver(Path.of(toolRegistry.getProjectPath()));
 
@@ -373,6 +375,25 @@ final class AgentLoop {
                 return new Result(Status.COMPLETED, answer, content);
 
             } catch (IOException e) {
+                boolean overflow = com.haocli.llm.LlmErrors.isContextOverflow(e);
+                if (overflow && !emergencyCompactionTried) {
+                    // 模型说上下文放不下：紧急压缩一次再重试；压缩不出空间或再次超长就返回部分完成。
+                    emergencyCompactionTried = true;
+                    boolean changed = false;
+                    for (TurnHook hook : hooks) {
+                        changed |= hook.onContextOverflow(hookContext);
+                    }
+                    if (changed) {
+                        log.warn("Context overflow reported by the model; emergency compaction done, retrying");
+                        notice(turn, AnsiStyle.subtle("  ⚠ 上下文超出模型上限，已紧急压缩后重试"));
+                        continue;
+                    }
+                }
+                if (overflow) {
+                    log.warn("Context overflow persists after emergency compaction", e);
+                    String partial = formatPartialResult("上下文超出模型上限，紧急压缩后仍然放不下", null);
+                    return new Result(Status.PARTIAL, partial, partial);
+                }
                 log.error("LLM call failed in ReAct loop", e);
                 String failure = "❌ 调用 LLM 失败: " + e.getMessage();
                 return new Result(Status.FAILED, failure, failure);

@@ -24,6 +24,8 @@ public class AutoCompactionManager {
     private final ConversationHistoryCompactor fullCompactor;
     private final SessionMemoryCompactor sessionMemoryCompactor;
     private final ToolResultClearer toolResultClearer;
+    private final HistoryTrimmer trimmer = new HistoryTrimmer();
+    private final LocalFolder folder = new LocalFolder();
 
     public AutoCompactionManager(LlmClient llmClient) {
         this(llmClient, sessionMemoryEnabledByConfiguration());
@@ -71,24 +73,65 @@ public class AutoCompactionManager {
      */
     public Result compactIfNeeded(List<LlmClient.Message> history, int triggerTokens,
                                   boolean clearing, boolean summary) {
+        return compactIfNeeded(history, triggerTokens, new Layers(false, false, clearing, summary));
+    }
+
+    /**
+     * 五层压缩里在对话上做的第 2–5 层，按从便宜到贵的顺序，各自达到自己的阈值才做：
+     * 历史裁剪（摘要阈值 × 0.4）→ 局部折叠（× 0.5）→ 清理旧工具结果（× 0.6）→ 摘要压缩（达到摘要阈值）。
+     * 第 1 层大结果落盘在工具结果产生时就做了，不在这里。
+     */
+    public Result compactIfNeeded(List<LlmClient.Message> history, int triggerTokens, Layers layers) {
         if (triggerTokens <= 0) return Result.none();
-        int cleared = clearing ? toolResultClearer.clearIfNeeded(history, triggerTokens).clearedCount() : 0;
-        if (!summary) {
-            return cleared > 0 ? new Result(false, Strategy.TOOL_RESULT_CLEARING, cleared) : Result.none();
+        int trimmed = layers.trim() ? trimmer.trimIfNeeded(history, triggerTokens).count() : 0;
+        int folded = layers.fold() ? folder.foldIfNeeded(history, triggerTokens).count() : 0;
+        int cleared = layers.clearing() ? toolResultClearer.clearIfNeeded(history, triggerTokens).clearedCount() : 0;
+        if (!layers.summary()) {
+            return reduced(cleared, trimmed, folded);
         }
         sessionMemoryCompactor.prepareIfNeeded(history, triggerTokens);
         if (TokenBudget.estimateMessagesTokens(history) < triggerTokens) {
-            return cleared > 0 ? new Result(false, Strategy.TOOL_RESULT_CLEARING, cleared) : Result.none();
+            return reduced(cleared, trimmed, folded);
         }
         if (sessionMemoryCompactor.compactIfReady(history, triggerTokens)) {
-            return new Result(true, Strategy.SESSION_MEMORY, cleared);
+            return new Result(true, Strategy.SESSION_MEMORY, cleared, trimmed, folded);
         }
         boolean compacted = fullCompactor.compactIfNeeded(history, triggerTokens);
         if (compacted) {
             sessionMemoryCompactor.clear(history);
-            return new Result(true, Strategy.FULL_SUMMARY, cleared);
+            return new Result(true, Strategy.FULL_SUMMARY, cleared, trimmed, folded);
         }
-        return cleared > 0 ? new Result(false, Strategy.TOOL_RESULT_CLEARING, cleared) : Result.none();
+        return reduced(cleared, trimmed, folded);
+    }
+
+    /**
+     * 模型报上下文超长时的紧急压缩，逐级加码：先不看阈值做不调用模型的三层（裁剪只保留最近 1 条工具结果）；
+     * 这三层什么都没减掉时才做完整摘要。只用开着的层。
+     */
+    public Result compactEmergency(List<LlmClient.Message> history, Layers layers) {
+        if (history == null || history.isEmpty()) return Result.none();
+        int trimmed = layers.trim() ? trimmer.trim(history, 1).count() : 0;
+        int folded = layers.fold() ? folder.fold(history).count() : 0;
+        int cleared = layers.clearing() && toolResultClearer.config().enabled()
+                ? toolResultClearer.clearNow(history).clearedCount() : 0;
+        if (trimmed + folded + cleared > 0) {
+            return reduced(cleared, trimmed, folded);
+        }
+        if (layers.summary()) {
+            sessionMemoryCompactor.clear(history);
+            if (fullCompactor.compactNow(history)) {
+                return new Result(true, Strategy.FULL_SUMMARY);
+            }
+        }
+        return Result.none();
+    }
+
+    private static Result reduced(int cleared, int trimmed, int folded) {
+        Strategy strategy = cleared > 0 ? Strategy.TOOL_RESULT_CLEARING
+                : folded > 0 ? Strategy.LOCAL_FOLDING
+                : trimmed > 0 ? Strategy.HISTORY_TRIMMING
+                : Strategy.NONE;
+        return new Result(false, strategy, cleared, trimmed, folded);
     }
 
     /** 当前模型下旧工具结果清理的触发阈值；未启用时返回 0。 */
@@ -119,9 +162,22 @@ public class AutoCompactionManager {
         return sessionMemoryCompactor.isEnabled();
     }
 
+    /** 第 2–5 层各自开不开（第 1 层落盘不在这里）。 */
+    public record Layers(boolean trim, boolean fold, boolean clearing, boolean summary) {
+        public static final Layers ALL = new Layers(true, true, true, true);
+
+        public boolean any() {
+            return trim || fold || clearing || summary;
+        }
+    }
+
     public enum Strategy {
         NONE,
-        /** 只清理了旧工具结果，没有做摘要。 */
+        /** 只做了历史裁剪。 */
+        HISTORY_TRIMMING,
+        /** 做了局部折叠（可能也裁剪了），没有清理和摘要。 */
+        LOCAL_FOLDING,
+        /** 只清理了旧工具结果（可能也裁剪、折叠了），没有做摘要。 */
         TOOL_RESULT_CLEARING,
         SESSION_MEMORY,
         FULL_SUMMARY
@@ -131,13 +187,22 @@ public class AutoCompactionManager {
      * @param compacted          是否做了摘要压缩（会话记忆或完整摘要）
      * @param clearedToolResults 本次在摘要之前清理的旧工具结果条数
      */
-    public record Result(boolean compacted, Strategy strategy, int clearedToolResults) {
+    public record Result(boolean compacted, Strategy strategy, int clearedToolResults, int trimmed, int folded) {
         public Result(boolean compacted, Strategy strategy) {
-            this(compacted, strategy, 0);
+            this(compacted, strategy, 0, 0, 0);
+        }
+
+        public Result(boolean compacted, Strategy strategy, int clearedToolResults) {
+            this(compacted, strategy, clearedToolResults, 0, 0);
         }
 
         static Result none() {
-            return new Result(false, Strategy.NONE, 0);
+            return new Result(false, Strategy.NONE, 0, 0, 0);
+        }
+
+        /** 对话有没有被改动（任何一层生效）。 */
+        public boolean changed() {
+            return compacted || clearedToolResults > 0 || trimmed > 0 || folded > 0;
         }
     }
 
