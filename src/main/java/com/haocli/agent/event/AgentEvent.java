@@ -16,7 +16,7 @@ import com.haocli.tool.ToolStatus;
  */
 public sealed interface AgentEvent permits AgentEvent.TurnStarted, AgentEvent.ReasoningDelta,
         AgentEvent.TextDelta, AgentEvent.ModelRequestStarted, AgentEvent.ToolCallStarted, AgentEvent.ToolCallFinished, AgentEvent.ToolCallSkipped,
-        AgentEvent.Notice, AgentEvent.Usage, AgentEvent.TurnFinished {
+        AgentEvent.Notice, AgentEvent.Usage, AgentEvent.ContextCompacted, AgentEvent.TurnFinished {
 
     /** 一轮的结束状态。 */
     enum TurnStatus {
@@ -88,6 +88,24 @@ public sealed interface AgentEvent permits AgentEvent.TurnStarted, AgentEvent.Re
         }
     }
 
+    /**
+     * 上下文处理策略第 2–5 层改动了对话（每次改动一条），供评测统计各层触发次数和节省的 Token。
+     *
+     * @param trigger            {@code automatic}（请求前按阈值）或 {@code emergency}（模型报上下文超长）
+     * @param trimmed            第 2 层历史裁剪处理的条数
+     * @param folded             第 3 层局部折叠处理的条数
+     * @param clearedToolResults 第 4 层清理的旧工具结果条数
+     * @param summarized         第 5 层是否做了摘要压缩
+     * @param beforeTokens       压缩前本次请求的估算 Token
+     * @param afterTokens        压缩后本次请求的估算 Token
+     */
+    record ContextCompacted(String trigger, int trimmed, int folded, int clearedToolResults, boolean summarized,
+                            long beforeTokens, long afterTokens) implements AgentEvent {
+        public long savedTokens() {
+            return Math.max(0L, beforeTokens - afterTokens);
+        }
+    }
+
     /** 一次模型请求的 Token 用量；reported=false 表示供应商没给完整用量。 */
     record Usage(int inputTokens, int outputTokens, int cachedInputTokens, boolean reported) implements AgentEvent {
     }
@@ -95,8 +113,18 @@ public sealed interface AgentEvent permits AgentEvent.TurnStarted, AgentEvent.Re
     /**
      * 一轮结束。answer 是模型的原始回答（不含思考过程和终端提示）；部分完成时是整理出的部分结果；
      * 取消和失败时是给用户的说明。Token 是本轮累计。
+     *
+     * <p>reason 是机器可读的结束原因，completed / cancelled 时为 null：失败时是 {@code llm_<分类>}
+     * （见 {@code LlmFailureClassifier.Category}，比如 {@code llm_transient}、{@code llm_billing}），
+     * 部分完成时是预算原因（{@code token_budget_exceeded}、{@code hard_iteration_limit}、{@code time_limit_exceeded}、
+     * {@code stagnation_detected}）或 {@code context_overflow}。
      */
     record TurnFinished(String turnId, TurnStatus status, String answer, int modelRequests, long durationMs,
-                        long inputTokens, long outputTokens, long cachedInputTokens) implements AgentEvent {
+                        long inputTokens, long outputTokens, long cachedInputTokens, String reason)
+            implements AgentEvent {
+        public TurnFinished(String turnId, TurnStatus status, String answer, int modelRequests, long durationMs,
+                            long inputTokens, long outputTokens, long cachedInputTokens) {
+            this(turnId, status, answer, modelRequests, durationMs, inputTokens, outputTokens, cachedInputTokens, null);
+        }
     }
 }

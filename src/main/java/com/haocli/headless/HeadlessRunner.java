@@ -81,7 +81,8 @@ public final class HeadlessRunner {
                     err.println(result.answer());
                 }
             }
-            case JSON, STREAM_JSON -> out.println(resultJson(result, ledger, llm, metrics.snapshot()).toString());
+            case JSON, STREAM_JSON -> out.println(
+                    resultJson(result, ledger, llm, metrics.snapshot(), metrics.contextStats()).toString());
         }
         out.flush();
         return exitCode(result.status());
@@ -98,13 +99,19 @@ public final class HeadlessRunner {
 
     /** json 模式的整体结果，也是 stream-json 的最后一行。 */
     static ObjectNode resultJson(AgentEvent.TurnFinished result, ConversationLedger ledger, LlmClient llm,
-                                 HarnessMetrics metrics) {
+                                 HarnessMetrics metrics, HarnessMetrics.ContextStats context) {
         ObjectNode node = AgentEventJson.MAPPER.createObjectNode();
         node.put("type", "result");
         node.put("status", AgentEventJson.status(result.status()));
         node.put("is_error", result.status() == AgentEvent.TurnStatus.FAILED
                 || result.status() == AgentEvent.TurnStatus.CANCELLED);
         node.put("result", result.answer());
+        // 机器可读的结束原因（失败分类 / 部分完成原因）；completed、cancelled 时为 null。
+        if (result.reason() == null) {
+            node.putNull("reason");
+        } else {
+            node.put("reason", result.reason());
+        }
         node.put("turn_id", result.turnId());
         putSession(node, ledger);
         node.put("provider", llm.getProviderName());
@@ -117,6 +124,8 @@ public final class HeadlessRunner {
         usage.put("cached_input_tokens", result.cachedInputTokens());
         // 工具统计和提示数（新增字段，旧字段不变）。
         metrics.writeToolStats(node);
+        // 上下文处理策略各层的触发次数和节省的 Token（评测用，新增字段）。
+        context.writeTo(node);
         // 本次关掉的 harness 模块（消融实验记录）；全开时是空数组。
         com.fasterxml.jackson.databind.node.ArrayNode disabled = node.putArray("harness_disabled");
         com.haocli.agent.HarnessFeatures.fromSystem().disabledNames().forEach(disabled::add);

@@ -123,6 +123,9 @@ final class LlmRetryPolicy {
         if (failure instanceof LlmStreamingApiException streamingFailure) {
             return streamingFailure.retryable();
         }
+        if (LlmFailureClassifier.isRemoteHandshakeTermination(failure)) {
+            return true;
+        }
         if (failure instanceof JsonProcessingException || failure instanceof SSLException) {
             return false;
         }

@@ -3,6 +3,7 @@ package com.haocli.headless;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.haocli.agent.event.AgentEvent;
 import com.haocli.agent.event.AgentEventListener;
+import com.haocli.tool.ToolResultOffloader;
 
 /**
  * 从一轮的 {@link AgentEvent} 统计出来的 harness 指标：模型请求数、工具调用数和成败、跳过数、提示数、Token。
@@ -51,6 +52,27 @@ public record HarnessMetrics(String status, int modelRequests, int toolCalls, in
         node.put("notices", notices);
     }
 
+    /**
+     * 上下文处理策略五层各自的触发情况（评测用）。runs 是触发次数（一次请求前或一次紧急压缩算一次），
+     * 后面的数是处理的条数；tokensSaved 是各次压缩前后估算 Token 之差的累计。
+     */
+    public record ContextStats(int offloads, int trimRuns, int trimmed, int foldRuns, int folded,
+                               int clearingRuns, int cleared, int summaries, int emergencyRuns, long tokensSaved) {
+        public void writeTo(ObjectNode node) {
+            ObjectNode context = node.putObject("context");
+            context.put("offloads", offloads);
+            context.put("trim_runs", trimRuns);
+            context.put("trimmed", trimmed);
+            context.put("fold_runs", foldRuns);
+            context.put("folded", folded);
+            context.put("clearing_runs", clearingRuns);
+            context.put("cleared", cleared);
+            context.put("summaries", summaries);
+            context.put("emergency_runs", emergencyRuns);
+            context.put("tokens_saved", tokensSaved);
+        }
+    }
+
     /** 订阅事件并累计。一个实例只统计一轮。 */
     public static final class Collector implements AgentEventListener {
         private int toolCalls;
@@ -58,6 +80,16 @@ public record HarnessMetrics(String status, int modelRequests, int toolCalls, in
         private int toolFailed;
         private int toolSkipped;
         private int notices;
+        private int offloads;
+        private int trimRuns;
+        private int trimmed;
+        private int foldRuns;
+        private int folded;
+        private int clearingRuns;
+        private int cleared;
+        private int summaries;
+        private int emergencyRuns;
+        private long tokensSaved;
         private AgentEvent.TurnFinished finished;
 
         @Override
@@ -70,6 +102,29 @@ public record HarnessMetrics(String status, int modelRequests, int toolCalls, in
                 } else {
                     toolFailed++;
                 }
+                if (finishedTool.output() != null && finishedTool.output().contains(ToolResultOffloader.OFFLOAD_MARKER)) {
+                    offloads++;
+                }
+            } else if (event instanceof AgentEvent.ContextCompacted compacted) {
+                if (compacted.trimmed() > 0) {
+                    trimRuns++;
+                    trimmed += compacted.trimmed();
+                }
+                if (compacted.folded() > 0) {
+                    foldRuns++;
+                    folded += compacted.folded();
+                }
+                if (compacted.clearedToolResults() > 0) {
+                    clearingRuns++;
+                    cleared += compacted.clearedToolResults();
+                }
+                if (compacted.summarized()) {
+                    summaries++;
+                }
+                if ("emergency".equals(compacted.trigger())) {
+                    emergencyRuns++;
+                }
+                tokensSaved += compacted.savedTokens();
             } else if (event instanceof AgentEvent.ToolCallSkipped) {
                 toolSkipped++;
             } else if (event instanceof AgentEvent.Notice) {
@@ -81,6 +136,11 @@ public record HarnessMetrics(String status, int modelRequests, int toolCalls, in
 
         public AgentEvent.TurnFinished finished() {
             return finished;
+        }
+
+        public ContextStats contextStats() {
+            return new ContextStats(offloads, trimRuns, trimmed, foldRuns, folded, clearingRuns, cleared,
+                    summaries, emergencyRuns, tokensSaved);
         }
 
         /** 本轮还没结束时状态为 "unfinished"，Token 和请求数为 0。 */

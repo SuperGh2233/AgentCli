@@ -1,5 +1,6 @@
 package com.haocli.agent;
 
+import com.haocli.agent.event.AgentEvent;
 import com.haocli.llm.LlmClient;
 import com.haocli.memory.HistoryTrimmer;
 import com.haocli.tool.ToolRegistry;
@@ -79,6 +80,52 @@ class AgentContextOverflowTest {
 
         assertEquals(4, llm.requests.size(), "只紧急压缩一次");
         assertTrue(result.contains("部分完成") && result.contains("上下文超出模型上限"), result);
+    }
+
+    @Test
+    void emergencyCompactionEmitsLayerStatsAndPersistentOverflowReportsReason() {
+        QueueClient llm = new QueueClient(List.of(
+                read("c1", "a.txt"), read("c2", "b.txt"),
+                new IOException(OVERFLOW), new IOException(OVERFLOW)));
+        ToolRegistry tools = new ToolRegistry();
+        tools.setProjectPath(tempDir.toString());
+        Agent agent = new Agent(llm, tools);
+        List<AgentEvent> events = new ArrayList<>();
+        agent.setEventListener(events::add);
+
+        agent.run("读一下两个文件");
+
+        List<AgentEvent.ContextCompacted> compactions = events.stream()
+                .filter(AgentEvent.ContextCompacted.class::isInstance)
+                .map(AgentEvent.ContextCompacted.class::cast)
+                .toList();
+        assertEquals(1, compactions.size(), events.toString());
+        AgentEvent.ContextCompacted emergency = compactions.get(0);
+        assertEquals("emergency", emergency.trigger());
+        assertTrue(emergency.trimmed() > 0, "紧急压缩先做不调模型的裁剪");
+        assertTrue(emergency.beforeTokens() > emergency.afterTokens(),
+                "压缩后估算 Token 要变小: " + emergency);
+        AgentEvent.TurnFinished finished = (AgentEvent.TurnFinished) events.get(events.size() - 1);
+        assertEquals(AgentEvent.TurnStatus.PARTIAL, finished.status());
+        assertEquals("context_overflow", finished.reason());
+    }
+
+    @Test
+    void failedTurnCarriesClassifiedReason() {
+        javax.net.ssl.SSLHandshakeException handshake =
+                new javax.net.ssl.SSLHandshakeException("Remote host terminated the handshake");
+        QueueClient llm = new QueueClient(List.of(handshake));
+        ToolRegistry tools = new ToolRegistry();
+        tools.setProjectPath(tempDir.toString());
+        Agent agent = new Agent(llm, tools);
+        List<AgentEvent> events = new ArrayList<>();
+        agent.setEventListener(events::add);
+
+        agent.run("你好");
+
+        AgentEvent.TurnFinished finished = (AgentEvent.TurnFinished) events.get(events.size() - 1);
+        assertEquals(AgentEvent.TurnStatus.FAILED, finished.status());
+        assertEquals("llm_transient", finished.reason(), "网络抖动要和 Agent 自身的问题分开");
     }
 
     @Test
