@@ -1,0 +1,16 @@
+# feasible=29 excluded={'memory': 28, 'cpus': 6, 'gpu': 3} seed=20261127 n=15
+batched-eval-parity
+cargo-flight-dispatch
+embedding-drift-monitor
+freecad-platform-drawing
+glycan-ms2-elucidation
+heat-pump-warranty
+kv-live-surgery
+music-harmony
+photonic-waveguide-routing
+react-lead-form
+retro-console-soc
+roy-polymorph-cn
+session-window-debug
+sound-change-cascade
+wal-recovery-ordering

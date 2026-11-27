@@ -28,6 +28,12 @@ JAR_REMOTE = f"{AGENT_DIR}/haocli.jar"
 JRE_REMOTE_DIR = f"{AGENT_DIR}/jre"
 LOG_FILE = "haocli.jsonl"
 STDERR_FILE = "haocli.stderr.txt"
+EXIT_FILE = "haocli.exit_code"
+# Hao CLI exit codes that mean "the agent finished its turn": 0 completed,
+# 3 stopped at a run limit (partial). The verifier decides whether the task is
+# solved; only real failures (1 model call failed, 2 bad arguments, 130
+# cancelled, ...) are reported to Harbor as agent errors.
+FINISHED_EXIT_CODES = (0, 3)
 
 # Forwarded from the host into the agent process when set.
 FORWARDED_ENV = ("DEEPSEEK_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY", "HAOCLI_LOG_LEVEL")
@@ -101,7 +107,10 @@ class HaoCliAgent(BaseInstalledAgent):
         context.n_input_tokens = usage.get("input_tokens")
         context.n_output_tokens = usage.get("output_tokens")
         context.n_cache_tokens = usage.get("cached_input_tokens")
+        exit_file = self.logs_dir / EXIT_FILE
+        exit_code = exit_file.read_text().strip() if exit_file.exists() else None
         context.metadata = {
+            "haocli_exit_code": exit_code,
             "haocli_status": result.get("status"),
             "model_requests": result.get("model_requests"),
             "provider": result.get("provider"),
@@ -119,12 +128,20 @@ class HaoCliAgent(BaseInstalledAgent):
                 env[f"{provider.upper()}_MODEL"] = model
 
         extra = os.environ.get("HAOCLI_EXTRA_ARGS", "").strip()
+        # The event stream goes to a file, not stdout: Harbor scans stdout for
+        # error keywords, and tool output (e.g. "Connection refused" from a
+        # command the model ran) would be misread as an infrastructure error.
+        finished = " ".join(f"-eq {code} ]" if i == 0 else f"|| [ $code -eq {code} ]"
+                            for i, code in enumerate(FINISHED_EXIT_CODES))
         command = (
             f"{JRE_REMOTE_DIR}/bin/java -jar {JAR_REMOTE} "
             f"-p {shlex.quote(instruction)} "
             "--permission-mode sandbox --output-format stream-json "
             f"{extra} "
-            f"2> /logs/agent/{STDERR_FILE} | tee /logs/agent/{LOG_FILE}"
+            f"> /logs/agent/{LOG_FILE} 2> /logs/agent/{STDERR_FILE}; "
+            f"code=$?; echo $code > /logs/agent/{EXIT_FILE}; "
+            f"if [ $code {finished}; then exit 0; fi; "
+            f"tail -c 2000 /logs/agent/{STDERR_FILE} >&2; exit $code"
         )
         # Hao CLI picks the provider from whichever API key is present (DeepSeek first).
         await self.exec_as_agent(environment, command=command, env=env)
