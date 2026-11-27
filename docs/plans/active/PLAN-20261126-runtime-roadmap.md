@@ -1,6 +1,6 @@
 # Hao CLI 后续路线：可嵌入的 Agent 运行时
 
-状态：已和用户逐条确认（2026-11-26）；P0 除品牌 R0（等用户合并 PR #2）外已完成，下一步甲阶段 · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
+状态：已和用户逐条确认（2026-11-26）；P0 除品牌 R0（等用户合并 PR #2）外已完成；甲-1 已通过（2026-11-27 第 14 轮），下一步甲-2 · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
 
 依据：用户提供的《Hao CLI 产品与架构演进实施计划》（docx，2026-11-26，未放进仓库）。本计划采纳它的定位、原则、非目标和评测纪律，按仓库实际情况调整了阶段顺序和范围，差异见文末“和原文档的差异”。
 
@@ -184,7 +184,7 @@ public interface ToolContext {
 3. 甲-3 及以后：只读工具 → 写文件工具 → 命令 → 网络和浏览器 → 其余；最后删 `looksLikeFailureText`
 4. 然后：运行结果类型、事件 `schema_version` / `sequence`、模型接口、`HaoRuntime`、依赖测试、示例
 
-#### 甲-1 进展（2026-11-27，代码已写、等用户本机运行）
+#### 甲-1 进展（2026-11-27，已通过：`bf10615` + 沙箱修复 `b5d06ca`，quick 1803 / 0 失败 / 4 跳过，针对性 9 类、安全专项、HITL 全过，见 `docs/reviews/2026-11-27-macos-test-round14.md`；评测包未跑）
 
 - 新增 `tool/ToolStatus`；`ToolOutput` 的 `successful` 字段换成 `status`（再加 `retryable`），`successful()` 按状态算，旧的 boolean 构造函数全部保留；新增 `denied` / `skipped` / `cancelled` / `unknown` / `of` / `withText` / `withStatus`；`FailureCode` 加 `INVALID_ARGUMENT`
 - `ToolExecutionResult` 同样换成 `status`，带 boolean 的旧构造函数保留；新增 `withResult`（大结果落盘时不丢状态）
