@@ -57,7 +57,7 @@ tools/test-failures.sh > /tmp/before.txt    # 列出上次测试的失败名单�
 
 交互命令：`/plan`、`/team`、`/mode auto|plan|ask`（Shift+Tab 轮流切换）、`/hitl on|default`、`/permissions list|revoke <id>|clear --confirm`、`/save`、`/memory`、`/compact`、`/context`、`/init`、`/export`、`/resume`、`/better-harness`、`/wechat`。不认识的 `/xxx` 由命令行直接报“未知命令”，不交给模型处理。
 
-`mvn test -Pquick` 现在没有已知失败（2026-11-24 全部修复），出现失败就是新问题。终端相关测试用 JLine 建测试终端时要显式 `.type("dumb")`，否则结果跟着 `TERM` 变。评测包测试在 `-Pbenchmark`（91 个已知失败）；`CodeIndexTest` 连不上本机 Ollama 时跳过；`ToolRegistryTest.macSandboxAllowsDevelopmentRuntimesAndDevNull` 在较新的 macOS 上会因 JVM 在 Seatbelt 沙箱里以 139 退出而失败。
+`mvn test -Pquick` 现在没有已知失败（2026-11-24 全部修复），出现失败就是新问题。终端相关测试用 JLine 建测试终端时要显式 `.type("dumb")`，否则结果跟着 `TERM` 变。评测包测试在 `-Pbenchmark`（2026-11-28 在 `38bdb3b` 实测 185 个已知失败：176 个断言失败 + 9 个错误；回归要比对改动前后的失败名单，不能只比数字）；`CodeIndexTest` 连不上本机 Ollama 时跳过；`ToolRegistryTest.macSandboxAllowsDevelopmentRuntimesAndDevNull` 在较新的 macOS 上会因 JVM 在 Seatbelt 沙箱里以 139 退出而失败。
 
 ### 验证命令
 
