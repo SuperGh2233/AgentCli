@@ -141,9 +141,9 @@ mvn test -Pbenchmark                          # 评测包测试（有已知失�
 | [评测计划](docs/plans/active/PLAN-20261127-terminal-bench-eval.md) · [台账](docs/evals/terminal-bench-ledger.md) | Terminal-Bench 做法、纪律和每轮结果 |
 | [文档索引](docs/index.md) | 全部设计、规格和实施记录 |
 
-## 致谢
+## 作者
 
-Hao CLI 由 [SuperGh2233](https://github.com/SuperGh2233) 独立开发和维护。设计过程中参考了[沉默王二的 PaiCLI 项目与教程](https://javabetter.cn/sidebar/itwanger/paicli/)，仅作为思路参考与致谢，代码实现和后续演进由本项目独立维护，详见 [上游致谢](docs/UPSTREAM_ATTRIBUTION.md)。
+Hao CLI 由 [SuperGh2233](https://github.com/SuperGh2233) 独立开发和维护。
 
 ## 许可证
 
