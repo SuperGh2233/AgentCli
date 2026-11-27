@@ -25,7 +25,7 @@ public record ToolOutput(String text,
                          List<String> discoveredUrls,
                          FailureCode failureCode,
                          boolean retryable) {
-    public enum FailureCode { NONE, EDIT_SOURCE_NOT_FOUND, INVALID_ARGUMENT }
+    public enum FailureCode { NONE, EDIT_SOURCE_NOT_FOUND, INVALID_ARGUMENT, NOT_FOUND }
 
     public ToolOutput {
         status = status == null ? ToolStatus.FAILED : status;

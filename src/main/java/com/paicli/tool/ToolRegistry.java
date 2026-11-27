@@ -23,6 +23,7 @@ import com.paicli.policy.PolicyException;
 import com.paicli.runtime.CancellationContext;
 import com.paicli.snapshot.RestoreResult;
 import com.paicli.snapshot.SnapshotService;
+import com.paicli.tool.builtin.ReadFileTool;
 import com.paicli.skill.Skill;
 import com.paicli.skill.SkillReferences;
 import com.paicli.skill.SkillRegistry;
@@ -66,7 +67,6 @@ public class ToolRegistry {
     private static final int MAX_COMMAND_OUTPUT_CHARS = 8_000;
     // 开启工具输出卸载时，命令输出先完整捕获到这个上限，超过 MAX_COMMAND_OUTPUT_CHARS 的部分写入会话文件而不是丢弃。
     private static final int MAX_COMMAND_CAPTURE_CHARS = 2_000_000;
-    private static final int MAX_READ_FILE_LINES = 2_000;
     private static final int MAX_GREP_RESULTS = 200;
     private static final int MAX_GREP_CONTEXT_LINES = 5;
     private static final int DEFAULT_GREP_MAX_CHARS = 24_000;
@@ -353,26 +353,14 @@ public class ToolRegistry {
      */
     private void registerFileTools() {
         // read_file 工具
-        tools.put("read_file", new Tool(
-                "read_file",
-                "读取文件内容（仅限项目根目录之内）；可用 offset/limit 按行读取，避免把大文件整段塞进上下文",
-                createParameters(
-                        new Param("path", "string", "文件路径", true),
-                        new Param("offset", "integer", "起始行号，1 表示第一行；省略时读取全文", false),
-                        new Param("limit", "integer", "最多读取多少行；省略时读取全文，最大 2000 行", false)
-                ),
-                args -> {
-                    Path safe = pathGuard.resolveSafe(args.get("path"));
-                    try {
-                        return readFileForTool(safe, args);
-                    } catch (Exception e) {
-                        return "读取文件失败: " + e.getMessage();
-                    }
-                }
-        ));
+        tools.put("read_file", new ReadFileTool(createParameters(
+                new Param("path", "string", "文件路径", true),
+                new Param("offset", "integer", "起始行号，1 表示第一行；省略时读取全文", false),
+                new Param("limit", "integer", "最多读取多少行；省略时读取全文，最大 2000 行", false)
+        )));
 
         // write_file 工具
-        tools.put("write_file", new Tool(
+        tools.put("write_file", new LegacyTool(
                 "write_file",
                 "写入文件内容（仅限项目根目录之内，单文件 5MB 上限）",
                 createParameters(
@@ -415,7 +403,7 @@ public class ToolRegistry {
                 }
         ));
 
-        tools.put("edit_file", new Tool(
+        tools.put("edit_file", new LegacyTool(
                 "edit_file",
                 "精确替换项目内已有文件里的文本，无需输出整个文件。old_text 要和文件内容一致（含缩进），"
                         + "默认必须恰好匹配一处，匹配多处时报错并给出所在行；replace_all=true 时替换全部匹配。"
@@ -430,7 +418,7 @@ public class ToolRegistry {
         ));
 
         // list_dir 工具
-        tools.put("list_dir", new Tool(
+        tools.put("list_dir", new LegacyTool(
                 "list_dir",
                 "列出目录内容（仅限项目根目录之内）",
                 createParameters(new Param("path", "string", "目录路径", true)),
@@ -454,7 +442,7 @@ public class ToolRegistry {
                 }
         ));
 
-        tools.put("glob_files", new Tool(
+        tools.put("glob_files", new LegacyTool(
                 "glob_files",
                 "按文件名 glob 查找项目内文件（只读、实时、尊重常见忽略目录）；适合先定位候选文件，例如 **/*Service.java",
                 createParameters(
@@ -465,7 +453,7 @@ public class ToolRegistry {
                 args -> globFiles(args)
         ));
 
-        tools.put("grep_code", new Tool(
+        tools.put("grep_code", new LegacyTool(
                 "grep_code",
                 "在项目内按关键字或正则实时搜索代码（只读、优先 ripgrep、返回文件和行号）；适合精确符号/字符串定位，找到后再 read_file 读取上下文",
                 createParameters(
@@ -520,36 +508,8 @@ public class ToolRegistry {
         }
     }
 
-    private String readFileForTool(Path file, Map<String, String> args) throws IOException {
-        if (!Files.isRegularFile(file)) {
-            return "读取文件失败: 不是普通文件";
-        }
-        boolean ranged = args.containsKey("offset") || args.containsKey("limit");
-        if (!ranged) {
-            return "文件内容:\n" + Files.readString(file);
-        }
-
-        int offset = Math.max(1, parseInt(args.get("offset"), 1));
-        int limit = Math.max(1, Math.min(parseInt(args.get("limit"), 200), MAX_READ_FILE_LINES));
-        List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
-        int total = lines.size();
-        if (offset > total) {
-            return "文件内容: " + file.getFileName() + " 共 " + total + " 行，offset 超出范围";
-        }
-
-        int from = offset - 1;
-        int to = Math.min(from + limit, total);
-        StringBuilder sb = new StringBuilder();
-        sb.append("文件内容: ").append(file.getFileName())
-                .append(" (lines ").append(offset).append("-").append(to)
-                .append(" of ").append(total).append(")\n");
-        for (int i = from; i < to; i++) {
-            sb.append(String.format("%5d | %s%n", i + 1, lines.get(i)));
-        }
-        if (to < total) {
-            sb.append("...(已截断，可用 offset=").append(to + 1).append(" 继续读取)");
-        }
-        return sb.toString().trim();
+    private static String readFileForTool(Path file, Map<String, String> args) throws IOException {
+        return ReadFileTool.read(file, new ToolArguments(args)).text();
     }
 
     private String globFiles(Map<String, String> args) {
@@ -687,7 +647,7 @@ public class ToolRegistry {
      * 注册Shell命令工具
      */
     private void registerShellTools() {
-        tools.put("execute_command", new Tool(
+        tools.put("execute_command", new LegacyTool(
                 "execute_command",
                 "在当前项目目录中执行短时 Shell 命令（默认 60 秒超时，不允许全盘扫描）",
                 createParameters(new Param("command", "string", "要执行的命令", true)),
@@ -699,7 +659,7 @@ public class ToolRegistry {
      * 注册代码相关工具
      */
     private void registerCodeTools() {
-        tools.put("create_project", new Tool(
+        tools.put("create_project", new LegacyTool(
                 "create_project",
                 "创建新项目结构",
                 createParameters(
@@ -748,7 +708,7 @@ public class ToolRegistry {
      * 注册 RAG 检索工具
      */
     private void registerRagTools() {
-        tools.put("search_code", new Tool(
+        tools.put("search_code", new LegacyTool(
                 "search_code",
                 "RAG 语义辅助检索代码库，根据自然语言描述查找相关代码块；精确符号/字符串定位请优先用 grep_code/glob_files/read_file；默认 top_k=5，可显式指定（上限 30）",
                 createParameters(
@@ -789,7 +749,7 @@ public class ToolRegistry {
      * 注册联网工具：web_search（多 provider 抽象）+ web_fetch（HTTP + readability）
      */
     private void registerWebTools() {
-        tools.put("web_search", new Tool(
+        tools.put("web_search", new LegacyTool(
                 "web_search",
                 "搜索互联网，获取实时信息（最新版本、官方文档、技术资讯等）。" +
                         "provider 按配置自动选择：智谱、SerpAPI、自托管 SearXNG、DeepSeek（包含独立模型调用），SEARCH_PROVIDER 可显式指定。",
@@ -800,7 +760,7 @@ public class ToolRegistry {
                 args -> webSearch(args.get("query"), parseInt(args.get("top_k"), 5))
         ));
 
-        tools.put("web_fetch", new Tool(
+        tools.put("web_fetch", new LegacyTool(
                 "web_fetch",
                 "抓取当前顶层用户原文提供或本执行分支成功 web_search 结果发现的 URL，提取正文转 Markdown；不得使用模型猜测的 URL。" +
                         "适用静态 / SSR 页面（博客、文档、官网）；JS 渲染或防爬站会返回空正文，本期不重试。",
@@ -813,7 +773,7 @@ public class ToolRegistry {
     }
 
     private void registerBrowserTools() {
-        tools.put("browser_connect", new Tool(
+        tools.put("browser_connect", new LegacyTool(
                 "browser_connect",
                 "当浏览器页面返回登录页、权限不足或明确需要登录态时，自动连接已允许远程调试的本机 Chrome 并复用其登录态；公开页面不要提前调用。",
                 createParameters(),
@@ -821,7 +781,7 @@ public class ToolRegistry {
                         ? "浏览器连接器未初始化，无法自动切换 shared 模式"
                         : browserConnector.connectDefault()
         ));
-        tools.put("browser_disconnect", new Tool(
+        tools.put("browser_disconnect", new LegacyTool(
                 "browser_disconnect",
                 "完成登录态页面访问后，可切回 isolated 浏览器模式。",
                 createParameters(),
@@ -829,7 +789,7 @@ public class ToolRegistry {
                         ? "浏览器连接器未初始化，无法切回 isolated 模式"
                         : browserConnector.disconnect()
         ));
-        tools.put("browser_status", new Tool(
+        tools.put("browser_status", new LegacyTool(
                 "browser_status",
                 "查看当前浏览器 MCP 模式、autoConnect 引导和旧式 CDP 端口探活状态。",
                 createParameters(),
@@ -840,7 +800,7 @@ public class ToolRegistry {
     }
 
     private void registerSkillTools() {
-        tools.put("load_skill", new Tool(
+        tools.put("load_skill", new LegacyTool(
                 "load_skill",
                 "Load full SKILL.md instructions for a skill the system has indexed (see the \"可用 Skills\" section in this system prompt). Call this when a skill's description matches the current task. Pass the exact kebab-case skill name. The full body is appended right after this tool result, before your next step in the same turn, under \"## 已加载 Skill：<name>\"; a skill already loaded in this conversation is not injected again. Pass `file` (relative to the skill directory, e.g. references/a.md, SKILL.md, or a directory to list it) to read a supporting file instead; offset/limit page through long files. Paths under references/ also include the user-level additions written by save_skill_reference (~/.paicli/skills/<name>/references/).",
                 createParameters(
@@ -851,7 +811,7 @@ public class ToolRegistry {
                 ),
                 this::loadSkill
         ));
-        tools.put("save_skill_reference", new Tool(
+        tools.put("save_skill_reference", new LegacyTool(
                 "save_skill_reference",
                 "把操作中新发现、已验证的经验（如某站点的陷阱与有效模式）写回某个 Skill 的用户级参考资料 ~/.paicli/skills/<name>/references/。"
                         + "只能写 references/ 下的 .md，不会改内置 Skill，也不能写 SKILL.md；同名文件默认追加，overwrite=true 才整体替换用户级补充文件（内置版本不受影响）。"
@@ -975,7 +935,7 @@ public class ToolRegistry {
     }
 
     private void registerMemoryTools() {
-        tools.put("save_memory", new Tool(
+        tools.put("save_memory", new LegacyTool(
                 "save_memory",
                 "当且仅当用户明确说“记一下”“记住”“以后记得”或要求保存长期偏好/稳定事实时调用，把精炼事实写入长期记忆；scope 默认 project，跨项目偏好才用 global；不要保存一次性任务请求、临时文件名或模型猜测。"
                         + "如果结果提示与已有记忆冲突，把两条都告诉用户并等待用户选择；只有用户明确选择后才可传 replace_id 或 keep_both 重新调用。",
@@ -1008,7 +968,7 @@ public class ToolRegistry {
     }
 
     private void registerSnapshotTools() {
-        tools.put("revert_turn", new Tool(
+        tools.put("revert_turn", new LegacyTool(
                 "revert_turn",
                 "恢复到 Side-Git 记录的最近第 N 个 pre-turn 快照。会先记录 pre-restore 快照；属于高危写入操作，必须经 HITL 审批。",
                 createParameters(new Param("offset", "integer", "要恢复的 pre-turn 快照序号，1 表示最近一次任务开始前", false)),
@@ -1386,7 +1346,7 @@ public class ToolRegistry {
             String toolName = descriptor.namespacedName();
             McpRegisteredTool registered = new McpRegisteredTool(descriptor, invoker);
             mcpTools.put(toolName, registered);
-            tools.put(toolName, new Tool(
+            tools.put(toolName, new LegacyTool(
                     toolName,
                     mcpDescription(descriptor),
                     descriptor.inputSchema(),
@@ -1601,7 +1561,10 @@ public class ToolRegistry {
             } else if ("execute_command".equals(name)) {
                 output = executeCommandOutput(argMap.get("command"));
             } else {
-                output = classifyTextOutput(tool.executor().execute(argMap));
+                output = tool.execute(new ToolArguments(argMap), toolContext);
+                if (output == null) {
+                    output = ToolOutput.text("");
+                }
             }
             if (shouldAudit) {
                 auditLog.record(AuditLog.AuditEntry.allow(name, argumentsJson, elapsedMillis(start), auditMetadata));
@@ -2140,7 +2103,52 @@ public class ToolRegistry {
         }
     }
 
-    public record Tool(String name, String description, JsonNode parameters, ToolExecutor executor) {}
+    /**
+     * 还没迁移成独立类的内置工具和 MCP 工具：执行器只返回文字，状态按前缀推断（甲阶段迁完后删除）。
+     */
+    record LegacyTool(String name, String description, JsonNode parameters, ToolExecutor executor) implements Tool {
+        @Override
+        public boolean readOnly() {
+            return isParallelSafeTool(name);
+        }
+
+        @Override
+        public ToolOutput execute(ToolArguments args, ToolContext context) {
+            return classifyTextOutput(executor.execute(new HashMap<>(args.asMap())));
+        }
+    }
+
+    /** 交给工具的运行环境；每次调用时读字段，setProjectPath 换了 PathGuard 也能拿到新的。 */
+    private final ToolContext toolContext = new ToolContext() {
+        @Override
+        public Path projectRoot() {
+            return pathGuard.getRootPath();
+        }
+
+        @Override
+        public Path resolvePath(String raw) {
+            return pathGuard.resolveSafe(raw);
+        }
+
+        @Override
+        public boolean cancelled() {
+            return CancellationContext.isCancelled();
+        }
+    };
+
+    /**
+     * 注册一个实现了 {@link Tool} 的工具（同名覆盖）。名字不能以 {@code mcp__} 开头，MCP 工具走
+     * {@link #registerMcpToolOutput}。并行仍按 {@link #PARALLEL_SAFE_TOOLS} 名单判断（甲阶段后续步骤改成看 readOnly）。
+     */
+    public synchronized void registerTool(Tool tool) {
+        Objects.requireNonNull(tool, "tool");
+        String name = tool.name();
+        if (name == null || name.isBlank() || name.startsWith("mcp__")) {
+            throw new IllegalArgumentException("invalid tool name: " + name);
+        }
+        Objects.requireNonNull(tool.parameters(), "parameters");
+        tools.put(name, tool);
+    }
 
     protected static record McpRegisteredTool(McpToolDescriptor descriptor, Function<String, ToolOutput> invoker) {}
 

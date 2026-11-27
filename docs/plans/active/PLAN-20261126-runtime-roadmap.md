@@ -1,6 +1,6 @@
 # Hao CLI 后续路线：可嵌入的 Agent 运行时
 
-状态：已和用户逐条确认（2026-11-26）；P0 除品牌 R0（等用户合并 PR #2）外已完成；甲-1 已通过（2026-11-27 第 14 轮），下一步甲-2 · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
+状态：已和用户逐条确认（2026-11-26）；P0 除品牌 R0（等用户合并 PR #2）外已完成；甲-1、甲-2 已通过（2026-11-27），下一步甲-3（其余只读工具） · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
 
 依据：用户提供的《Hao CLI 产品与架构演进实施计划》（docx，2026-11-26，未放进仓库）。本计划采纳它的定位、原则、非目标和评测纪律，按仓库实际情况调整了阶段顺序和范围，差异见文末“和原文档的差异”。
 
@@ -210,6 +210,16 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 1. 沿用并演进 `ToolOutput`，还是新建 `ToolResult` 类型（推荐演进：它已经带图片、网址来源和失败码，新建要在所有调用处换类型）
 2. 超时分两种状态：只读工具 `TIMEOUT`、可能有副作用的工具 `UNKNOWN`（推荐：和 ADR-0002 的定义一致，`UNKNOWN` 提醒“先核实再重试”）
 3. `read_file` 的 `offset` 超过文件行数，今天算成功（文字是“offset 超出范围”），迁移后改成 `FAILED` / `INVALID_ARGUMENT`（推荐改：如实报告是这一阶段的目的；给模型的文字不变）。这会让少数场景的成功 / 失败计数变化，会在提交说明里列出
+
+#### 甲-2 进展（2026-11-27，`read_file` 切片，已通过：macOS JDK 21，针对性 10 类 102 个、quick 1810 / 0 失败 / 4 跳过、HITL + 安全 254 个全过；评测包未跑）
+
+- 新增 `tool/Tool`（`name` / `description` / `parameters` / `readOnly` / `execute(ToolArguments, ToolContext)`）、`ToolArguments`（解析规则和原来的 `parseInt` / `parseBoolean` 一致：坏值回落默认值，`true` / `1` / `yes` 算真）、`ToolContext`（`projectRoot`、`resolvePath` 走 PathGuard、`cancelled`）
+- 嵌套记录 `ToolRegistry.Tool` 改名 `LegacyTool`（包内可见）并实现 `Tool`：执行结果仍按前缀推断；`tools` 表的类型换成 `Tool`
+- `ToolRegistry.registerTool(Tool)`：同名覆盖，拒绝空名和 `mcp__` 前缀。并行仍看 `PARALLEL_SAFE_TOOLS` 名单，改成看 `readOnly()` 留到后续一步
+- `tool/builtin/ReadFileTool`：文字和以前逐字相同；文件不存在 → `FAILED` + `NOT_FOUND`（`FailureCode` 新增），不是普通文件、`offset` 超出行数 → `FAILED` + `INVALID_ARGUMENT`（决定 3），读取异常 → `FAILED`；越界照旧抛 `PolicyException` → `DENIED`。`load_skill` 读参考文件复用 `ReadFileTool.read(...)` 的文字
+- 行为变化：`read_file` 的 `offset` 超出行数，`successful()` 从 true 变成 false。harness 11 个场景不受影响；评测包是否受影响没跑（评测暂停）
+- 已知例外：重写旧版 `executeTool(String)` 的子类（`isLegacyExecuteToolOverride`）仍按文字推断，看不到 `offset` 越界的 `FAILED`
+- 测试：新增 `ReadFileToolTest`（7 个：全文 / 分页文字不变、`offset` 越界、不存在 / 目录、批量路径保留状态、`readOnly` 和上下文、自定义工具注册、参数解析）
 
 ### 丙 统一执行
 
