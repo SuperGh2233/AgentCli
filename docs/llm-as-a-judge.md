@@ -1,11 +1,11 @@
 # LLM-as-a-Judge 离线评测教程
 
-PaiCLI 的 `com.paicli.eval` 包提供两个可独立调用的评测组件：
+Hao CLI 的 `com.haocli.eval` 包提供两个可独立调用的评测组件：
 
 - `LlmJudge`：按 Rubric（评分规则）对单个 Agent 输出逐维打分，适合 Reference-based 或 Pointwise 评测。
 - `PositionBalancedPairwiseJudge`：对 baseline 和 candidate 做两次 A/B 对比，第二次交换位置；只有两次都指向同一个逻辑候选时才接受胜者。
 
-当前实现是评测核心库，不是 `/eval` CLI 命令，也不会自动读取 `~/.paicli/history/raw`。调用方需要显式提供候选答案、参考答案和经过筛选的轨迹，避免把完整会话记录中的密钥、图片和完整系统提示词直接交给 Judge。
+当前实现是评测核心库，不是 `/eval` CLI 命令，也不会自动读取 `~/.haocli/history/raw`。调用方需要显式提供候选答案、参考答案和经过筛选的轨迹，避免把完整会话记录中的密钥、图片和完整系统提示词直接交给 Judge。
 
 ## 为什么总分要由 Java 计算
 

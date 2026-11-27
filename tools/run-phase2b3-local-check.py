@@ -5,7 +5,7 @@ Stage 1: prove plain java -version exits with PTY+setsid, NO TIOCSCTTY.
 Stage 2: only after Stage 1 succeeds, run offline JUnit + fresh javac + PTY proof
          with that same safe PTY launch mode.
 The separate exit-matrix test documents why TIOCSCTTY was removed.
-No provider calls, network, PaiCLI Main, or git mutations are performed.
+No provider calls, network, Hao CLI Main, or git mutations are performed.
 """
 import json
 import os

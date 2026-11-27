@@ -1,8 +1,8 @@
 ---
 title: 手搓 Java 版 Claude Code 第 2 期，先出计划再动手，按 DAG 分批并行执行
 shortTitle: Plan-and-Execute与DAG调度
-description: PaiCLI 第 2 期，按最新源码拆解 Plan-and-Execute：任务和依赖怎么建模，模型给的计划怎么严格校验，DAG 怎么按轮并行执行，上游结果怎么交给下游，任务失败后怎么重新规划和收场。
-keywords: Plan-and-Execute, DAG, 拓扑排序, 任务规划, PaiCLI
+description: Hao CLI 第 2 期，按最新源码拆解 Plan-and-Execute：任务和依赖怎么建模，模型给的计划怎么严格校验，DAG 怎么按轮并行执行，上游结果怎么交给下游，任务失败后怎么重新规划和收场。
+keywords: Plan-and-Execute, DAG, 拓扑排序, 任务规划, Hao CLI
 tag:
   - Agent
   - Java
@@ -20,13 +20,13 @@ date: 2026-04-19
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-p2-plan-execute-20260924182030-166934ea.png)
 
-这一期我们给 PaiCLI 加上 Plan-and-Execute。模型先出一份带依赖关系的任务清单，我们确认之后，PaiCLI 按依赖分批执行这些任务，互不依赖的任务还可以并行。
+这一期我们给 Hao CLI 加上 Plan-and-Execute。模型先出一份带依赖关系的任务清单，我们确认之后，Hao CLI 按依赖分批执行这些任务，互不依赖的任务还可以并行。
 
 ## 01、先规划再执行
 
 Plan-and-Execute 把一次任务交给两个角色。规划器（`Planner`）负责出计划，它调用模型时不给任何工具，只要求模型输出一份 JSON 格式的计划。执行器（`PlanExecuteAgent`）拿着这份计划，按依赖关系一批一批地跑任务。正常情况下规划器只调用一次模型；用户审阅时补充要求，或者任务失败后需要重新规划，规划器会再调用模型。
 
->“Plan 模式”在不同产品里做法不一样。Pi 是一款开源的终端编程 Agent，它的 Plan 模式只做只读调研，通过 `setActiveTools` 把 edit 和 write 两个写文件工具拿掉，bash 也只放行只读命令。PaiCLI 的做法不同，只有规划器调用模型时不带工具，执行器执行每个任务时，读写文件、执行命令这些工具都照常可用。两种做法的对比可以阅读《[Plan模式死了吗？](https://javabetter.cn/ai/video/is-plan-mode-dead.html)》
+>“Plan 模式”在不同产品里做法不一样。Pi 是一款开源的终端编程 Agent，它的 Plan 模式只做只读调研，通过 `setActiveTools` 把 edit 和 write 两个写文件工具拿掉，bash 也只放行只读命令。Hao CLI 的做法不同，只有规划器调用模型时不带工具，执行器执行每个任务时，读写文件、执行命令这些工具都照常可用。两种做法的对比可以阅读《[Plan模式死了吗？](https://javabetter.cn/ai/video/is-plan-mode-dead.html)》
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-p2-plan-execute-20260926174050.png)
 
@@ -48,7 +48,7 @@ Plan-and-Execute 把一次任务交给两个角色。规划器（`Planner`）负
 一个任务就是一个节点。
 
 ```java
-// src/main/java/com/paicli/plan/Task.java
+// src/main/java/com/haocli/plan/Task.java
 public class Task {
     private final String id;
     private final String description;
@@ -97,10 +97,10 @@ public boolean isExecutable(Map<String, Task> allTasks) {
 
 多个任务组成一个执行计划（`ExecutionPlan`），任务按插入顺序存在 `LinkedHashMap` 里，另外维护一份拓扑排序后的顺序。拓扑排序是把有依赖关系的任务排成一个序列，保证每个任务都排在它依赖的所有任务后面。
 
-PaiCLI 的拓扑排序用 DFS（深度优先搜索）后序遍历实现。“后序”的意思是，先递归处理完一个任务的所有依赖，再把这个任务本身加进结果，所以得到的顺序天然就是依赖在前。
+Hao CLI 的拓扑排序用 DFS（深度优先搜索）后序遍历实现。“后序”的意思是，先递归处理完一个任务的所有依赖，再把这个任务本身加进结果，所以得到的顺序天然就是依赖在前。
 
 ```java
-// src/main/java/com/paicli/plan/ExecutionPlan.java
+// src/main/java/com/haocli/plan/ExecutionPlan.java
 private boolean topologicalSort(Task task, Set<String> visited, Set<String> visiting) {
     String id = task.getId();
     if (visiting.contains(id)) {
@@ -138,7 +138,7 @@ private boolean topologicalSort(Task task, Set<String> visited, Set<String> visi
 先看规划请求。
 
 ```java
-// src/main/java/com/paicli/plan/Planner.java
+// src/main/java/com/haocli/plan/Planner.java
 public ExecutionPlan createPlan(String goal) throws IOException {
     out.println("📋 正在规划任务: " + goal + "\n");
     return requestPlan(goal, "请为以下任务制定执行计划：\n" + goal);
@@ -159,7 +159,7 @@ private ExecutionPlan requestPlan(String goal, String planningRequest) throws IO
 
 ### 规划提示词
 
-提示词放在 `prompts/modes/planner.md`，拼装时带上 PAI.md。PAI.md 是放在项目根目录下的项目规则文件，写着团队希望 Agent 遵守的约定，第 3 期细讲。提示词里给了 JSON 格式的示例、5 种任务类型，结尾强调“只输出 JSON，不要有其他内容”。其中和拆分粒度有关的规则如下（节选，编号和原文件一致）。
+提示词放在 `prompts/modes/planner.md`，拼装时带上 HAO.md。HAO.md 是放在项目根目录下的项目规则文件，写着团队希望 Agent 遵守的约定，第 3 期细讲。提示词里给了 JSON 格式的示例、5 种任务类型，结尾强调“只输出 JSON，不要有其他内容”。其中和拆分粒度有关的规则如下（节选，编号和原文件一致）。
 
 ```text
 5. 简单任务允许只生成 1-3 个任务，不要为了凑步数引入无关步骤。
@@ -181,9 +181,9 @@ private ExecutionPlan requestPlan(String goal, String planningRequest) throws IO
 
 “执行 mvn test，修复失败的测试”要先运行测试、再改代码，是两个有先后关系的步骤。按规则它只会变成一个任务，计划里看不出这层依赖。
 
-所以 PaiCLI 定了一条原则，根据用户原话做的判断，只用来收紧 Agent 的能力，比如用户说了“不要联网”就收起联网工具；不用来替用户跳过步骤。规划要不要拆、拆成几个任务，一律交给模型判断，再由紧接着的“严格校验”这一小节讲的规则把关。
+所以 Hao CLI 定了一条原则，根据用户原话做的判断，只用来收紧 Agent 的能力，比如用户说了“不要联网”就收起联网工具；不用来替用户跳过步骤。规划要不要拆、拆成几个任务，一律交给模型判断，再由紧接着的“严格校验”这一小节讲的规则把关。
 
-代价是每条输入多一次规划请求。规划请求不带工具，模型只输出一段计划 JSON，比执行任务时的请求轻得多。如果觉得一条简单输入也要规划太麻烦，按 Shift+Tab 切回 auto 模式即可。auto 模式是 PaiCLI 启动时的默认模式，这个模式下的普通输入直接交给 ReAct 执行，不经过规划器。
+代价是每条输入多一次规划请求。规划请求不带工具，模型只输出一段计划 JSON，比执行任务时的请求轻得多。如果觉得一条简单输入也要规划太麻烦，按 Shift+Tab 切回 auto 模式即可。auto 模式是 Hao CLI 启动时的默认模式，这个模式下的普通输入直接交给 ReAct 执行，不经过规划器。
 
 ### 严格校验
 
@@ -224,7 +224,7 @@ if (!plan.computeExecutionOrder()) {
 计划通过审阅后，执行器按轮次调度。每一轮取出所有依赖已完成的任务，这一轮全部跑完，再算下一轮。
 
 ```java
-// src/main/java/com/paicli/agent/PlanExecuteAgent.java，executePlan 节选
+// src/main/java/com/haocli/agent/PlanExecuteAgent.java，executePlan 节选
 while (!stopAfterBatch) {
     if (CancellationContext.isCancelled()) {
         plan.markCancelled();
@@ -252,7 +252,7 @@ while (!stopAfterBatch) {
 ```java
 out.println("⚡ 本轮并行执行 " + executableTasks.size() + " 个任务: " + parallelTaskIds);
 ExecutorService executor = Executors.newFixedThreadPool(Math.min(executableTasks.size(), 4), r -> {
-    Thread t = new Thread(r, "paicli-plan-executor");
+    Thread t = new Thread(r, "haocli-plan-executor");
     t.setDaemon(true);
     return t;
 });
@@ -262,9 +262,9 @@ ExecutorService executor = Executors.newFixedThreadPool(Math.min(executableTasks
 
 按轮次调度有个代价。某个任务的依赖早就完成了，也得等这一轮最慢的那个任务结束才能开始。改成事件驱动，哪个任务的依赖一到齐就立刻派发，总耗时能更短。
 
-PaiCLI 选按轮次，是因为每一轮的边界都很清楚。哪些任务在同一轮开始，失败发生时哪些结果已经提交，都能按轮次复现出来。PaiCLI 的评测集里有一个评测重放器（`e1_replay.py`），它根据运行时记录下来的事件，把调度过程重新推演一遍，逐条检查执行器有没有按规则执行，比如“触发重新规划之后不能再有新任务开始”。评测集的做法见《[我给 PaiCLI 出了 28 道题](https://javabetter.cn/sidebar/itwanger/paicli/paicli-agentbench.html)》。换成就绪即派发，一个任务失败时，同一批派发出去的其他任务可能还在跑，重新规划和跳过的规则都要重新定义。
+Hao CLI 选按轮次，是因为每一轮的边界都很清楚。哪些任务在同一轮开始，失败发生时哪些结果已经提交，都能按轮次复现出来。Hao CLI 的评测集里有一个评测重放器（`e1_replay.py`），它根据运行时记录下来的事件，把调度过程重新推演一遍，逐条检查执行器有没有按规则执行，比如“触发重新规划之后不能再有新任务开始”。评测集的做法见《[我给 Hao CLI 出了 28 道题](https://javabetter.cn/sidebar/itwanger/paicli/paicli-agentbench.html)》。换成就绪即派发，一个任务失败时，同一批派发出去的其他任务可能还在跑，重新规划和跳过的规则都要重新定义。
 
-对 PaiCLI 这种计划通常只有几个到十几个任务的场景，多等一轮的代价可以接受。
+对 Hao CLI 这种计划通常只有几个到十几个任务的场景，多等一轮的代价可以接受。
 
 ### 并行输出和写冲突
 
@@ -279,7 +279,7 @@ PaiCLI 选按轮次，是因为每一轮的边界都很清楚。哪些任务在�
 每个任务开始时，拿到的第一条 user 消息是执行器拼出来的任务上下文。
 
 ```java
-// src/main/java/com/paicli/agent/PlanExecuteAgent.java，buildTaskContext 节选
+// src/main/java/com/haocli/agent/PlanExecuteAgent.java，buildTaskContext 节选
 context.append("总目标：").append(goal).append("\n");
 context.append("当前任务：").append(task.getDescription()).append("\n");
 if (task.getDependencies().isEmpty()) {
@@ -312,7 +312,7 @@ context.append("请执行此任务。如果是ANALYSIS或VERIFICATION类型，�
 
 ### 联网权限也按依赖传
 
-PaiCLI 每一轮都会根据用户这一轮的原话生成一份工具策略（`TurnToolPolicy`），规定哪些工具可以用、哪些网址可以访问。每个任务开始前，都从这份工具策略复制一份副本，同一批并行的任务各用各的副本，各自新发现的网址互不共享。
+Hao CLI 每一轮都会根据用户这一轮的原话生成一份工具策略（`TurnToolPolicy`），规定哪些工具可以用、哪些网址可以访问。每个任务开始前，都从这份工具策略复制一份副本，同一批并行的任务各用各的副本，各自新发现的网址互不共享。
 
 ```java
 TurnToolPolicy taskToolPolicy = turnToolPolicy.forkWithTrustedUrls(dependencyUrls);
@@ -324,10 +324,10 @@ TurnToolPolicy taskToolPolicy = turnToolPolicy.forkWithTrustedUrls(dependencyUrl
 
 ## 06、一个任务内部怎么干活
 
-每个任务有一份独立的消息列表。system 是任务执行提示词，带上 PAI.md、Skill 索引和任务类型，Skill 索引是当前可用技能的名称和简介列表，第 15 期细讲；user 是上一节拼好的任务上下文。之后就是第 1 期那套循环，每一轮依次做这几件事。
+每个任务有一份独立的消息列表。system 是任务执行提示词，带上 HAO.md、Skill 索引和任务类型，Skill 索引是当前可用技能的名称和简介列表，第 15 期细讲；user 是上一节拼好的任务上下文。之后就是第 1 期那套循环，每一轮依次做这几件事。
 
 ```java
-// src/main/java/com/paicli/agent/PlanExecuteAgent.java，任务循环节选
+// src/main/java/com/haocli/agent/PlanExecuteAgent.java，任务循环节选
 while (true) {
     if (CancellationContext.isCancelled()) { /* 返回“已取消任务” */ }
     AgentBudget.ExitReason exitReason = budget.check();   // 停滞或预算命中就收尾
@@ -341,7 +341,7 @@ while (true) {
 }
 ```
 
-注释里有几个词需要单独说明。语法诊断是指上一步改过 Java 文件后，PaiCLI 会检查语法错误，把错误信息补进下一次请求。安全边界包装是指工具结果交回模型前，外面会包一层标签，标明这是不可信的数据，里面的指令模型不能执行。重复检测就是第 1 期讲过的那道关卡，模型连续 3 次做同一个动作，或者连续 3 次碰到同一类错误，就在工具结果后面追加一条提醒，让模型换个做法，不拦截任何工具。
+注释里有几个词需要单独说明。语法诊断是指上一步改过 Java 文件后，Hao CLI 会检查语法错误，把错误信息补进下一次请求。安全边界包装是指工具结果交回模型前，外面会包一层标签，标明这是不可信的数据，里面的指令模型不能执行。重复检测就是第 1 期讲过的那道关卡，模型连续 3 次做同一个动作，或者连续 3 次碰到同一类错误，就在工具结果后面追加一条提醒，让模型换个做法，不拦截任何工具。
 
 权限也和 ReAct 共用一套。计划任务和 ReAct 用同一个工具注册表，默认的 auto 模式下，执行命令的工具 `execute_command` 在执行前，先由当前模型关闭思考模式发一次简短请求，判断这条命令有没有风险。判断为可以执行才执行，否则把原因交回模型。
 
@@ -375,7 +375,7 @@ for (Task skipped : plan.skipDependentsOf(task.getId())) {
 
 完成度状态为 `COMPLETED` 的任务数除以任务总数，失败、跳过和还没执行的任务都不算完成（`ExecutionPlan.getProgress`）。完成度低于一半，说明计划刚开始就出了问题，更可能是计划本身不对，需要重新规划。新计划同样要经过用户审阅。
 
-重新规划最多 2 次，可以用 `PAICLI_PLAN_MAX_REPLANS` 调整。不设上限的话，新计划在一半之前失败，就会一直规划下去。到了上限，不再启动任何新任务，只保留这一轮已经返回的结果，其余任务全部标 `SKIPPED`。
+重新规划最多 2 次，可以用 `HAOCLI_PLAN_MAX_REPLANS` 调整。不设上限的话，新计划在一半之前失败，就会一直规划下去。到了上限，不再启动任何新任务，只保留这一轮已经返回的结果，其余任务全部标 `SKIPPED`。
 
 完成度过半，说明大部分工作已经做完，没必要推倒重来。失败任务的直接和间接下游标记成 `SKIPPED`，不受影响的任务继续跑。
 
@@ -399,7 +399,7 @@ return createPlan(context.toString());
 
 为什么不把结果也带上？
 
-规划请求要尽量小而固定。一旦带上结果，读过大文件的任务会把规划请求撑得很长很长，而这份请求的格式也是评测重放器逐字核对的内容。这是 PaiCLI 目前明确保留的限制，要改得连重放器一起改。
+规划请求要尽量小而固定。一旦带上结果，读过大文件的任务会把规划请求撑得很长很长，而这份请求的格式也是评测重放器逐字核对的内容。这是 Hao CLI 目前明确保留的限制，要改得连重放器一起改。
 
 ### 用户取消的时候
 
@@ -424,7 +424,7 @@ return createPlan(context.toString());
 
 ## 08、怎么进入计划模式，计划怎么审
 
-PaiCLI 启动后默认为 auto 模式。进入 Plan-and-Execute 有三种方式。
+Hao CLI 启动后默认为 auto 模式。进入 Plan-and-Execute 有三种方式。
 
 - `/plan`：只有下一条任务走计划模式，执行完回到原来的模式
 - `/plan <任务>`：这一条任务直接走计划模式
@@ -475,7 +475,7 @@ public ExecutionPlan revisePlan(ExecutionPlan current, String feedback) throws I
 
 ```bash
 mvn clean package
-java -jar target/paicli-1.0-SNAPSHOT.jar
+java -jar target/haocli-1.0-SNAPSHOT.jar
 ```
 
 先来一个串行的例子，每一步都依赖上一步。
@@ -510,7 +510,7 @@ java -jar target/paicli-1.0-SNAPSHOT.jar
 
 ## 简历怎么写
 
-### PaiCLI｜Java 终端 Coding Agent｜核心开发 第 2 期
+### Hao CLI｜Java 终端 Coding Agent｜核心开发 第 2 期
 
 项目简介：在 ReAct Agent 的基础上实现 Plan-and-Execute 执行模式，由模型先生成带依赖关系的任务计划，用户审阅确认后按 DAG 分批并行执行，并支持计划修改、失败重新规划与部分结果汇总，适用于步骤多、依赖明确的本地研发任务。
 

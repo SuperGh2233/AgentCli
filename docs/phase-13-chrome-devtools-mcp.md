@@ -6,20 +6,20 @@
 > 1. 仓库根 `AGENTS.md`（仓库规则、文档联动硬规则）
 > 2. `docs/phase-10-mcp-core.md`（MCP 协议核心，已完成）
 > 3. `docs/phase-11-mcp-advanced.md`（MCP 高级能力，已完成）
-> 4. `src/main/java/com/paicli/mcp/` 整套现有代码 —— 你只是在这套基础上增量配置 + 适配
-> 5. `src/main/java/com/paicli/hitl/HitlToolRegistry.java`、`TerminalHitlHandler.java` —— HITL「server 维度全部放行」要改这两处
+> 4. `src/main/java/com/haocli/mcp/` 整套现有代码 —— 你只是在这套基础上增量配置 + 适配
+> 5. `src/main/java/com/haocli/hitl/HitlToolRegistry.java`、`TerminalHitlHandler.java` —— HITL「server 维度全部放行」要改这两处
 >
-> **核心原则**：第 10/11 期已经做完 MCP 框架，本期**不写浏览器自动化逻辑**——直接接 Google 官方 `chrome-devtools-mcp` server，PaiCLI 这边只做"接入配置 + 适配层 + UX 优化"。
+> **核心原则**：第 10/11 期已经做完 MCP 框架，本期**不写浏览器自动化逻辑**——直接接 Google 官方 `chrome-devtools-mcp` server，Hao CLI 这边只做"接入配置 + 适配层 + UX 优化"。
 
 ---
 
 ## 1. 目标与产出物
 
-让 PaiCLI 能操控浏览器：处理 SPA / JS 渲染 / 防爬墙 / 表单交互 / 登录后页面。**直接接 Google 官方 `chrome-devtools-mcp@latest`**（v0.23.0+，2026 年 4 月仍在活跃维护，37k stars，28 个工具）。
+让 Hao CLI 能操控浏览器：处理 SPA / JS 渲染 / 防爬墙 / 表单交互 / 登录后页面。**直接接 Google 官方 `chrome-devtools-mcp@latest`**（v0.23.0+，2026 年 4 月仍在活跃维护，37k stars，28 个工具）。
 
 最终交付：
 
-- `~/.paicli/mcp.json` 默认包含 `chrome-devtools` server，**默认 enabled**
+- `~/.haocli/mcp.json` 默认包含 `chrome-devtools` server，**默认 enabled**
 - `image` 类型 content 的 fallback 体验升级（路线 B：引导 LLM 优先用 `take_snapshot` 而非 `take_screenshot`）
 - HITL「全部放行」改为 **server 维度**而非 tool 维度（避免连续浏览器操作触发 5+ 次审批）
 - 系统提示词加「web_fetch vs 浏览器 MCP」决策表
@@ -59,7 +59,7 @@
 内存(1)：take_memory_snapshot
 ```
 
-注册到 PaiCLI 后命名为 `mcp__chrome-devtools__navigate_page` 等。
+注册到 Hao CLI 后命名为 `mcp__chrome-devtools__navigate_page` 等。
 
 ---
 
@@ -158,7 +158,7 @@ chrome-devtools server 首次启动可能 30s+（npx 拉包 + Chrome 冷启）�
 - 微信公众号文章 (mp.weixin.qq.com)、知乎专栏、推特、小红书等 → 浏览器 MCP（这些站点 web_fetch 拿不到正文）
 - web_fetch 返回空正文（提示 SPA / 防爬墙）→ **自动 fallback 到浏览器 MCP**，不要重复 web_fetch
 - 已知 URL → 直接 web_fetch 试一次，失败再上浏览器
-- 用户要看页面长什么样、UI 验收 → take_screenshot（截图无法直接给 LLM 看，由 PaiCLI 附给用户）
+- 用户要看页面长什么样、UI 验收 → take_screenshot（截图无法直接给 LLM 看，由 Hao CLI 附给用户）
 
 工具选择 — 浏览器操作：
 - 优先 mcp__chrome-devtools__take_snapshot（结构化 DOM 文本，LLM 能直接理解）
@@ -175,7 +175,7 @@ chrome-devtools server 首次启动可能 30s+（npx 拉包 + Chrome 冷启）�
 
 ### 4.1 默认 `mcp.json` 模板
 
-PaiCLI 启动时如果 `~/.paicli/mcp.json` 不存在，**自动创建**含 chrome-devtools 的最小模板。如果存在但缺 chrome-devtools 条目，启动时打印一行提示「检测到未配置 chrome-devtools，建议参考 README 添加」（不自动改用户文件）。
+Hao CLI 启动时如果 `~/.haocli/mcp.json` 不存在，**自动创建**含 chrome-devtools 的最小模板。如果存在但缺 chrome-devtools 条目，启动时打印一行提示「检测到未配置 chrome-devtools，建议参考 README 添加」（不自动改用户文件）。
 
 模板：
 
@@ -198,7 +198,7 @@ PaiCLI 启动时如果 `~/.paicli/mcp.json` 不存在，**自动创建**含 chro
 # ========== Chrome DevTools MCP ==========
 # 默认 isolated 模式（临时 user-data-dir）；想复用已开 Chrome 用第 14 期 /browser connect 命令
 # 如果首次启动 npx 拉包慢，可调长 MCP initialize 超时：
-# PAICLI_MCP_INITIALIZE_TIMEOUT_SECONDS=60
+# HAOCLI_MCP_INITIALIZE_TIMEOUT_SECONDS=60
 ```
 
 ---
@@ -211,23 +211,23 @@ PaiCLI 启动时如果 `~/.paicli/mcp.json` 不存在，**自动创建**含 chro
 
 | 文件 | 改动 |
 |---|---|
-| `~/.paicli/mcp.json`（用户文件，启动时检测） | `Main.java` 启动时检测：文件不存在则创建默认含 chrome-devtools 的模板 |
-| `src/main/java/com/paicli/mcp/McpClient.java` | initialize 超时 30s → 60s（或读 `paicli.mcp.initialize.timeout.seconds` 系统属性） |
-| `src/main/java/com/paicli/mcp/McpServerManager.java` | startAll 期间另起 status printer 线程，每 5s 打印未就绪 server 的等待时长 |
-| `src/main/java/com/paicli/hitl/TerminalHitlHandler.java` | `approvedAllTools` 拆成 `approvedAllByTool` + `approvedAllByServer` 两个 Set；`a` 选项弹子菜单 |
-| `src/main/java/com/paicli/hitl/ApprovalResult.java` | 新增 `APPROVED_ALL_BY_SERVER` 枚举值 + `isApprovedAllForServer()` 判断 |
-| `src/main/java/com/paicli/hitl/HitlToolRegistry.java` | `executeTool` 进入审批前先查两个 approvedAll 集合 |
-| `src/main/java/com/paicli/mcp/protocol/McpCallToolResult.java` | image fallback 文案微调：`"[此工具返回了 image。如果用户没明确要看图，优先用 take_snapshot 工具拿 DOM 文本快照]"` |
-| `src/main/java/com/paicli/agent/Agent.java` 系统提示词 | 加「web_fetch vs 浏览器 MCP」决策表 + take_snapshot 优先指引 |
-| `src/main/java/com/paicli/agent/PlanExecuteAgent.java` 同上 | 同 |
-| `src/main/java/com/paicli/agent/SubAgent.java` 同上 | 同 |
-| `src/main/java/com/paicli/cli/Main.java` | Banner v12 → v13；标语 → `Browser-Capable Agent CLI`；启动 hint 加一条「输入 '/mcp restart chrome-devtools' 重启浏览器 server」 |
+| `~/.haocli/mcp.json`（用户文件，启动时检测） | `Main.java` 启动时检测：文件不存在则创建默认含 chrome-devtools 的模板 |
+| `src/main/java/com/haocli/mcp/McpClient.java` | initialize 超时 30s → 60s（或读 `haocli.mcp.initialize.timeout.seconds` 系统属性） |
+| `src/main/java/com/haocli/mcp/McpServerManager.java` | startAll 期间另起 status printer 线程，每 5s 打印未就绪 server 的等待时长 |
+| `src/main/java/com/haocli/hitl/TerminalHitlHandler.java` | `approvedAllTools` 拆成 `approvedAllByTool` + `approvedAllByServer` 两个 Set；`a` 选项弹子菜单 |
+| `src/main/java/com/haocli/hitl/ApprovalResult.java` | 新增 `APPROVED_ALL_BY_SERVER` 枚举值 + `isApprovedAllForServer()` 判断 |
+| `src/main/java/com/haocli/hitl/HitlToolRegistry.java` | `executeTool` 进入审批前先查两个 approvedAll 集合 |
+| `src/main/java/com/haocli/mcp/protocol/McpCallToolResult.java` | image fallback 文案微调：`"[此工具返回了 image。如果用户没明确要看图，优先用 take_snapshot 工具拿 DOM 文本快照]"` |
+| `src/main/java/com/haocli/agent/Agent.java` 系统提示词 | 加「web_fetch vs 浏览器 MCP」决策表 + take_snapshot 优先指引 |
+| `src/main/java/com/haocli/agent/PlanExecuteAgent.java` 同上 | 同 |
+| `src/main/java/com/haocli/agent/SubAgent.java` 同上 | 同 |
+| `src/main/java/com/haocli/cli/Main.java` | Banner v12 → v13；标语 → `Browser-Capable Agent CLI`；启动 hint 加一条「输入 '/mcp restart chrome-devtools' 重启浏览器 server」 |
 
 **联动文档**（按 AGENTS.md 5.x 硬规则）：
 - `AGENTS.md`：项目快照里把第 13 期标已完成；新增「12. Chrome DevTools MCP」段说明默认 enabled、image fallback 策略、HITL 维度变更
 - `README.md`：第十三期段落、配置示例、微信文章测试场景
 - `ROADMAP.md`：第 13 期标 ✅；第 14 期范围保持不变；末尾状态行 → 进入第 14 期 CDP 会话复用
-- `.env.example`：新增 `PAICLI_MCP_INITIALIZE_TIMEOUT_SECONDS` 示例
+- `.env.example`：新增 `HAOCLI_MCP_INITIALIZE_TIMEOUT_SECONDS` 示例
 
 ---
 
@@ -323,7 +323,7 @@ react.dev 是 React 官网，重 JS 渲染，web_fetch 拿到的内容稀少。�
 帮我用 chrome-devtools 截一张 https://www.google.com 的图
 ```
 
-LLM 应该调 take_screenshot，但 PaiCLI 把 image fallback 给 LLM 后，LLM 应该输出"已为您截图，但当前模型无法直接查看图片，请向我描述要从图中找什么信息"或类似友好提示。
+LLM 应该调 take_screenshot，但 Hao CLI 把 image fallback 给 LLM 后，LLM 应该输出"已为您截图，但当前模型无法直接查看图片，请向我描述要从图中找什么信息"或类似友好提示。
 
 ### 7.5 启动流程稳健性
 
@@ -385,9 +385,9 @@ LLM 应该调 take_screenshot，但 PaiCLI 把 image fallback 给 LLM 后，LLM 
 ### Day 1：mcp.json 模板 + 启动期 UX
 
 **产出**：
-- `Main.java`：启动时检测 `~/.paicli/mcp.json`，不存在则用模板创建（含 chrome-devtools）
+- `Main.java`：启动时检测 `~/.haocli/mcp.json`，不存在则用模板创建（含 chrome-devtools）
 - `McpServerManager.startAll`：另起 status printer 线程；每 5s 打印未就绪 server 等待时长
-- `McpClient.initialize`：超时从 30s 提到 60s，可被 `paicli.mcp.initialize.timeout.seconds` 系统属性覆盖
+- `McpClient.initialize`：超时从 30s 提到 60s，可被 `haocli.mcp.initialize.timeout.seconds` 系统属性覆盖
 - 启动 banner 升 v13.0.0 + 标语
 
 **测试**：
@@ -421,7 +421,7 @@ LLM 应该调 take_screenshot，但 PaiCLI 把 image fallback 给 LLM 后，LLM 
 
 **产出**：
 - 默认 `mcp.json` 模板包含 chrome-devtools（§4.1）
-- `.env.example` 加 `PAICLI_MCP_INITIALIZE_TIMEOUT_SECONDS` 示例
+- `.env.example` 加 `HAOCLI_MCP_INITIALIZE_TIMEOUT_SECONDS` 示例
 - `AGENTS.md` 新增「12. Chrome DevTools MCP」段
 - `README.md` 加第十三期段落 + 配置示例 + 微信文章测试场景描述
 - `ROADMAP.md` 第 13 期标 ✅，末尾状态行更新为「下一步进入第 14 期 CDP 会话复用」
@@ -430,7 +430,7 @@ LLM 应该调 take_screenshot，但 PaiCLI 把 image fallback 给 LLM 后，LLM 
 
 **手测清单**（必跑，结果写到 commit description）：
 
-1. ✅ 启动 PaiCLI，看到 chrome-devtools 启动进度提示，最终 ready
+1. ✅ 启动 Hao CLI，看到 chrome-devtools 启动进度提示，最终 ready
 2. ✅ 跑 §7.1 微信文章场景：web_fetch 失败 → fallback 浏览器 → take_snapshot 拿正文 → 总结
 3. ✅ 跑 §7.2 SPA 页面（react.dev）
 4. ✅ 跑 §7.3 表单填充（fill_form）
@@ -489,7 +489,7 @@ LLM 应该调 take_screenshot，但 PaiCLI 把 image fallback 给 LLM 后，LLM 
 ## 13. 完成判定（DoD）
 
 - [ ] §5 列出的所有现有文件都按要求修改
-- [ ] `~/.paicli/mcp.json` 不存在时启动自动创建（含 chrome-devtools）
+- [ ] `~/.haocli/mcp.json` 不存在时启动自动创建（含 chrome-devtools）
 - [ ] HITL `a` 选项支持子菜单选 tool / server 两种粒度
 - [ ] image content fallback 文案改为引导 take_snapshot
 - [ ] 三处 Agent 系统提示词都加了 web_fetch vs 浏览器 MCP 决策表

@@ -1,15 +1,15 @@
-# PaiCLI Mid-turn Steering · Phase 0 静态基线审查
+# Hao CLI Mid-turn Steering · Phase 0 静态基线审查
 
 > 审查日期：2026-10-20  
 > 来源：`docs/mid-turn-steering-implementation-plan.md`  
 > 阶段：**Phase 0 - 静态审查完成；执行基线尚未完成**  
-> 操作范围：只读取本机 `paicli-main` 的源文件与测试；仅新增本审查报告，**未修改业务源码、未调用模型、未启动 Codex Agent**。
+> 操作范围：只读取本机 `haocli-main` 的源文件与测试；仅新增本审查报告，**未修改业务源码、未调用模型、未启动 Codex Agent**。
 
 ## 1. 本轮结果与准入状态
 
 | 项目 | 状态 | 依据及说明 |
 |---|---|---|
-| 仓库可访问 | 已确认 | GPT-Free-Mac 的 `projects/paicli-main` 可读写 |
+| 仓库可访问 | 已确认 | GPT-Free-Mac 的 `projects/haocli-main` 可读写 |
 | 开发约束已阅读 | 已确认 | `AGENTS.md` 与 steering 设计计划 |
 | ReAct / Plan / Team 架构 | 已确认 | `Agent.java`、`PlanExecuteAgent.java`、`AgentOrchestrator.java` |
 | CLI ESC / HITL 输入竞争现状 | 已确认 | `Main.runWithCancelSupport`、`readEscCancel`、`TerminalInputLock` |
@@ -97,7 +97,7 @@
 **仅在有权限的 Mac 本地终端执行以下轻量命令**，不要启动 Codex CLI / Agent。执行前如工作区已有改动，先记录，不自动清理。
 
 ```bash
-cd /path/to/paicli-main
+cd /path/to/haocli-main
 
 git rev-parse --short HEAD
 git branch --show-current
@@ -129,7 +129,7 @@ mvn test -Dtest=MainInputNormalizationTest,PlanReviewInputParserTest,Cancellatio
 - 已提交 ServerFS Mac Agent task：`agt_c951c37a18e55b7beb1b0fb8`，目标是读取仓库约束，运行 Git 状态、Java/Maven 版本与离线 `mvn -o test -Pquick`。
 - **实际状态：FAILED（AGENT_PROVIDER_ERROR）**。Codex Provider 在初始化时向 API 返回 `401 Unauthorized: Missing bearer or basic authentication in header`，重复重连后退出。
 - 从任务事件中只观察到初始化、连接重试和失败，没有 Git/Maven 命令执行或测试结果。**Phase 0 执行基线仍未完成；Phase 1 尚未获准启动。**
-- 失败归因是 Mac Codex Runtime 认证/连接配置，非 PaiCLI 应用代码错误。不要因此修改业务源码。
+- 失败归因是 Mac Codex Runtime 认证/连接配置，非 Hao CLI 应用代码错误。不要因此修改业务源码。
 - 建议先修复 Mac 端 Codex Agent 凭证或登录状态（不要在日志、聊天中明文发送密钥）；恢复后重新提交同范围基线任务。
 
 
@@ -146,7 +146,7 @@ mvn test -Dtest=MainInputNormalizationTest,PlanReviewInputParserTest,Cancellatio
 
 ### 本地 Phase 0 环境检查
 
-- `<USER_HOME>/Projects/paicli-main` 的 `git status --short --branch` 实际返回 exit 128：`fatal: not a git repository (or any of the parent directories): .git`。当前目录是源码副本，无法记录 HEAD、分支及 Git dirty 列表；不自动初始化 Git 或覆盖源码。
+- `<USER_HOME>/Projects/haocli-main` 的 `git status --short --branch` 实际返回 exit 128：`fatal: not a git repository (or any of the parent directories): .git`。当前目录是源码副本，无法记录 HEAD、分支及 Git dirty 列表；不自动初始化 Git 或覆盖源码。
 - `java -version` 返回 Temurin OpenJDK `25.0.4.1`，arm64（exit 0）；项目编译目标仍是 Java 17。
 - `mvn -version` 返回 exit 127：`command not found: mvn`。未找到 Maven，也未发现项目 Maven Wrapper；本轮尚未安装 Maven，离线 quick 测试未执行。
 - 即使认证恢复，Phase 0 仍受 Git 元数据缺失和 Maven 不可用影响；不得写成测试通过，不得自动进入 Phase 1。
@@ -160,7 +160,7 @@ mvn test -Dtest=MainInputNormalizationTest,PlanReviewInputParserTest,Cancellatio
 - 因此已恢复 Bridge 所连接服务的登录状态；原故障与旧后台服务未加载可用账户一致。没有重新提交 Agent、没有调用模型生成；Responses 推理请求是否成功尚未重测。
 - 直接尝试 `mvn -o test -Pquick`，exit 127：`command not found: mvn`。没有测试运行结果，不能将环境失败写成测试失败或通过。
 - 下一步需要可追溯的 Git checkout，以及 Maven 和离线依赖缓存；在补齐环境或用户接受限制前，Phase 0 仍未完成、Phase 1 不启动。
-- 本轮变更仅为本报告的追加记录及空闲后台服务重启；未修改 PaiCLI / ServerFS 业务源码，未安装软件，未复制或改写认证凭据。
+- 本轮变更仅为本报告的追加记录及空闲后台服务重启；未修改 Hao CLI / ServerFS 业务源码，未安装软件，未复制或改写认证凭据。
 
 ## 9. 后续实测补录：环境已恢复、局部基线通过（2026-10-21）
 

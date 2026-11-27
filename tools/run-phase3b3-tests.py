@@ -4,7 +4,7 @@
 This runner compiles into target/phase3b3/build so it does not overwrite the
 repository's existing target/classes or target/test-classes. It uses a
 whitelisted environment and never forwards provider API keys or tokens.
-No PaiCLI Main, live provider, network, Docker, or Git mutation is performed.
+No Hao CLI Main, live provider, network, Docker, or Git mutation is performed.
 """
 import json
 import os

@@ -1,6 +1,6 @@
 # Hao CLI 后续路线：可嵌入的 Agent 运行时
 
-状态：已和用户逐条确认（2026-11-26）；P0 除品牌 R0（等用户合并 PR #2）外已完成；甲-1、甲-2 已通过（2026-11-27），下一步甲-3（其余只读工具） · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
+状态：已和用户逐条确认（2026-11-26）；P0 已完成（品牌 R0 合并为 `56cbd43`，2026-11-27 又按用户要求全量改名为 haocli，取代 R1–R4）；甲-1、甲-2 已通过（2026-11-27），下一步甲-3（其余只读工具） · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
 
 依据：用户提供的《Hao CLI 产品与架构演进实施计划》（docx，2026-11-26，未放进仓库）。本计划采纳它的定位、原则、非目标和评测纪律，按仓库实际情况调整了阶段顺序和范围，差异见文末“和原文档的差异”。
 
@@ -59,23 +59,23 @@
 
    | 上限 | 默认 | 改法 |
    |---|---|---|
-   | 模型请求次数 | 50 | `--max-turns` / `PAICLI_UNATTENDED_MAX_TURNS` |
-   | 总 Token | 2,000,000 | `--max-tokens` / `PAICLI_UNATTENDED_MAX_TOKENS` |
-   | 墙钟时间 | 30 分钟 | `--timeout` / `PAICLI_UNATTENDED_TIMEOUT` |
+   | 模型请求次数 | 50 | `--max-turns` / `HAOCLI_UNATTENDED_MAX_TURNS` |
+   | 总 Token | 2,000,000 | `--max-tokens` / `HAOCLI_UNATTENDED_MAX_TOKENS` |
+   | 墙钟时间 | 30 分钟 | `--timeout` / `HAOCLI_UNATTENDED_TIMEOUT` |
 
    超出后走现有“关工具、整理已完成部分”，状态 `partial`，退出码 3
-4. 品牌 R0：审查 GitHub draft PR #2（只改 README 和 pom 的显示名），由用户合并
+4. 品牌 R0：审查 GitHub draft PR #2（只改 README 和 pom 的显示名），由用户合并（2026-11-27 用户改选范围更大的 `chore/hao-brand-migration`，合并为 `56cbd43`）
 5. 验收：公共结束条件 + Steering 自动化测试（`AGENTS.md` 验证命令表 Steering 那一行）全过
 
-#### P0 进展（2026-11-26，已完成：`0396dcf` 第 13 轮用户本机编译通过，quick 1797 通过 / 0 失败 / 5 跳过，见 `docs/reviews/2026-11-26-macos-test-round13.md`；品牌 R0 等用户合并 PR #2）
+#### P0 进展（2026-11-26，已完成：`0396dcf` 第 13 轮用户本机编译通过，quick 1797 通过 / 0 失败 / 5 跳过，见 `docs/reviews/2026-11-26-macos-test-round13.md`；品牌 R0 已合并 `56cbd43`）
 
 - 第 1 项完成：分支 `feat/harness-runtime`，`9ff2461` 是第 11、12 轮改动（和第 12 轮报告测的内容一致：混在一起的 5 个代码文件按 P0 改动逐处还原后单独暂存），`4fabe82` 是本计划和 3 份 ADR
 - 第 2 项：`RuntimeApiServer` 记下本轮的 `TurnFinished`，按上表发结束事件；runner 不发事件（比如测试里的 lambda）时按 completed 处理。`AgentEventJson.status` 改成 public
 - 第 3 项：新增 `agent/RunLimits`（三个上限 + 环境变量解析 + 时长写法：纯数字按秒，可带 s / m / h）。`AgentBudget` 加时间上限（`TIME_LIMIT_EXCEEDED`），`fromSystemProperties(RunLimits)` 和系统属性取更严的那个。`AgentLoop.Turn` 带上限，`Agent.setRunLimits`；`HeadlessRunner`、`UnattendedTaskRunner` 设置上限，交互命令行仍不限
-  - 和上表的差别：`--max-turns` / `--max-tokens` / `--timeout` 只加在 `-p` 上；Runtime API（`serve`）和后台任务只读环境变量 `PAICLI_UNATTENDED_*`，不改 `serve` 的启动参数
+  - 和上表的差别：`--max-turns` / `--max-tokens` / `--timeout` 只加在 `-p` 上；Runtime API（`serve`）和后台任务只读环境变量 `HAOCLI_UNATTENDED_*`，不改 `serve` 的启动参数
   - 时间只在每次模型请求之前检查，正在进行的单次请求或工具不打断；到达上限后还有一次不带工具的收尾请求，所以实际请求数最多是上限加 1
   - Plan / Team 还用旧的 `AgentBudget.fromSystemProperties()`，等丙阶段迁进内核后自动带上限
-- 第 4 项（品牌 R0）：等用户审查合并 PR #2
+- 第 4 项（品牌 R0）：已合并 `56cbd43`
 - 测试：新增 `RunLimitsTest`（4 个）；`AgentBudgetTest` +2（时间上限用假时钟、上限只收紧不放宽）；`HeadlessOptionsTest` +2（参数优先于环境变量、非法和重复参数报错）；`HeadlessRunnerTest` +1（`--max-turns 1` → `partial`、退出码 3、收尾请求不带工具）；`RuntimeApiServerTest` +1（模型失败只收到 `turn.failed`，没有 `message.delta` 和 `turn.completed`）
 - 文档：`docs/specs/headless-mode.md` 新增“上限”一节，`docs/phase-20-runtime-api.md` 写结束事件规则，`README.md`、`.env.example`
 
@@ -151,7 +151,7 @@ public record ToolOutput(String text, List<ContentPart> imageParts, ToolStatus s
 
 `successful()` 的含义不变：除 `SUCCESS` 以外都是失败。拒绝、超时这些今天本来就算失败，所以评测包读到的成败不变，只是多了一个更细的状态。
 
-`Tool` 接口（也是 SDK 里自定义工具用的接口，放 `com.paicli.tool`）：
+`Tool` 接口（也是 SDK 里自定义工具用的接口，放 `com.haocli.tool`）：
 
 ```java
 public interface Tool {
@@ -175,7 +175,7 @@ public interface ToolContext {
 
 - 嵌套记录 `ToolRegistry.Tool` 改名 `LegacyTool`，做成 `Tool` 的适配器：执行结果仍走前缀兜底。迁一个工具删一条 `LegacyTool`
 - 调度层不变：参数校验、浏览器检查、启动闸门、审计、不可信数据包装、大结果落盘都还在 `ToolRegistry`；工具抛 `PolicyException` → `DENIED`，抛别的异常 → `FAILED`
-- 新工具类放 `com.paicli.tool.builtin`（比如 `ReadFileTool`）；它们需要的依赖（PathGuard、LSP、快照）通过 `ToolContext` 或构造参数传入，不反向依赖 `ToolRegistry`
+- 新工具类放 `com.haocli.tool.builtin`（比如 `ReadFileTool`）；它们需要的依赖（PathGuard、LSP、快照）通过 `ToolContext` 或构造参数传入，不反向依赖 `ToolRegistry`
 - 给模型看的文字一律不改，只改状态；这样提示词和评测里按文字比对的地方都不受影响
 
 提交顺序（每个提交用户跑一次测试）：
@@ -201,7 +201,7 @@ public interface ToolContext {
 git rev-parse --short HEAD
 mvn clean test -DskipTests=false -Dtest='ToolStatusTest,HeadlessRunnerTest,AgentLoopTest,TerminalEventRendererTest,HarnessScenarioSuiteTest,RuntimeApiServerTest,ToolRegistryTest,UnexecutedToolCallNoticeTest,AgentRunawayReminderTest'
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
-mvn test -DskipTests=false -Dtest='com.paicli.hitl.*Test,PermissionCommandTest,SessionModeControllerTest'   # HITL
+mvn test -DskipTests=false -Dtest='com.haocli.hitl.*Test,PermissionCommandTest,SessionModeControllerTest'   # HITL
 mvn test -DskipTests=false -Dtest='ToolRegistryTest,PathGuardTest,CommandGuardTest,AuditLogTest'           # 安全专项
 mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              # 评测包：对比改动前的 91 个已知失败，不能多
 ```
@@ -226,10 +226,10 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 1. 丙 1 等价迁移：Plan 的每个任务节点、Team 的每个 worker 改为调用 `AgentLoop`，删掉各自的循环。先补等价回放测试再改。必须保住：
    - planner 和 reviewer 的请求不给工具（评测审计约定）
    - `parsePlan` 提取代码块的正则和 `src/main/resources/benchmark/e1_replay.py` 完全一致
-   - 重规划规则（完成度低于 50% 才重规划，最多 `PAICLI_PLAN_MAX_REPLANS` 次，到上限后剩下的标 SKIPPED）
+   - 重规划规则（完成度低于 50% 才重规划，最多 `HAOCLI_PLAN_MAX_REPLANS` 次，到上限后剩下的标 SKIPPED）
    - reviewer 只认 JSON 里的 `approved: true`，失败的 reviewer 阻断依赖它的任务
    - Plan 审阅按键交互；Plan 并行任务和 Team worker 各用一份网址策略副本
-2. 丙 2 子 Agent 工具：主 Agent 像调用工具一样派生子 Agent（受限工具、独立上下文、独立预算，Token 计入父任务的总上限），结果作为工具结果返回；定义放 `.paicli/agents/*.md`。子 Agent 的权限只能比父 Agent 少，走同一个 `executeTools()` 和策略，网址策略继承父任务的副本。Team 之后改为编排多个子 Agent
+2. 丙 2 子 Agent 工具：主 Agent 像调用工具一样派生子 Agent（受限工具、独立上下文、独立预算，Token 计入父任务的总上限），结果作为工具结果返回；定义放 `.haocli/agents/*.md`。子 Agent 的权限只能比父 Agent 少，走同一个 `executeTools()` 和策略，网址策略继承父任务的副本。Team 之后改为编排多个子 Agent
 3. Steering 真实终端验收（ReAct 和 Plan 一起），提供手工检查清单
 4. 验收：Plan / Team 现有测试 + 等价回放通过；截断保护、预算、停滞检测、事件在三种执行方式里同义
 
@@ -272,14 +272,13 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 | `hao-cli` | `Main`、inline / Lanterna 界面、`-p`、Runtime API 服务、微信 | `hao-eval` |
 | `hao-eval` | 评测 | 不被任何模块依赖 |
 
-坐标用 `hao-*`，包名保持 `com.paicli`。验收：各模块单独 `clean build` 和测试；示例只依赖 `hao-runtime`；关掉所有可选能力仍能读、改、验证一个小 Java 项目。
+坐标用 `hao-*`，包名保持 `com.haocli`。验收：各模块单独 `clean build` 和测试；示例只依赖 `hao-runtime`；关掉所有可选能力仍能读、改、验证一个小 Java 项目。
 
 ### 收尾
 
-1. 品牌 R1：`haocli` 命令、`HAOCLI_*` 优先于 `PAICLI_*`、`HAO.md` 优先于 `PAI.md`、`~/.haocli` 优先于 `~/.paicli`，旧名字继续可用；冲突日志只显示键名不显示值
-2. 品牌 R2：用户主动执行的迁移工具，默认只演练不改动、先备份、冲突就停、不删旧数据
-3. README 架构说明、快速开始、示例、已知限制、发布说明
-4. 发行门槛：代码和证据同一提交；`clean build` + quick + 安全专项；最小 CLI 和 SDK 示例；新旧配置、会话、API 兼容；无人值守的失败和取消语义一致；文档列出已知限制和安装 / 回滚方式
+1. 品牌 R1、R2：已取消。2026-11-27 用户要求全量改名（包名、类名、文件名、配置目录、环境变量、`HAO.md`），并选择不兼容旧名字、不迁移旧数据
+2. README 架构说明、快速开始、示例、已知限制、发布说明
+3. 发行门槛：代码和证据同一提交；`clean build` + quick + 安全专项；最小 CLI 和 SDK 示例；新旧配置、会话、API 兼容；无人值守的失败和取消语义一致；文档列出已知限制和安装 / 回滚方式
 
 ## 5. 一直有效的规则
 
@@ -288,7 +287,7 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 - 上下文阶段的实验预登记批准之前，不调用真实模型、不跑 Docker、不写评测代码
 - 冻结：Lanterna 全屏界面、微信通道、浏览器只修崩溃和安全问题，不加新功能；README 标 Lanterna 为实验性
 - 对外文档和简历不引用基于 Claude Code 泄露 source map 的第三方分析；分层设计的依据只写 Anthropic 公开文章和官方文档
-- `com.paicli`、`~/.paicli`、`PAICLI_*` 在 R1 之前照旧；新增环境变量先用 `PAICLI_*`，R1 统一加 `HAOCLI_*` 别名
+- 名字一律用 haocli 系列（`com.haocli`、`~/.haocli`、`HAOCLI_*`、`HAO.md`），不加旧名字别名
 
 ## 6. 待办池（这条路线不做）
 
@@ -321,5 +320,5 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 | 目标循环可插拔验证器 | 只做确定性验收命令 | 可复现、不花 Token；模型裁判是评测里最容易被质疑的部分 |
 | ServiceLoader 发现本地扩展 | 只做显式注册 | 嵌入方自己控制 classpath；命令行不执行第三方 jar，第三方扩展走 MCP 独立进程 |
 | 五层压缩全部实现 | 只收拢已有三层 + 不变量；另两层等实验数据 | 评测暂停期间无法证明收益 |
-| 品牌 R0–R4 | 做 R0、R1、R2；R3、R4 不做 | 包名替换风险高、收益只有观感 |
+| 品牌 R0–R4 | 原定做 R0、R1、R2；2026-11-27 用户改为一次全量改名、不兼容旧名字 | 用户决定 |
 | 模块 6 类以上 | 4 个模块 | 一个人维护，模块越多构建和 CI 成本越高 |

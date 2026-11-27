@@ -39,7 +39,7 @@
 
 ### 持久化
 
-- 默认位置：`~/.paicli/security/permissions.json`。
+- 默认位置：`~/.haocli/security/permissions.json`。
 - schemaVersion 固定并验证；限制文件大小、规则数量、重复 id 和字段长度。
 - 文件与锁文件拒绝符号链接；POSIX 使用属主私有目录/文件权限，Windows 使用属主 ACL；读改写使用进程锁 + 文件锁。
 - 写入同目录私有临时文件，flush 后原子替换；不支持安全原子替换时拒绝保存。
@@ -49,7 +49,7 @@
 
 - 规则模型、命令前缀匹配、路径边界、项目隔离、优先级和稳定性单元测试。
 - Store 往返、损坏文件、重复 ID、符号链接、文件权限、原子保存/并发读改写测试。
-- Maven 离线定向回归；测试使用独立临时目录，不读写真实用户 `~/.paicli`。
+- Maven 离线定向回归；测试使用独立临时目录，不读写真实用户 `~/.haocli`。
 - 通过后独立提交并推送 GitHub。
 
 ## Stage 3B：审批 UI 与执行链集成
@@ -76,7 +76,7 @@
 - 新增 `COMMAND_EXACT` / `PATH_EXACT`：逐次审批时只建议精确命令或单个项目文件路径，避免把一次批准扩展成宽泛前缀授权。
 - `ApprovalRequest` 携带拟保存规则；Plain / Inline / Lanterna 均展示项目根、scope、matcher，用户选择 `p` 后还必须再次输入 `YES` 或在 Lanterna 二次确认对话框中确认。
 - `HitlToolRegistry` 仅在收到 `PERMANENTLY_ALLOWED` 且候选规则仍属于当前真实项目时写入存储；保存失败时拒绝执行。现有 `a` 仍是会话级授权。
-- Main 启动时加载 `~/.paicli/security/permissions.json`，安全检查失败时不启用；增加 `/permissions list`、`/permissions revoke <id>`、`/permissions clear --confirm`，清除操作只影响当前项目。
+- Main 启动时加载 `~/.haocli/security/permissions.json`，安全检查失败时不启用；增加 `/permissions list`、`/permissions revoke <id>`、`/permissions clear --confirm`，清除操作只影响当前项目。
 - MCP 永久 ALLOW 仍关闭；未绑定 MCP 配置指纹和 trust 状态前不能跳过审批。敏感页面逐次确认保持原样。
 - 新增 `PermissionCommandTest`、精确 scope evaluator/store 测试、Plain/Inline 永久授权二次确认测试、永久授权执行链集成测试，以及 Lanterna lifecycle 测试。最终一次 Maven 离线禁网隔离定向回归：11 个测试类、156 项通过，失败/错误/跳过均为 0（BUILD SUCCESS）；这不是全量测试。Lanterna 的交互式对话框仍需在真实 TUI 终端做手工 smoke test。
 - 为隔离环境避免 Mockito Inline MockMaker 依赖动态代理附加，测试资源显式使用 Subclass MockMaker；Lanterna lifecycle 测试改为注入 `LanternaElicitation`，不再 mock final `LanternaWindow`。`LanternaRenderer.close()` 对注入式测试构造器的空 window 安全处理。
@@ -88,7 +88,7 @@
 
 - `McpConfigLoader.fingerprint()` 已存在：使用稳定排序后的配置字段，对 protocolVersion、command、args、env、url、headers、oauth 计算 SHA-256；项目级配置在 load 时将该指纹写入 `McpServerConfig.projectFingerprint`。`McpOAuthConfig` 只包含 public clientId/scopes，不包含 client_secret。
 - 原有 `McpTrustStore` 按“项目配置绝对路径 + server 名 + fingerprint”判断信任；Stage 3C1 已将其加固为属主私有目录/文件权限、拒绝符号链接、进程锁+文件锁、随机同目录临时文件和原子替换，损坏/非法文件 fail closed，并新增按 config path + server name 撤销信任。
-- `McpServerManager.isTrusted()` 仍为内部实现；Stage 3C1 新增只读 `permissionBinding(serverName)` 快照，返回当前 fingerprint、trusted、ready、projectScoped。用户级 `~/.paicli/mcp.json` 仍按用户配置来源默认视为可信。新增 `/mcp untrust <name>` 撤销项目级信任、停止 server 并注销工具。
+- `McpServerManager.isTrusted()` 仍为内部实现；Stage 3C1 新增只读 `permissionBinding(serverName)` 快照，返回当前 fingerprint、trusted、ready、projectScoped。用户级 `~/.haocli/mcp.json` 仍按用户配置来源默认视为可信。新增 `/mcp untrust <name>` 撤销项目级信任、停止 server 并注销工具。
 - 原有 `McpServerManager.restartWithArgs()` 修改运行时 args 后未更新 `projectFingerprint`；Stage 3C1 已改为从不可变 source fingerprint + runtime args 生成稳定新指纹，项目级旧信任立即失效，用户级 permission binding 也同步变化。
 - `McpServerManager` 启动时加载配置；普通 restart 使用内存中的配置对象，不会重新读取配置文件。需要明确配置文件运行中被外部修改时，reload/restart 的预期行为，不能把旧快照误认为磁盘当前配置。
 - `PermissionContext` 当前只有 projectRoot/toolName/serverName/command/projectRelativePath；`PermissionRuleRuntime` 无法取得 MCP 当前配置指纹或信任状态。`maySkipApproval()` 明确禁止 MCP_SERVER/TOOL ALLOW 跳过 HITL，因此当前 MCP 永久 ALLOW 尚未生效，安全默认仍是逐次审批。

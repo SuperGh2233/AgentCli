@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Phase2B-3a gate: plain Java must exit under PTY+setsid WITHOUT TIOCSCTTY.
 The separate run-pty-java-exit-matrix.py retains the problematic CTTY case.
-No PaiCLI, JLine, Maven, network, model or production code is loaded.
+No Hao CLI, JLine, Maven, network, model or production code is loaded.
 """
 import fcntl
 import json

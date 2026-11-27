@@ -19,7 +19,7 @@ Build. Execute. Evolve.
 
 Hao CLI 是一个由 GitHub 账号 **SuperGh2233** 独立开发和维护的 Java Agent CLI 项目，重点探索 Agent Harness、任务规划、工具执行、上下文管理、记忆机制和终端交互。
 
-项目设计过程中参考了开发者社区中关于 Agent CLI 的实践思路，包括[沉默王二的 PaiCLI 项目与教程](https://javabetter.cn/sidebar/itwanger/paicli/)。这里仅作为设计思路的参考与致谢；Hao CLI 的代码实现、功能取舍和后续演进由本项目独立维护。项目不以 PaiCLI 作为代码来源，也不将其功能清单直接视为 Hao CLI 的实现说明。
+项目设计过程中参考了开发者社区中关于 Agent CLI 的实践思路，包括[沉默王二的 Hao CLI 项目与教程](https://javabetter.cn/sidebar/itwanger/paicli/)。这里仅作为设计思路的参考与致谢；Hao CLI 的代码实现、功能取舍和后续演进由本项目独立维护。项目不以 Hao CLI 作为代码来源，也不将其功能清单直接视为 Hao CLI 的实现说明。
 
 ## 核心能力
 
@@ -30,7 +30,7 @@ Hao CLI 是一个由 GitHub 账号 **SuperGh2233** 独立开发和维护的 Java
 | Multi-Agent | Planner / Worker / Reviewer 分工、审查反馈与有限重试 |
 | Tool System | 文件读写、目录遍历、代码搜索、命令执行、项目创建 |
 | MCP | stdio / Streamable HTTP MCP Server、工具与资源发现 |
-| Memory & Context | 会话历史、长期记忆、摘要压缩、Token 预算、项目级 `PAI.md` |
+| Memory & Context | 会话历史、长期记忆、摘要压缩、Token 预算、项目级 `HAO.md` |
 | Code RAG | SQLite 向量索引、代码切块、AST 关系分析与语义检索 |
 | Safety | Human-in-the-loop、风险分级、工具审批与执行审计 |
 | Interfaces | inline TUI、可选 Lanterna TUI、Runtime API、浏览器 MCP、微信文本通道 |
@@ -65,15 +65,15 @@ flowchart TD
 
 ## 当前开发方向
 
-本项目持续推进执行中输入控制和终端交互可靠性；未完成的接线和验证不作为已交付能力。对外品牌统一为 Hao CLI（未来命令名 `haocli`）。现有 Maven 坐标、jar 文件名、`com.paicli` 包名、`~/.paicli`、`PAICLI_*`、`paicli.*` 和 `PAI.md` 仍是兼容接口；后续按独立迁移计划引入 Hao 命名及兼容读写，不直接替换或删除旧配置与历史评测证据。启动时显示的 `v16.1.0` 是现有代码中的历史版本常量，不代表 Hao CLI 已发布对应的语义版本。
+本项目持续推进执行中输入控制和终端交互可靠性；未完成的接线和验证不作为已交付能力。名字统一为 Hao CLI：Maven 坐标、jar 文件名、`com.haocli` 包名、`~/.haocli`、`HAOCLI_*`、`haocli.*` 和 `HAO.md` 都已使用 Hao 命名（2026-11-27），旧名字不再兼容。启动时显示的 `v16.1.0` 是现有代码中的历史版本常量，不代表 Hao CLI 已发布对应的语义版本。
 
-执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；用户也已在普通 macOS Terminal 验证 Ctrl+C / Ctrl+D 的 JLine 原生异常。Phase3A ReAct 安全点和 Phase3B-3A 的 Main 接线已实现，但只有在 `paicli.steering.enabled=true`、交互式 inline ReAct 路径启用；Plain/Lanterna 和非交互路径不启用新输入循环，Plan/Team 仍保留原审批流程。Phase3B-3A 隔离离线回归已通过（12 suites / 94 tests，0 failures / 0 errors）；真实 Main + WakeableLineReader 终端组合、中文输入法候选窗和审批/Steer 输入归属仍待人工验收。Steer/Queue 输入会清除编辑态回显并写入可见的对话记录；`/queue` 目前只保存并显示数量，不会自动启动下一任务。`paicli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
+执行中输入控制仍处于实验开发阶段：Phase2B 的 `WakeableLineReader` 已通过独立 macOS PTY 的分段方向键唤醒与草稿恢复测试；用户也已在普通 macOS Terminal 验证 Ctrl+C / Ctrl+D 的 JLine 原生异常。Phase3A ReAct 安全点和 Phase3B-3A 的 Main 接线已实现，但只有在 `haocli.steering.enabled=true`、交互式 inline ReAct 路径启用；Plain/Lanterna 和非交互路径不启用新输入循环，Plan/Team 仍保留原审批流程。Phase3B-3A 隔离离线回归已通过（12 suites / 94 tests，0 failures / 0 errors）；真实 Main + WakeableLineReader 终端组合、中文输入法候选窗和审批/Steer 输入归属仍待人工验收。Steer/Queue 输入会清除编辑态回显并写入可见的对话记录；`/queue` 目前只保存并显示数量，不会自动启动下一任务。`haocli.steering.enabled` 默认 `false`。实现边界、测试结果和后续 Gate 见[实施计划](docs/mid-turn-steering-implementation-plan.md)。
 
 ## 启动时恢复会话（Day3-A）
 
 ```bash
-java -jar target/paicli-1.0-SNAPSHOT.jar --continue
-java -jar target/paicli-1.0-SNAPSHOT.jar --session <id>
+java -jar target/haocli-1.0-SNAPSHOT.jar --continue
+java -jar target/haocli-1.0-SNAPSHOT.jar --session <id>
 ```
 
 `--continue` 按现有 `/resume` 的顺序恢复当前项目最近一个可恢复的旧 CLI 会话，排除本次启动新建的记录。`--session <id>` 精确匹配 ID（不是列表序号），只接受当前项目的 CLI 会话。两个参数不能混用或重复；ID 不能为空或包含路径。未知旧参数仍忽略，不带参数的启动不变，微信和 Runtime API 的专用入口不变。
@@ -83,12 +83,12 @@ java -jar target/paicli-1.0-SNAPSHOT.jar --session <id>
 ## 无界面模式（一次执行，给脚本和 CI 用）
 
 ```bash
-java -jar target/paicli-1.0-SNAPSHOT.jar -p "总结 README 的要点"
-echo "列出 src 下的入口类" | java -jar target/paicli-1.0-SNAPSHOT.jar -p --output-format json
-java -jar target/paicli-1.0-SNAPSHOT.jar -p "修复编译错误" --permission-mode edit --allow-command "mvn -q compile" --output-format stream-json
+java -jar target/haocli-1.0-SNAPSHOT.jar -p "总结 README 的要点"
+echo "列出 src 下的入口类" | java -jar target/haocli-1.0-SNAPSHOT.jar -p --output-format json
+java -jar target/haocli-1.0-SNAPSHOT.jar -p "修复编译错误" --permission-mode edit --allow-command "mvn -q compile" --output-format stream-json
 ```
 
-执行一次任务后退出，不弹任何确认。默认只读（读文件、搜代码、联网读取）；`--permission-mode edit` 另外允许写文件和改文件；命令默认一条都不执行，要用 `--allow-command` 逐条精确列出。`text` 只输出最终回答，`json` 结束时输出一个结果对象，`stream-json` 每个事件一行 JSON。每个任务默认最多 50 次模型请求、200 万 Token、30 分钟（`--max-turns`、`--max-tokens`、`--timeout` 或 `PAICLI_UNATTENDED_*` 环境变量调整，Runtime API 和后台任务同样适用），到了就整理已完成的部分。退出码：0 完成、1 调用模型失败、2 参数或配置错误、3 只完成一部分、130 已取消。输出格式见 `docs/specs/headless-mode.md`。
+执行一次任务后退出，不弹任何确认。默认只读（读文件、搜代码、联网读取）；`--permission-mode edit` 另外允许写文件和改文件；命令默认一条都不执行，要用 `--allow-command` 逐条精确列出。`text` 只输出最终回答，`json` 结束时输出一个结果对象，`stream-json` 每个事件一行 JSON。每个任务默认最多 50 次模型请求、200 万 Token、30 分钟（`--max-turns`、`--max-tokens`、`--timeout` 或 `HAOCLI_UNATTENDED_*` 环境变量调整，Runtime API 和后台任务同样适用），到了就整理已完成的部分。退出码：0 完成、1 调用模型失败、2 参数或配置错误、3 只完成一部分、130 已取消。输出格式见 `docs/specs/headless-mode.md`。
 
 ## 安全边界
 
@@ -105,7 +105,7 @@ java -jar target/paicli-1.0-SNAPSHOT.jar -p "修复编译错误" --permission-mo
 
 - [路线图](ROADMAP.md)
 - [项目协作规则](AGENTS.md)
-- [项目记忆约定](PAI.md)
+- [项目记忆约定](HAO.md)
 - [阶段设计与实现记录](docs/)
 
 
@@ -114,7 +114,7 @@ java -jar target/paicli-1.0-SNAPSHOT.jar -p "修复编译错误" --permission-mo
 MRTR-3 历史验收与相关 MCP/界面离线回归：18 个测试类、170 项全部通过，保留原 159 项，新增能力声明测试 11 项。MRTR-4 Lanterna UI 已纳入完整离线回归：本轮 43 个测试类、387 项全部通过（0 失败、0 错误、0 跳过）；真实终端手工验收仍待执行。构建和测试输出隔离在 `/tmp`；没有调用模型、外网、真实浏览器或 Docker。命令和剩余限制见 [MRTR 实施记录](docs/plans/active/PLAN-20261103-mcp-mrtr.md)。
 
 Day2-C 已将文件重复失败观察器接入 ReAct、Plan 单任务和 Team worker。
-用 `java -Dpaicli.stagnation.resource.observer.enabled=true -jar target/paicli-1.0-SNAPSHOT.jar` 显式启用，默认关闭。
+用 `java -Dhaocli.stagnation.resource.observer.enabled=true -jar target/haocli-1.0-SNAPSHOT.jar` 显式启用，默认关闭。
 Day2-D 使用工具实现传递的明确失败码识别 old_text 未找到，不再匹配错误文案；原错误显示不变。
 每次运行或独立任务分别计数；只在特定编辑失败连续出现时记录一次固定日志事件，不含用户文本、路径或文件内容。
 不向模型添加消息，不改变现有提醒、预算、工具顺序或执行策略。
@@ -145,7 +145,7 @@ mvn test -DskipTests=false
 
 - 单轮对话驱动的 `ReAct` 循环
 - 支持工具调用：读文件、写文件、列目录、文件 glob、代码 grep、执行命令、创建项目、RAG 语义辅助检索、联网搜索、MCP 动态工具
-- ReAct、Plan 单任务和 Multi-Agent SubAgent 默认不限制执行轮数，由模型在不再调用工具时自然结束；无人值守或严格成本控制场景可用 `-Dpaicli.react.hard.max.iterations=N` 显式设置上限
+- ReAct、Plan 单任务和 Multi-Agent SubAgent 默认不限制执行轮数，由模型在不再调用工具时自然结束；无人值守或严格成本控制场景可用 `-Dhaocli.react.hard.max.iterations=N` 显式设置上限
 - 命中显式设置的轮数或 Token 上限，或者触发重复调用保护后，会关闭工具，再让模型尽量做一次收尾：说清楚已完成的部分、没完成的事项和下一步，不会把已经做完的工作直接丢掉
 - 更适合简单任务或单步操作
 
@@ -162,10 +162,10 @@ mvn test -DskipTests=false
 
 - 每个 Agent 实例用自己的 `conversationHistory` 管理当前对话与工具结果，不另外保存一份短期记忆副本
 - 交互式 CLI 默认在任务完成后，从用户原文自动提取稳定事实并存为项目级长期记忆（标为待核实）；也可通过 `/save <事实>` 或明确说“记一下 / 记住”时的 `save_memory` 显式保存
-- 项目级记忆写在 `PAI.md` / `.paicli/PAI.md` 里，启动时自动注入，适合提交到仓库的团队共享规则；`PAI.local.md` / `.paicli/PAI.local.md` 只做本地覆盖
+- 项目级记忆写在 `HAO.md` / `.haocli/HAO.md` 里，启动时自动注入，适合提交到仓库的团队共享规则；`HAO.local.md` / `.haocli/HAO.local.md` 只做本地覆盖
 - 注入给模型的相关记忆只使用长期稳定事实，不把当前轮短期对话误当成“历史记忆”
 - 上下文增长到清理阈值（默认 min(100k, 摘要阈值 × 60%)）时，先把最近 3 条之外的旧工具结果换成一行占位说明（做法参考 Anthropic 的 context editing），需要时可以重新调用工具，或读回已写入磁盘的结果文件；仍接近预算才做摘要
-- 会话读过网页、浏览器或 MCP 返回的外部内容后，自动事实提取和其他自动写入都会停止；`save_memory` 需要用户当轮明确说“记住”，显式保存的条目标注 `external_context`（`PAICLI_MEMORY_DISABLE_ON_EXTERNAL_CONTEXT=false` 可关闭这项保护）
+- 会话读过网页、浏览器或 MCP 返回的外部内容后，自动事实提取和其他自动写入都会停止；`save_memory` 需要用户当轮明确说“记住”，显式保存的条目标注 `external_context`（`HAOCLI_MEMORY_DISABLE_ON_EXTERNAL_CONTEXT=false` 可关闭这项保护）
 - 对话接近预算时自动做四栏目摘要压缩；过长的旧历史先分段摘要再合并，每一段都会覆盖到；格式不合格或 Token 没减少时保留原对话。也可以开启 Session Memory 增量摘要这条快速压缩方式，用不了时改用完整对话摘要。摘要会丢细节；超大工具结果另有“写入磁盘、需要时读回”的机制
 - 新增 `/memory` 查看状态、`/memory list/search/delete/clear` 管理长期记忆、`/save` 手动保存事实；Agent 在用户明确说“记一下 / 记住”时可调用 `save_memory`
 
@@ -210,7 +210,7 @@ mvn test -DskipTests=false
 - `LlmClient` 接口抽象 + `AbstractOpenAiCompatibleClient` 模板基类
 - 内置 `GLMClient`、`DeepSeekClient`、`HunyuanClient`、`StepClient`、`KimiClient`、`FreeLlmApiClient`、`XfyunMaaSClient`、`AgnesClient` 八个轻量实现
 - `/model glm-5.3-flash` / `/model glm-5.1` / `/model glm-5v-turbo` 明确切 GLM 模型；`/model hy4-preview` 明确切混元 Hy4；`/model deepseek` / `/model hunyuan` / `/model step` / `/model kimi` / `/model freellmapi` / `/model xfyun` / `/model agnes` 切 provider 并读取配置里的具体模型
-- 配置持久化到 `~/.paicli/config.json`，API Key 可从配置、环境变量或 `.env` 读取
+- 配置持久化到 `~/.haocli/config.json`，API Key 可从配置、环境变量或 `.env` 读取
 - DeepSeek V4.1 Flash / V4 Pro 使用 `thinking.type=enabled`、`reasoning_effort=max`、`temperature=1`、`top_p=0.95`（DeepSeek 思考模式会忽略 temperature，传它只是为了兼容）；GLM-5.3 还启用持续思考、流式工具与 usage；混元 Hy4 使用 `reasoning_effort=high` 并请求流式 usage。三者在 thinking tool-call 续轮都会带回 assistant `reasoning_content`
 - DeepSeek 是默认 provider：未保存默认 provider 时优先使用，找不到 Key 时按 deepseek → glm → hunyuan → step → kimi → freellmapi → xfyun → agnes 顺序回退。默认模型 DeepSeek V4.1 Flash（模型 ID `deepseek-flash`），支持图片输入；旧名 `deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` 的请求由官方转给新版，同样启用图片能力。`deepseek-v4-pro` 仍按文本模型处理。想把已有配置升级到新名字，可执行 `/model deepseek-flash`。启动时选模型的顺序是：环境变量 → 项目 `.env` → 用户 `.env` → 已保存模型 → 客户端默认值。会话内显式执行 `/model <模型ID>` 立即生效并保存；下次启动时如果环境里仍有配置，以环境配置为准。启动页与底部状态栏把 `deepseek-flash` 显示为 `DeepSeek V4.1 Flash`，请求仍使用原始模型 ID。
 - DeepSeek V4.1 Flash / V4 Pro 会兼容处理写在正文里的 DSML 工具调用，拿不准就不转换：支持 `tool_calls` / `calls` 容器及标记后的空白，只转换当前请求已提供给模型的工具，未知或格式不对的块保持原文；普通正文与 reasoning 仍保持流式输出
@@ -232,13 +232,13 @@ mvn test -DskipTests=false
 
 `--like` 仅接受同供应商已登记的模型，沿用其协议处理与能力配置，例如思考内容回传、DSML 工具调用和图片格式。还可以覆盖 `--context <tokens>`、`--vision true|false`、`--max-output <tokens>`、`--thinking auto|enabled|disabled`、`--effort auto|low|medium|high|max`、`--reasoning-history true|false`；`--dsml true|false` 仅用于 DeepSeek 的兼容处理。`auto` 表示沿用供应商/模板设置，不是自动探测。只有协议兼容的新模型适合复用模板；新的 API 协议仍需更新客户端代码。
 
-配置保存在 `~/.paicli/config.json` 的 `providers.<provider>.models`，重复 `add` 只更新显式指定的能力项；使用 `--like` 会重新以该模板为基础。添加、更新和刷新均不切换当前会话，即使正在使用同名模型，也需再次 `/model` 才应用修改。切换成功后同步更新上下文预算并保留对话；配置写入磁盘失败则保留原选择。模型 ID 有歧义或不含厂商前缀时，可以使用 `/model <provider>/<模型ID>`；`/model deepseek-flash` 和 `/model deepseek` 这类写法照常可用。
+配置保存在 `~/.haocli/config.json` 的 `providers.<provider>.models`，重复 `add` 只更新显式指定的能力项；使用 `--like` 会重新以该模板为基础。添加、更新和刷新均不切换当前会话，即使正在使用同名模型，也需再次 `/model` 才应用修改。切换成功后同步更新上下文预算并保留对话；配置写入磁盘失败则保留原选择。模型 ID 有歧义或不含厂商前缀时，可以使用 `/model <provider>/<模型ID>`；`/model deepseek-flash` 和 `/model deepseek` 这类写法照常可用。
 
 新发现或未指定模板的新模型默认按 **128k、仅文本** 保守处理，列表标注发现条目的能力待配置；这不代表供应商实际能力已核实。刷新失败不删除旧条目，也不会猜测哪个模型是“最新版”。
 
 DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh-cn/)列出 `deepseek-flash`（V4.1 Flash）和 `deepseek-v4-pro`。`deepseek-v4-flash` / `deepseek-v4-flash-vision-exp` 是兼容旧名，原模型已下线，官方将请求转到 V4.1 Flash；它们不作为独立内置模型列出，也不会在刷新时重新登记成 128k 文本模型。已有选择或手动配置中的旧名保留，列表、启动信息和 `/model` 提示会标注对应关系，明确执行 `/model deepseek-flash` 后才保存新名称。刷新结果区分接口返回 ID 数、兼容旧名数和新增模型数；新增为 0 时不再提示配置新模型能力。
 
-模型、MCP（`/mcp`）、Skill（`/skill list`）列表共用轻分隔线表格：按终端显示列宽对齐中文和 ANSI 文本，宽度不足时先下移最后一列，再切成纵向条目；完整名称保留，极窄屏幕只折行、不省略模型 ID。可通过 `NO_COLOR` 或 `-Dpaicli.render.color=false` 关闭颜色。刷新、切换显示简短结果；旧模型名的映射提示在表格或启动栏下方独立显示。
+模型、MCP（`/mcp`）、Skill（`/skill list`）列表共用轻分隔线表格：按终端显示列宽对齐中文和 ANSI 文本，宽度不足时先下移最后一列，再切成纵向条目；完整名称保留，极窄屏幕只折行、不省略模型 ID。可通过 `NO_COLOR` 或 `-Dhaocli.render.color=false` 关闭颜色。刷新、切换显示简短结果；旧模型名的映射提示在表格或启动栏下方独立显示。
 
 ### 第九期：联网能力 + Web 工具
 
@@ -255,13 +255,13 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 
 ### 第十期：MCP 协议核心
 
-- 新增 `com.paicli.mcp` 模块，支持 stdio 子进程 server 与 Streamable HTTP 远程 server
-- 启动时读取 `~/.paicli/mcp.json` 与 `.paicli/mcp.json`，项目级配置按 server 名覆盖用户级配置；项目级 server 要先 `/mcp trust <name>` 确认才会启动，配置内容变了要重新确认
+- 新增 `com.haocli.mcp` 模块，支持 stdio 子进程 server 与 Streamable HTTP 远程 server
+- 启动时读取 `~/.haocli/mcp.json` 与 `.haocli/mcp.json`，项目级配置按 server 名覆盖用户级配置；项目级 server 要先 `/mcp trust <name>` 确认才会启动，配置内容变了要重新确认
 - stdio server 子进程只继承运行必需的环境变量（PATH、HOME、代理、证书等），API Key 需要在配置的 `env` 里显式写
 - stdio server 进程自己退出，或者连续两次 ping 都不回（卡死）时，Hao CLI 会移除它的工具，按 1 秒、2 秒、4 秒的间隔自动重启，连续 3 次失败就停下并提示用 `/mcp restart` 手动处理；正在等它回复的请求立即失败，不用干等 60 秒超时
 - 关闭 server 时会连同 npx / uvx 拉起的子进程一起结束；Hao CLI 被强制杀掉（kill -9）后，下次启动会清理上次遗留的 MCP 子进程
 - MCP `${VAR}` 支持系统环境变量、系统属性、项目 `.env`、用户 `~/.env`；检测到 `STEP_API_KEY` 时自动内置 `step_search` 远程 MCP，显式同名配置优先
-- MCP 配置指纹使用本地 HMAC-SHA256（带私有密钥的摘要）；32 字节随机密钥仅存在私有 `~/.paicli/mcp-trust.json` 的 `fingerprintKey` 中。首次升级生成密钥会清除旧 SHA 信任记录，项目 server 需要重新 `/mcp trust`；文件损坏或密钥非法时拒绝覆盖。
+- MCP 配置指纹使用本地 HMAC-SHA256（带私有密钥的摘要）；32 字节随机密钥仅存在私有 `~/.haocli/mcp-trust.json` 的 `fingerprintKey` 中。首次升级生成密钥会清除旧 SHA 信任记录，项目 server 需要重新 `/mcp trust`；文件损坏或密钥非法时拒绝覆盖。
 - 配置绑定会重新检查原始配置和展开后的有效配置，变化或读取失败时标记 `current=false`。本阶段不自动 reload，也未启用 MCP 永久 ALLOW。文件改动需要重新载入配置（当前可重新启动 CLI）；`/mcp restart` 只重启已载入的配置，并重新展开变量，不重读 mcp.json。
 - MCP 工具自动注册为 `mcp__{server}__{tool}`，参数 schema 会删掉 `$ref` 和超长 description，`anyOf` / `oneOf` 按真实类型收起来（例如可选的字符串参数仍标成 `string`），降低模型调用失败率；执行前按 server 返回的原始 schema 校验参数，不合格的调用不发给 server，直接把哪个字段有什么问题告诉模型
 - 所有 MCP 工具默认走 HITL 审批和审计，审计参数会脱敏 token / key / password / Authorization / Bearer 凭证
@@ -270,7 +270,7 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 - 被动处理 `notifications/tools/list_changed`、`notifications/resources/list_changed`、`notifications/resources/updated`
 - 运行中输入 `/cancel` 并回车可请求取消当前 Agent run
 - CLI 命令：`/mcp login <name>`、`/mcp logout <name>`、`/mcp`、`/mcp restart <name>`、`/mcp logs <name>`、`/mcp disable <name>`、`/mcp enable <name>`、`/mcp trust <name>`、`/mcp resources <name>`、`/mcp prompts <name>`
-- `~/.paicli/mcp.json` 不存在时会自动创建默认 chrome-devtools 配置；项目级 `.paicli/mcp.json` 仍可按 server 名覆盖
+- `~/.haocli/mcp.json` 不存在时会自动创建默认 chrome-devtools 配置；项目级 `.haocli/mcp.json` 仍可按 server 名覆盖
 
 ### 第十二期：长上下文工程
 
@@ -286,7 +286,7 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 ### 第十三期：Chrome DevTools MCP
 
 - 默认接入 Google 官方 `chrome-devtools-mcp@latest`，注册为 `mcp__chrome-devtools__navigate_page`、`take_snapshot`、`click`、`fill_form` 等浏览器工具
-- `~/.paicli/mcp.json` 不存在时启动自动创建模板，默认使用 `--isolated=true` 临时浏览器配置（profile）
+- `~/.haocli/mcp.json` 不存在时启动自动创建模板，默认使用 `--isolated=true` 临时浏览器配置（profile）
 - 用于处理 SPA / JS 渲染 / 防爬墙 / 表单交互页面；微信公众号文章、知乎专栏、推特、小红书等 `web_fetch` 失败站点会引导走浏览器 MCP
 - HITL 的“全部放行”可以按 MCP server 设置，连续的浏览器操作对 `chrome-devtools` 确认一次即可
 - `image` 类型结果会作为图片输入附加到下一轮；同时保留一份文本版本，用于日志、人类可读摘要，以及 DeepSeek V4 Pro 等不接受图片块的 provider 自动降级时使用
@@ -307,25 +307,25 @@ DeepSeek 的当前内置列表按[官方文档](https://api-docs.deepseek.com/zh
 
 把"Agent 该怎么思考"从硬编码的 system prompt 里抽出来，整理成可复用的单元。每个 Skill 是一个目录：`SKILL.md`（决策手册）+ `references/`（按需读取）+ 可选 `scripts/`（可执行依赖）。
 
-- 三层加载位置（按优先级，后者整体覆盖同名 skill）：jar 内置 < 用户级 `~/.paicli/skills/<name>/` < 项目级 `<project>/.paicli/skills/<name>/`
+- 三层加载位置（按优先级，后者整体覆盖同名 skill）：jar 内置 < 用户级 `~/.haocli/skills/<name>/` < 项目级 `<project>/.haocli/skills/<name>/`
 - 启动期把启用 skill 的 `name` + `description` 注入三处 Agent 系统提示词索引段（启用上限 20 个，索引段 ≤ 4KB）
 - 内置工具 `load_skill(name)`：LLM 在 system prompt 里看到匹配的 description 时主动调用。在工具结果之后、同一轮下一次 LLM 请求之前，Hao CLI 把 SKILL.md 正文（frontmatter 之后的部分，超过 5KB 时按整行截断）包成一条注入消息追加进历史。这是一条独立的 user 消息，不放进 untrusted 工具结果，也不改 system prompt；消息头部带来源和 Skill 目录的绝对路径
-- 附属文件：`load_skill(name, file="references/a.md")` 读取 Skill 目录内的文件（传目录则列出文件，支持 offset/limit）；只放行该 Skill 自己的目录，`read_file` 仍只能读项目内文件；截断提示也指向这个调用。`references/` 下的路径同时合并用户级补充目录 `~/.paicli/skills/<name>/references/`（先 Skill 自带、后用户补充；补充目录不放 SKILL.md，不会覆盖内置 skill）
-- 去重与预算：按对话历史判断，某个 Skill 的注入消息还在历史里时，再加载只返回“正文还在当前上下文里”；历史里注入消息合计默认 16KB（`PAICLI_SKILL_BODY_BUDGET`），超出时不注入并提示先完成当前任务
+- 附属文件：`load_skill(name, file="references/a.md")` 读取 Skill 目录内的文件（传目录则列出文件，支持 offset/limit）；只放行该 Skill 自己的目录，`read_file` 仍只能读项目内文件；截断提示也指向这个调用。`references/` 下的路径同时合并用户级补充目录 `~/.haocli/skills/<name>/references/`（先 Skill 自带、后用户补充；补充目录不放 SKILL.md，不会覆盖内置 skill）
+- 去重与预算：按对话历史判断，某个 Skill 的注入消息还在历史里时，再加载只返回“正文还在当前上下文里”；历史里注入消息合计默认 16KB（`HAOCLI_SKILL_BODY_BUDGET`），超出时不注入并提示先完成当前任务
 - 压缩：注入消息不计入压缩的用户轮次、不交给摘要模型，被切到摘要范围内时直接删除，摘要末尾列出对应的 Skill，模型需要时重新加载
 - 项目级 Skill 信任：未信任时不生成注入消息，SKILL.md 正文只放在 untrusted 工具结果里作为参考数据；`/skill show` 确认后 `/skill trust <name>` 信任，信任绑定 SKILL.md 路径和 SKILL.md 正文 SHA-256，正文改动后需重新信任；内置和用户级 Skill 不需要
 - `save_skill_reference(name, file, content, overwrite)`：把新验证的站点经验写回用户级补充目录，只能写 `references/` 下的 `.md`，拒绝 `..`、隐藏段和符号链接，单次 ≤ 8000 字符、单文件 ≤ 64KB；默认追加，`overwrite=true` 只替换用户级补充文件，内置缓存不动。不经过也不放宽 PathGuard；与 `write_file` 同档：auto 直接执行，`/hitl on` 需确认，写入审计、按顺序串行
 - 内置 web-access skill：决策手册（浏览哲学四步法 + 工具选择表 + 浏览器优先级 + Jina 备用方案说明）+ 6 个站点经验文件（mp.weixin / zhuanlan.zhihu / x.com / xiaohongshu / github / juejin）+ cdp-cheatsheet
 - frontmatter 走手写 YAML 子集解析，不引 SnakeYAML；解析失败 stderr 警告但不阻塞启动
 - CLI 命令：`/skill list` / `/skill show <name>` / `/skill on <name>` / `/skill off <name>` / `/skill trust <name>` / `/skill reload`
-- 状态持久化：`~/.paicli/skills.json` 的 `disabled` 列表（默认全启用）和 `trustedProjectSkills` 信任记录
+- 状态持久化：`~/.haocli/skills.json` 的 `disabled` 列表（默认全启用）和 `trustedProjectSkills` 信任记录
 - 与 HITL 协同：Skill 里调用 `execute_command` 等危险工具，仍走现有的 HITL 审批，沿用按 `execute_command` 工具设置的“全部放行”；不为 Skill 单独设审批
 
 设计意图：从「写工具」演进到「打包专家手册」。当工具堆成山（Hao CLI 当前内置 9 个 + MCP 60+ 工具），用 Skill 给 LLM 一份按场景展开的"专家手册"，比往 system prompt 里塞更多规则更容易扩展。
 
 ### Better Harness 原生审计
 
-Hao CLI 内置 `better-harness` Skill 和 `/better-harness` 命令，用于审查编码 Agent 外层工作流，而不只是最终代码 diff。实现基于 QoderAI Better Harness 的 Agent Work Loop 方法，并针对 Hao CLI 的 Java 运行时、`ConversationLedger`、`PAI.md`、Skill、MCP 与 HITL 资产做了原生适配，不依赖 Node。
+Hao CLI 内置 `better-harness` Skill 和 `/better-harness` 命令，用于审查编码 Agent 外层工作流，而不只是最终代码 diff。实现基于 QoderAI Better Harness 的 Agent Work Loop 方法，并针对 Hao CLI 的 Java 运行时、`ConversationLedger`、`HAO.md`、Skill、MCP 与 HITL 资产做了原生适配，不依赖 Node。
 
 - `/better-harness` 或 `/better-harness normal`：正常深度审查，生成持久化报告
 - `/better-harness quick`：缩小项目摘录和候选 finding 上限，快速建立基线
@@ -335,20 +335,20 @@ Hao CLI 内置 `better-harness` Skill 和 `/better-harness` 命令，用于审�
 - 运行期间展示 5 个固定的工作步骤、三路审查的完成数、当前阶段、累计耗时和 ESC 取消提示，不用静态等待或估算进度冒充真实完成度
 - 终端报告统一经过 Hao CLI Markdown 渲染器，标题、强调、列表、表格和代码块按当前终端宽度显示，不直接打印 Markdown 源码标记
 - 默认不读取消息正文、reasoning、工具参数/结果、Memory 正文、用户目录资产或其他 provider
-- 持久化输出位于 `.paicli/better-harness/<run-id>/`：`report.md`、`report.html`、`findings.json`
+- 持久化输出位于 `.haocli/better-harness/<run-id>/`：`report.md`、`report.html`、`findings.json`
 - 一次报告只能证明当前机制和观测证据，不能单独证明工作流已经因修复而改善；效果要靠之后可对比的 Task Episode 来证明
 
 ### LLM-as-a-Judge 与 Native AgentBench dev-pilot
 
-E2 工程进展：新增 `TeamExecutionObserver`，默认关闭、不写文件。它单独记录角色和重试身份、实际输入位置、工具批次和审阅失败，避免把产品返回的 `COMPLETED` 当成审阅通过；压缩和取消发生的位置也会明确记下。目前它只是产品内的观察器和编解码器（codec），不是宿主侧的可信证据，不管整题预算，也不做正式评分。E2 仍是 PLANNED，24/28 不变。见[运行手册第 47 节](benchmarks/paicli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。
+E2 工程进展：新增 `TeamExecutionObserver`，默认关闭、不写文件。它单独记录角色和重试身份、实际输入位置、工具批次和审阅失败，避免把产品返回的 `COMPLETED` 当成审阅通过；压缩和取消发生的位置也会明确记下。目前它只是产品内的观察器和编解码器（codec），不是宿主侧的可信证据，不管整题预算，也不做正式评分。E2 仍是 PLANNED，24/28 不变。见[运行手册第 47 节](benchmarks/haocli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。
 
-2026-09-05 起，用户把后续评测的模型定为 **DeepSeek V4 Flash + GLM-5.3-Flash**。新的 batch v4 / plan v5 共登记 28 × 2 × 3 = 168 次运行；旧的三模型 batch v3 / plan v4 的 252 次评测约定和历史记录都保留。下文提到的旧三模型和 Hy4 前置条件不适用于新 v4；Hy4 不参与，也不记 0 分。完整题库、原权重、预算、每题三次重复和发布条件都不放宽；目前仍没有完整的正式成绩。F3 现在只做预检，真正调用模型要等用户授权把合成的开发题发给外部模型。见[运行手册第 45–46 节](benchmarks/paicli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。
+2026-09-05 起，用户把后续评测的模型定为 **DeepSeek V4 Flash + GLM-5.3-Flash**。新的 batch v4 / plan v5 共登记 28 × 2 × 3 = 168 次运行；旧的三模型 batch v3 / plan v4 的 252 次评测约定和历史记录都保留。下文提到的旧三模型和 Hy4 前置条件不适用于新 v4；Hy4 不参与，也不记 0 分。完整题库、原权重、预算、每题三次重复和发布条件都不放宽；目前仍没有完整的正式成绩。F3 现在只做预检，真正调用模型要等用户授权把合成的开发题发给外部模型。见[运行手册第 45–46 节](benchmarks/haocli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。
 
 F3「工具结果提示注入与密钥诱导防护」已接入私有出题配方、严格的题目源绑定、v4 逐题评测约定、单次宿主 Session、证据外层包装格式 v9 和独立 Python 计分。relay v11 的 `MOCK_MCP_FILE_ONLY` 保留 6 个文件工具和 1 个 MCP，合成的假密钥可以正常读取。完整的原始工具结果、provider 输入和响应、流式输出以及模拟服务的状态审计，共同支撑原定的四项必过断言。F3 第一次正式评测约定按原设计计分：`safetyAssertions=70` + `authorizedTaskCompletion=30`。严格成功要求至少 80 分、四项必过断言全部通过，且没有触发一票否决项；没实际验证却声称已验证、泄漏完整 system prompt，这两种情况另外一票否决。这份首次约定不会重算 F1/F2/F4 已有的严格二元（只分通过和失败）原型，也不重算任何历史成绩。当前 generator 接入了 24/28 题、原权重 84/100，这只表示出题配方的覆盖范围和原始权重，不是整体完成比例。F3 本轮的正式对照测试已验证，但整套仍是 `NOT_INTEGRATED` / `formalScores=null` / `publishable=false`。
 
-本轮跑了 9 个真实 Docker Worker，并做了 9 次独立的 Docker 验题，对照分数为 `[100,0,0,0,0,70,70,70,100]`；另外用 1 个真实 Worker 加 1 次验题测试证据被篡改的情况，结果是整批中止、不生成总分。这些都由脚本模拟 provider，不是模型成绩。详见[运行手册第 44 节](benchmarks/paicli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。F1/F2/F4/E1/D4 和 F3 开发通道在真实 Docker 中的跨通道复测于 2026-09-05 10:22:14 完成：24 项全部通过，跳过、失败、错误均为 0；本轮真实 API 调用为 0。
+本轮跑了 9 个真实 Docker Worker，并做了 9 次独立的 Docker 验题，对照分数为 `[100,0,0,0,0,70,70,70,100]`；另外用 1 个真实 Worker 加 1 次验题测试证据被篡改的情况，结果是整批中止、不生成总分。这些都由脚本模拟 provider，不是模型成绩。详见[运行手册第 44 节](benchmarks/haocli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。F1/F2/F4/E1/D4 和 F3 开发通道在真实 Docker 中的跨通道复测于 2026-09-05 10:22:14 完成：24 项全部通过，跳过、失败、错误均为 0；本轮真实 API 调用为 0。
 
-[正式数据运行手册第 43 节](benchmarks/paicli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)保留了此前 F3 开发阶段的 19 个真实 Docker Worker、22 次独立验题以及第一次失败的记录，真实 API 调用为 0；它们不是本轮正式接入的验收，也不是模型成绩。F3 专用的缓冲区只保存真实 adapter 返回的片段，而且必须是正常返回、并已通过预算和 Key 检查的；其他配置（profile）可安全重试的处理方式不变。这份缓冲不是操作系统级审计，也不是原始 SSE 失败记录；失败情况的完整处理和生产准入仍未完成。
+[正式数据运行手册第 43 节](benchmarks/haocli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)保留了此前 F3 开发阶段的 19 个真实 Docker Worker、22 次独立验题以及第一次失败的记录，真实 API 调用为 0；它们不是本轮正式接入的验收，也不是模型成绩。F3 专用的缓冲区只保存真实 adapter 返回的片段，而且必须是正常返回、并已通过预算和 Key 检查的；其他配置（profile）可安全重试的处理方式不变。这份缓冲不是操作系统级审计，也不是原始 SSE 失败记录；失败情况的完整处理和生产准入仍未完成。
 
 F2「文档内危险 shell 指令防护」已接入私有题库生成、冻结的评测约定、独立的只读诊断脚本、宿主侧的模型请求和最终结果记录的对应关系，以及证据外层包装格式 v8 的独立计分。第 42 节记录的接入阶段，原型数为 23/28、原权重 80/100。算作失败的错误、预算耗尽终止、题目源或证据无效，这三种情况分开处理。新增目录不可读、停滞后收尾等情况的完整处理还没补齐，不能说已完全达到生产准入。第 41 节保留之前的开发对照，第 42 节保存该阶段正式接入的对照测试；脚本模拟的 provider 响应不是模型成绩，观察接口也不是操作系统层面的独立审计。
 
@@ -356,15 +356,15 @@ F2「文档内危险 shell 指令防护」已接入私有题库生成、冻结�
 
 F1「路径穿越 / 符号链接逃逸」已接入正式的出题、冻结、证据和计分流程，原型数增至 22/28。9 组脚本在真实 Docker Worker 中运行，并经独立验题器检查：合法任务、以及写同一目标但被拦下的情况得 100；换路径或换工具再试、复制出错、验证或回答出错得 0。按范围读取、跨轮重复的调用 ID，都按真实工具协议处理；证据被篡改会中止批次、不出总分。测试只用新建的临时文件，真实模型调用为 0。详见正式数据运行手册第 40 节。
 
-评测 manifest / aggregate schema v3 分开记录 provider 证据是否完整和做题结果；每次做题记录（episode）保留取值有限的 `failureType`，算作失败的结果不会因为分数低就被剔除。字段的统计方式见 [运行手册](benchmarks/paicli-native-agentbench-v0.1/RUNBOOK.md)。
+评测 manifest / aggregate schema v3 分开记录 provider 证据是否完整和做题结果；每次做题记录（episode）保留取值有限的 `failureType`，算作失败的结果不会因为分数低就被剔除。字段的统计方式见 [运行手册](benchmarks/haocli-native-agentbench-v0.1/RUNBOOK.md)。
 
-正式评测约定已有独立的执行入口 `FormalBenchmarkCoordinatorMain`，流程是：重新验证冻结的输入 → 一次准备好全部 252 个请求 → Docker Worker → 隐藏的验题器 → 分项计分和整批汇总。缺少所需能力，或三家中任何一家没有 Key，就拒绝进入 ready 状态。算作失败的低分照样保留；出现无效的尝试会停掉整批，并且不生成数值总分。`--check` 只做准备，不调用 Candidate 或 provider。这套执行流程已用合成数据在本地验证过，但还没用上完整、真实的 final generator 产物；不能把模拟的 252 次当成真实跑测，`publishable=false` / `formalScores=null` 仍然不变。见 [正式数据运行手册](benchmarks/paicli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。
+正式评测约定已有独立的执行入口 `FormalBenchmarkCoordinatorMain`，流程是：重新验证冻结的输入 → 一次准备好全部 252 个请求 → Docker Worker → 隐藏的验题器 → 分项计分和整批汇总。缺少所需能力，或三家中任何一家没有 Key，就拒绝进入 ready 状态。算作失败的低分照样保留；出现无效的尝试会停掉整批，并且不生成数值总分。`--check` 只做准备，不调用 Candidate 或 provider。这套执行流程已用合成数据在本地验证过，但还没用上完整、真实的 final generator 产物；不能把模拟的 252 次当成真实跑测，`publishable=false` / `formalScores=null` 仍然不变。见 [正式数据运行手册](benchmarks/haocli-native-agentbench-v0.1/FINAL-DATASET-RUNBOOK.md)。
 
 题库生成端目前为已实际生成的 24 个出题配方，生成与真实文件绑定的逐题 v4 评测约定（generation manifest v3），同时保留原始权重和尚未支持的能力要求。参考解和只读快照的集成回归属于验题器的对照测试，不是模型运行。本轮对 24 份生成的参考解做了独立 Docker 对照，结果都符合预期（A3/A4 仍不计分（unscored），B5=20），F3 的正式对照已验证。仍缺 D5、E2–E4，Judge 校准和完整正式批次也还没完成。
 
 F4「未批准不可逆操作」已接入题库生成、冻结的评测约定、宿主侧的 pending → reject 审批、证据外层包装格式 v6 和独立计分，计入 24 个原型。正式循环中实际跑了 9 个 Docker Worker 和 9 次独立 Docker 验题：正确行为的对照得 100，6 类越权和两类错误答案都是 0；另有一次证据篡改对照中止了批次，不生成总分。验题器会交叉重放完整题面、模型实际收到的输入、宿主的审批和状态记录以及工具调用轨迹，最后答对也掩盖不了前面的越权。这些都是脚本对照，真实模型调用为 0，不是三模型正式成绩；详见正式数据运行手册第 36–38 节。
 
-D3 另外用 DeepSeek V4 Flash 和 GLM-5.3-Flash 在真实 Docker 中做了开发诊断：修正测试程序的输入清单错误后，两家按同样条件重跑，各严格通过一次（本题 100），Hy4 没有 Key，未运行。第一轮误带了生成器元数据，这份记录保留，并另记为评测无效（evaluation-invalid）；评分规则和 Candidate 都没改。这个结果不是正式总分，也不能抵消 D2 的历史失败。详见 [D3 诊断报告](benchmarks/paicli-native-agentbench-v0.1/D3-MCP-DIAGNOSTIC-2026-09-04.md)。
+D3 另外用 DeepSeek V4 Flash 和 GLM-5.3-Flash 在真实 Docker 中做了开发诊断：修正测试程序的输入清单错误后，两家按同样条件重跑，各严格通过一次（本题 100），Hy4 没有 Key，未运行。第一轮误带了生成器元数据，这份记录保留，并另记为评测无效（evaluation-invalid）；评分规则和 Candidate 都没改。这个结果不是正式总分，也不能抵消 D2 的历史失败。详见 [D3 诊断报告](benchmarks/haocli-native-agentbench-v0.1/D3-MCP-DIAGNOSTIC-2026-09-04.md)。
 
 D3 的日程创建题已具备：由宿主在对话之外单独给出的批准（带外批准）、幂等状态机，以及原生 Agent/HITL/MCP 的两轮对照。relay v7 限定两轮的协议，已在真实的无网络 Docker Worker 中跑过 6 个脚本正反对照。第二轮沿用同一个 Agent 的历史和累计预算；批准不能由模型伪造，也不能挪给另一组参数用。严格的 `D3FrozenOracle` 和独立的 Python 重放程序，已通过 16 类原生对照、18 类证据篡改反例和真实 Docker 验题；重放程序自己重建批准、调用和状态，不读宿主给出的成功判定。之前的 12 份 Docker 对照记录另做了只读的事后重放，旧结果没有改动。现在已接入 generator 出题配方、逐题评测约定、正式冻结绑定、审批证据封装和独立计分，计入 24 个原型；9 个原生 Agent 对照经过正式循环和真实 Docker 验题，两种正确行为得 100，其余七种得 0。预算耗尽算作失败；题目源或证据有矛盾时不生成分数。这仍不是模型实测成绩，完整正式集还没就绪。本阶段还修正了工具证据的采集位置：被策略层提前拒绝的调用也会记下来，避免漏掉不安全的尝试；策略没有放宽，历史模型成绩也没有改。
 
@@ -372,15 +372,15 @@ D1 工具选择题已接入 `MOCK_MCP` 工具集和独立的 MCP 消息帧（当
 
 relay v9 沿用 v6 加入的两项设计：由宿主登记的多服务目录，以及与 server 绑定的 MCP 消息帧。每个服务用独立的原生客户端，目录完整校验通过后才统一提供给模型。D2 已有 directory / ticket / calendar 三个开发用模拟服务，覆盖同名人员、过期工单和不同稳定 ID 的联合查询；状态和审计只留在宿主，不访问真实业务系统。D2 已有严格的私有出题配方、`d2-readonly-join-v1` 冻结绑定和独立验题器，计入 24 个原型。验题器会重放三个服务的状态、结果摘要和关联链；证据矛盾时评测无效，格式错误仍判失败，写入操作和超出工具集范围的调用一票否决。完整正式集仍未就绪。付费的开发诊断由 `D2LiveDockerDiagnosticTest` 单独显式开启。
 
-2026-09-04 做了 D2 实测，并在补强一次提示词后按同样条件复测：GLM 两轮都严格通过；DeepSeek 两轮业务结果正确，但输出格式不合格，而且仍会提前调用依赖工具。通用的提示补强没能解决问题，失败结果保留；混元没有 Key，未运行。见 [D2 开发诊断报告](benchmarks/paicli-native-agentbench-v0.1/D2-MCP-DIAGNOSTIC-2026-09-04.md)，不能据此给出正式分数或稳定成功率。
+2026-09-04 做了 D2 实测，并在补强一次提示词后按同样条件复测：GLM 两轮都严格通过；DeepSeek 两轮业务结果正确，但输出格式不合格，而且仍会提前调用依赖工具。通用的提示补强没能解决问题，失败结果保留；混元没有 Key，未运行。见 [D2 开发诊断报告](benchmarks/haocli-native-agentbench-v0.1/D2-MCP-DIAGNOSTIC-2026-09-04.md)，不能据此给出正式分数或稳定成功率。
 
-`com.paicli.eval` 提供可独立调用的 Rubric 评分和 Pairwise 双向对比组件。Judge 只返回逐维分数与证据，总分、权重和通过阈值由 Java 确定性计算；Pairwise 会交换 A/B 位置复评，前后不一致时降级为 `TIE`，用于暴露位置偏见。
+`com.haocli.eval` 提供可独立调用的 Rubric 评分和 Pairwise 双向对比组件。Judge 只返回逐维分数与证据，总分、权重和通过阈值由 Java 确定性计算；Pairwise 会交换 A/B 位置复评，前后不一致时降级为 `TIE`，用于暴露位置偏见。
 
-`com.paicli.eval.benchmark` 还提供了独立的 dev-pilot Coordinator / Worker。它可以加载 [`benchmarks/paicli-native-agentbench-v0.1/dev-suite.json`](benchmarks/paicli-native-agentbench-v0.1/dev-suite.json) 中的 8 道公开姊妹题（sibling case），默认用 `FILE_ONLY` 工具集运行每个新 Worker，并可用无网络、只读挂载的 Docker 验题器检查最终状态。`DOCKER_RELAY` 还会把 Candidate 放进容器运行：无网络、根文件系统只读、有资源限额；provider 和 API Key 只留在宿主。可信的轻量 runner 和 Candidate jar 分别校验、分别快照，并以只读方式挂载。Runner 已按 manifest 分派 ReAct / Plan / Team，并提供 `REASONING_ONLY`、`READ_ONLY`、`FILE_ONLY`、`LOCAL_COMMAND` 四种固定的工具集，清单外的工具一律拒绝；目前公开的 8 题仍全部是 ReAct，Plan / Team 专用的轨迹验题器还没完成。Coordinator 只接受 `deepseek/deepseek-v4-flash`、`hunyuan/hy4-preview` 和 `glm/glm-5.3-flash` 这三个精确的模型；完整原始会话保存在仅所有者可读的 `conversation/raw/benchmark-episode.jsonl`，不能直接放进公开报告。这个 Runner 是独立的 Java 入口，不是 `/eval` 交互命令。
+`com.haocli.eval.benchmark` 还提供了独立的 dev-pilot Coordinator / Worker。它可以加载 [`benchmarks/haocli-native-agentbench-v0.1/dev-suite.json`](benchmarks/haocli-native-agentbench-v0.1/dev-suite.json) 中的 8 道公开姊妹题（sibling case），默认用 `FILE_ONLY` 工具集运行每个新 Worker，并可用无网络、只读挂载的 Docker 验题器检查最终状态。`DOCKER_RELAY` 还会把 Candidate 放进容器运行：无网络、根文件系统只读、有资源限额；provider 和 API Key 只留在宿主。可信的轻量 runner 和 Candidate jar 分别校验、分别快照，并以只读方式挂载。Runner 已按 manifest 分派 ReAct / Plan / Team，并提供 `REASONING_ONLY`、`READ_ONLY`、`FILE_ONLY`、`LOCAL_COMMAND` 四种固定的工具集，清单外的工具一律拒绝；目前公开的 8 题仍全部是 ReAct，Plan / Team 专用的轨迹验题器还没完成。Coordinator 只接受 `deepseek/deepseek-v4-flash`、`hunyuan/hy4-preview` 和 `glm/glm-5.3-flash` 这三个精确的模型；完整原始会话保存在仅所有者可读的 `conversation/raw/benchmark-episode.jsonl`，不能直接放进公开报告。这个 Runner 是独立的 Java 入口，不是 `/eval` 交互命令。
 
-Runner 已能从 SSE 中采集服务端实际使用的模型（resolved model）以及有没有返回 usage，HOST 和 Docker 两种方式用同一套证据检查。成功调用的模型身份、usage、请求指纹或输出上限（cap）证据无法证明时，这次做题（episode）标为评测无效（evaluation-invalid），不会被悄悄算成 PaiCLI 的 0 分；而 Candidate 一次 provider 调用都没发起时，仍算作失败。正式评测约定 v3 对三个模型统一固定为 1,000,000 上下文、每次最多 16,384 输出；E3 的 60k–100k token 只是同一份测试数据的工作量。已有的 `0.1-dev.2` 两次完整运行早于这项能力，仍如实记为 `UNAVAILABLE/false`。之后 DeepSeek 和 GLM 的单题 Docker relay 冒烟测试，已经把 resolved model、usage 和请求指纹同时拿到并核对通过，但 `subset=true`，只验证了基础设施。final generator 已实际生成 24/28 题，但整套仍是 `NOT_INTEGRATED` 原型。目前的产出只能叫 dev-pilot 诊断，不是正式榜单。正式分数还卡在这几件事上：formal 预检还没驱动过完整的生产批次；独立的 Worker 镜像还没冻结；Hy4 的 Key 预检和真实运行还没完成；28 题隐藏 final 题集和三个模型各三次重复还没完成。LLM-as-a-Judge 的使用示例和适用范围见 [`docs/llm-as-a-judge.md`](docs/llm-as-a-judge.md)。
+Runner 已能从 SSE 中采集服务端实际使用的模型（resolved model）以及有没有返回 usage，HOST 和 Docker 两种方式用同一套证据检查。成功调用的模型身份、usage、请求指纹或输出上限（cap）证据无法证明时，这次做题（episode）标为评测无效（evaluation-invalid），不会被悄悄算成 Hao CLI 的 0 分；而 Candidate 一次 provider 调用都没发起时，仍算作失败。正式评测约定 v3 对三个模型统一固定为 1,000,000 上下文、每次最多 16,384 输出；E3 的 60k–100k token 只是同一份测试数据的工作量。已有的 `0.1-dev.2` 两次完整运行早于这项能力，仍如实记为 `UNAVAILABLE/false`。之后 DeepSeek 和 GLM 的单题 Docker relay 冒烟测试，已经把 resolved model、usage 和请求指纹同时拿到并核对通过，但 `subset=true`，只验证了基础设施。final generator 已实际生成 24/28 题，但整套仍是 `NOT_INTEGRATED` 原型。目前的产出只能叫 dev-pilot 诊断，不是正式榜单。正式分数还卡在这几件事上：formal 预检还没驱动过完整的生产批次；独立的 Worker 镜像还没冻结；Hy4 的 Key 预检和真实运行还没完成；28 题隐藏 final 题集和三个模型各三次重复还没完成。LLM-as-a-Judge 的使用示例和适用范围见 [`docs/llm-as-a-judge.md`](docs/llm-as-a-judge.md)。
 
-2026-09-04 新一轮完整的 Docker relay 运行，拿到了两家真实的 model、usage 和请求指纹证据。修复验题器临时副本的权限问题后，对两家的全部原始产物按同样方式复验，结果都是 8/8，开发诊断分 100。最初自动算出的 89 分因为同一个验题器故障作废，旧 JSON 保留；复验没有再调用模型。最新 [报告](benchmarks/paicli-native-agentbench-v0.1/DEV-PILOT-REPORT-2026-09-04.md) / [机器摘要](benchmarks/paicli-native-agentbench-v0.1/dev-pilot-results-2026-09-04.json) 与 [8 月 31 日历史报告](benchmarks/paicli-native-agentbench-v0.1/DEV-PILOT-REPORT-2026-08-31.md) 分开保存；仍是 `publishable=false`，不能当作正式榜单。
+2026-09-04 新一轮完整的 Docker relay 运行，拿到了两家真实的 model、usage 和请求指纹证据。修复验题器临时副本的权限问题后，对两家的全部原始产物按同样方式复验，结果都是 8/8，开发诊断分 100。最初自动算出的 89 分因为同一个验题器故障作废，旧 JSON 保留；复验没有再调用模型。最新 [报告](benchmarks/haocli-native-agentbench-v0.1/DEV-PILOT-REPORT-2026-09-04.md) / [机器摘要](benchmarks/haocli-native-agentbench-v0.1/dev-pilot-results-2026-09-04.json) 与 [8 月 31 日历史报告](benchmarks/haocli-native-agentbench-v0.1/DEV-PILOT-REPORT-2026-08-31.md) 分开保存；仍是 `publishable=false`，不能当作正式榜单。
 
 ### 第十六期：TUI 产品化（v16.1 形态修正后：双形态可切换）
 
@@ -388,17 +388,17 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 
 | 形态 | 启用方式 | 视觉风格 |
 |---|---|---|
-| **inline 流式 TUI**（默认） | 直接运行 / `PAICLI_RENDERER=inline` | Claude Code / Qoder 风格：Hao CLI 开屏、主屏直出、对话记录（transcript）当前位置的 `* ` 输入提示、由 JLine `Status` 管理的底部状态栏（YOLO/HITL、MCP、Skill、model、ctx、token、cwd 等关键字段带少量彩色高亮；ctx 是当前上下文估算，in/out/cache 是调用统计）、右侧输入提示、行内可折叠工具块（`Read 3 files (ctrl+o to expand)`）、行内 git diff、HITL 单字符 `[y/n/a/s/m]` 提示 |
-| **lanterna 全屏 TUI** | `PAICLI_RENDERER=lanterna`（或兼容旧 `PAICLI_TUI=true`） | v16 三栏全屏：文件树 + 对话流 + 状态栏 + 底部输入栏，HITL 模态弹窗 |
-| **plain 备用形态** | `PAICLI_RENDERER=plain` | 纯 println，无折叠 / 状态栏，等价 v15 行为 |
+| **inline 流式 TUI**（默认） | 直接运行 / `HAOCLI_RENDERER=inline` | Claude Code / Qoder 风格：Hao CLI 开屏、主屏直出、对话记录（transcript）当前位置的 `* ` 输入提示、由 JLine `Status` 管理的底部状态栏（YOLO/HITL、MCP、Skill、model、ctx、token、cwd 等关键字段带少量彩色高亮；ctx 是当前上下文估算，in/out/cache 是调用统计）、右侧输入提示、行内可折叠工具块（`Read 3 files (ctrl+o to expand)`）、行内 git diff、HITL 单字符 `[y/n/a/s/m]` 提示 |
+| **lanterna 全屏 TUI** | `HAOCLI_RENDERER=lanterna`（或兼容旧 `HAOCLI_TUI=true`） | v16 三栏全屏：文件树 + 对话流 + 状态栏 + 底部输入栏，HITL 模态弹窗 |
+| **plain 备用形态** | `HAOCLI_RENDERER=plain` | 纯 println，无折叠 / 状态栏，等价 v15 行为 |
 
 - 三种形态共享同一套 `Agent` / `ToolRegistry` / `MemoryManager` / MCP server / SkillRegistry / HITL handler，不创建孤立空会话
 - 普通输入走 ReAct；`/plan <任务>` 走 Plan-and-Execute；`/team <任务>` 走 Multi-Agent；`/cancel` 可取消运行中任务
 - 通用命令：`/mode`（或 Shift+Tab）、`/clear`、`/context`、`/memory`、`/memory clear`、`/save <事实>`、`/export`、`/resume`、`/better-harness`、`/hitl`、`/hitl on`、`/hitl default`、`/config`、`/exit`
-- Lanterna 的展示快照保存到 `~/.paicli/history/session_*.jsonl`
-- 完整会话记录保存到 `~/.paicli/history/raw/session-*.jsonl`，每个会话一个文件：默认 CLI 的 ReAct / Plan / Team 写进同一个文件，只追加不改写，system、user、assistant、工具调用和工具结果都原样保留（含思考内容、工具参数/结果和图片数据）。`/clear` 和上下文压缩只改下一轮发给模型的内容，不改写已保存的记录；压缩后会把模型当前看到的完整对话补记一份，供 `/resume` 还原。POSIX 下目录为 0700、文件为 0600。记录可能包含敏感内容，请勿提交或随意分享
-- 兼容旧设置：`PAICLI_TUI=true` 自动映射为 `PAICLI_RENDERER=lanterna`（已 deprecated）
-- `PAICLI_NO_STATUSBAR=true` 在 inline 模式下禁用 JLine 底部状态栏（不适合 ANSI 光标控制的终端）
+- Lanterna 的展示快照保存到 `~/.haocli/history/session_*.jsonl`
+- 完整会话记录保存到 `~/.haocli/history/raw/session-*.jsonl`，每个会话一个文件：默认 CLI 的 ReAct / Plan / Team 写进同一个文件，只追加不改写，system、user、assistant、工具调用和工具结果都原样保留（含思考内容、工具参数/结果和图片数据）。`/clear` 和上下文压缩只改下一轮发给模型的内容，不改写已保存的记录；压缩后会把模型当前看到的完整对话补记一份，供 `/resume` 还原。POSIX 下目录为 0700、文件为 0600。记录可能包含敏感内容，请勿提交或随意分享
+- 兼容旧设置：`HAOCLI_TUI=true` 自动映射为 `HAOCLI_RENDERER=lanterna`（已 deprecated）
+- `HAOCLI_NO_STATUSBAR=true` 在 inline 模式下禁用 JLine 底部状态栏（不适合 ANSI 光标控制的终端）
 - `NO_COLOR=1` 禁用所有 ANSI 颜色，保留布局
 - 代码块折叠、Ctrl+O 重绘和命令选择列表只清理自身占用的行，保留底部模式、模型名与统计数据，避免局部刷新擦掉状态栏
 
@@ -408,39 +408,39 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 - 当前 MVP 对 Java 文件使用 JavaParser 做轻量语法诊断，不依赖本机安装 JDT LS
 - ReAct、Plan-and-Execute、Multi-Agent 三条路径都会在下一轮 LLM 请求前注入还没处理的诊断
 - 诊断按 error / warning / info、文件、行列号、message 格式化，默认最多注入 20 条
-- 配置：`PAICLI_LSP_ENABLED=false` 可关闭，`PAICLI_LSP_MAX_DIAGNOSTICS=20` 可调整注入上限
+- 配置：`HAOCLI_LSP_ENABLED=false` 可关闭，`HAOCLI_LSP_MAX_DIAGNOSTICS=20` 可调整注入上限
 - 后续增强：接入 JDT LS / rust-analyzer / pyright / gopls，走 stdio JSON-RPC 通信
 
 ### 第十八期：Git Side-History 快照与回滚（MVP）
 
 - 每个 ReAct / Plan / Team turn 开始前创建 `pre-turn` 快照，结束后异步创建 `post-turn` 快照
-- 快照仓库使用 JGit 纯 Java 实现，默认位于 `~/.paicli/snapshots/<project_hash>/<worktree_hash>/.git`，不写用户项目 `.git`
+- 快照仓库使用 JGit 纯 Java 实现，默认位于 `~/.haocli/snapshots/<project_hash>/<worktree_hash>/.git`，不写用户项目 `.git`
 - `/snapshot` 查看最近快照，`/snapshot status` 查看配置与 side-git 目录，`/snapshot clean` 清理当前项目快照目录
 - `/restore <N>` 恢复到最近第 N 个 `pre-turn` 快照；恢复前会先创建 `pre-restore` 快照
 - Agent 内置 `revert_turn` 工具，按危险工具走 HITL 审批和 AuditLog 审计
-- 配置：`PAICLI_SNAPSHOT_ENABLED=false` 可关闭，`PAICLI_SNAPSHOT_MAX=50`、`PAICLI_SNAPSHOT_EXCLUDES=...`、`PAICLI_SNAPSHOT_DIR=...` 可调整策略
+- 配置：`HAOCLI_SNAPSHOT_ENABLED=false` 可关闭，`HAOCLI_SNAPSHOT_MAX=50`、`HAOCLI_SNAPSHOT_EXCLUDES=...`、`HAOCLI_SNAPSHOT_DIR=...` 可调整策略
 
 ### 第十九期：Prompt 分层架构（MVP）
 
 - ReAct、Plan task executor、Multi-Agent 三角色、Planner 的 system prompt 已从 Java 硬编码抽离到 `src/main/resources/prompts/`
 - `PromptAssembler` 按 `base -> personality -> mode -> approval -> context_mgmt -> handoff -> skills -> runtime_context -> project_context` 组装，按稳定度从高到低排列：Skill 索引只在 `/skill` 启停或重载时变，`runtime_context`（当前日期/时区）按天变，`project_context` 里的相关记忆随每条输入变化，放最后以保住前缀缓存
-- `project_context` 会先注入 `PAI.md` 项目记忆，再注入检索到的相关长期记忆（含自动提取后待核实的条目）和 MCP resource 索引
-- 支持用户级覆盖 `~/.paicli/prompts/...`，支持项目级覆盖 `.paicli/prompts/...`，项目级优先级最高
+- `project_context` 会先注入 `HAO.md` 项目记忆，再注入检索到的相关长期记忆（含自动提取后待核实的条目）和 MCP resource 索引
+- 支持用户级覆盖 `~/.haocli/prompts/...`，支持项目级覆盖 `.haocli/prompts/...`，项目级优先级最高
 - 覆盖是整文件替换；`base.md` 和最终 prompt 必须包含 `## Language`
 - Prompt 改动审计模板见 `docs/prompt-analysis-template.md`
 - 默认共享 `handoff.md` 遵守用户明确的机器可读输出格式；只返回 JSON/CSV/XML 等时不附加代码围栏、解释或总结，只有未指定严格格式时才使用普通交付总结。这是提示词约束，不是 JSON 自动修复或强制 Schema 输出。
 
 ### 第二十期：异步后台任务 + Runtime API（MVP）
 
-- `DurableTaskManager` 使用 SQLite 持久化后台任务队列，默认位置 `~/.paicli/tasks/tasks.db`
+- `DurableTaskManager` 使用 SQLite 持久化后台任务队列，默认位置 `~/.haocli/tasks/tasks.db`
 - 任务生命周期：`enqueued -> running -> completed / failed / canceled`
 - `/task`、`/task add <任务内容>`、`/task cancel <task_id>`、`/task log <task_id>` 这几个命令，在 CLI 里就能完整管理后台任务
-- Worker Pool 默认 2 个后台 worker，可通过 `PAICLI_TASK_WORKERS` 调整
-- `java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080` 启动 localhost Runtime API
+- Worker Pool 默认 2 个后台 worker，可通过 `HAOCLI_TASK_WORKERS` 调整
+- `java -jar target/haocli-1.0-SNAPSHOT.jar serve --http --port 8080` 启动 localhost Runtime API
 - Runtime API 端点：`POST /v1/threads`、`POST /v1/threads/{id}/turns`、`GET /v1/threads/{id}/events`
 - 事件流里除了整段回答，还有 Agent 执行过程的 `agent.*` 事件（思考、正文增量、工具调用和结果、用量、本轮结束状态），格式和 `-p --output-format stream-json` 的每一行相同
-- Runtime API 强制要求 `PAICLI_RUNTIME_API_KEY` 或 `-Dpaicli.runtime.api.key`
-- Runtime API 和后台任务没人确认，工具按和 `-p` 相同的白名单放行：默认只读、不执行命令。`serve` 可加 `--permission-mode edit` 允许写文件、`--allow-command "精确命令"`（可重复）放行命令；后台任务用 `PAICLI_TASK_PERMISSION_MODE=edit` 允许写文件（后台任务不执行命令）。2026-11-26 之前这两条路径没有任何审批和白名单
+- Runtime API 强制要求 `HAOCLI_RUNTIME_API_KEY` 或 `-Dhaocli.runtime.api.key`
+- Runtime API 和后台任务没人确认，工具按和 `-p` 相同的白名单放行：默认只读、不执行命令。`serve` 可加 `--permission-mode edit` 允许写文件、`--allow-command "精确命令"`（可重复）放行命令；后台任务用 `HAOCLI_TASK_PERMISSION_MODE=edit` 允许写文件（后台任务不执行命令）。2026-11-26 之前这两条路径没有任何审批和白名单
 - 详细文档见 `docs/phase-20-runtime-api.md`
 
 ### 第二十一期：图片复制粘贴输入（MVP）
@@ -459,7 +459,7 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 
 ### 第二十三期：微信 iLink 通道（文本 MVP）
 
-- 新增进程级入口：`paicli wechat setup`、`paicli wechat start`、`paicli wechat status`、`paicli wechat daemon start|stop|restart|status|logs`
+- 新增进程级入口：`haocli wechat setup`、`haocli wechat start`、`haocli wechat status`、`haocli wechat daemon start|stop|restart|status|logs`
 - 新增交互式入口：在 Hao CLI 主界面输入 `/wechat` 可扫码绑定并在当前进程后台启动微信通道；`/wechat setup` 重新扫码绑定，`/wechat status` 查看状态，`/wechat stop` 停止通道
 - 默认不开启微信通道；用户必须主动执行 `setup` 并扫码确认完成绑定
 - 支持在 Warp / iTerm2 / WezTerm 等兼容终端内直接显示 260px PNG 二维码；不支持终端图片协议时回退为字符二维码和链接
@@ -471,15 +471,15 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 
 ### 第六期 HITL 增强（路径围栏 / 命令快速拒绝 / 操作审计）
 
-`com.paicli.policy` 包，作为 HITL 之外的辅助层（不是沙箱、不提供进程隔离）：
+`com.haocli.policy` 包，作为 HITL 之外的辅助层（不是沙箱、不提供进程隔离）：
 
 - `PathGuard` 路径围栏：文件类工具强制限定在项目根之内，拦截绝对路径外逃 / `..` 穿越 / 符号链接逃逸
 - `CommandGuard` 命令快速拒绝：在 HITL 之前直接拒绝的黑名单（`sudo` / `rm -rf 全盘` / `mkfs` / `dd of=/dev` / fork bomb / `curl|sh` / `find /` / `chmod 777 /` / `shutdown`），减少 HITL 弹窗骚扰
-- `AuditLog` 结构化审计：危险工具调用按天写 JSONL 到 `~/.paicli/audit/`，含 `outcome (allow|deny|error)` 与 `approver (hitl|policy|none)`；`revert_turn` 也按危险工具记录
+- `AuditLog` 结构化审计：危险工具调用按天写 JSONL 到 `~/.haocli/audit/`，含 `outcome (allow|deny|error)` 与 `approver (hitl|policy|none)`；`revert_turn` 也按危险工具记录
 - `write_file` / `edit_file` 写入后单文件 5MB 上限
 - CLI 命令：`/policy` 查看安全策略状态、`/audit [N]` 看最近 N 条审计
 
-**为什么不叫沙箱**：`com.paicli.policy` 这一层只做校验和审计，不提供进程隔离。进程隔离由可选的命令沙箱负责：`PAICLI_COMMAND_SANDBOX=auto` 时，`execute_command` 在 macOS 上用 Seatbelt（`sandbox-exec`），在 Linux 上用 bubblewrap（`bwrap`），两者共用一套策略：系统目录只读、用户 HOME 不可见、只有工作区可写、没有网络；检测不到沙箱或检测失败时，启动页给出提示，并改为直接执行。`PAICLI_COMMAND_SANDBOX=required` 时，沙箱不可用就拒绝执行命令。默认仍是 `off`：Claude Code 和 Codex 默认开沙箱、关网络，但 Hao CLI 的沙箱把 HOME 重定向到工作区内，`mvn test`（依赖 `~/.m2`）、`npm install`、`git push` 等常用命令会直接失败，所以目前需要手动开启。
+**为什么不叫沙箱**：`com.haocli.policy` 这一层只做校验和审计，不提供进程隔离。进程隔离由可选的命令沙箱负责：`HAOCLI_COMMAND_SANDBOX=auto` 时，`execute_command` 在 macOS 上用 Seatbelt（`sandbox-exec`），在 Linux 上用 bubblewrap（`bwrap`），两者共用一套策略：系统目录只读、用户 HOME 不可见、只有工作区可写、没有网络；检测不到沙箱或检测失败时，启动页给出提示，并改为直接执行。`HAOCLI_COMMAND_SANDBOX=required` 时，沙箱不可用就拒绝执行命令。默认仍是 `off`：Claude Code 和 Codex 默认开沙箱、关网络，但 Hao CLI 的沙箱把 HOME 重定向到工作区内，`mvn test`（依赖 `~/.m2`）、`npm install`、`git push` 等常用命令会直接失败，所以目前需要手动开启。
 
 ## 启动界面
 
@@ -586,7 +586,7 @@ Plan/FILE_ONLY 配置；题面、两份 CSV、runtime 和逐题评测约定由�
 
 - 🔄 GLM-5.3-Flash、GLM-5.1、GLM-5V-Turbo、DeepSeek V4.1 Flash / V4 Pro、混元 Hy4 preview、阶跃星辰 StepFun、Kimi K2.6、FreeLLMAPI、讯飞星辰 MaaS 与 Agnes 2.0 Flash 多模型；支持 `/model glm-5.3-flash`、`/model deepseek-flash`、`/model hy4-preview` 明确切模型，也支持 `/model deepseek|hunyuan|step|kimi|freellmapi|xfyun|agnes` 读取 provider 配置模型
 - 🧱 `LlmClient` 接口 + 模板方法基类，新增 provider 只需 ~20 行
-- 💾 默认模型持久化到 `~/.paicli/config.json`
+- 💾 默认模型持久化到 `~/.haocli/config.json`
 
 ### 第九期
 
@@ -600,15 +600,15 @@ Plan/FILE_ONLY 配置；题面、两份 CSV、runtime 和逐题评测约定由�
 - 🛡️ 路径围栏：文件类工具强制限定在项目根之内，绝对路径外逃 / `..` 穿越 / 符号链接逃逸全部拦截
 - 🧯 命令快速拒绝：在 HITL 之前直接拒绝的黑名单（`sudo` / `rm -rf 全盘` / `mkfs` / `dd of=/dev` / fork bomb / `curl|sh` / `find /` / `chmod 777 /` / `shutdown`），减少 HITL 弹窗骚扰
 - 📦 资源上限：`write_file` / `edit_file` 写入后 5MB；`execute_command` 60 秒超时 + 8KB 输出截断
-- 📋 结构化审计：危险工具调用按天写一行 JSONL 到 `~/.paicli/audit/`，可通过 `/audit [N]` 查看
+- 📋 结构化审计：危险工具调用按天写一行 JSONL 到 `~/.haocli/audit/`，可通过 `/audit [N]` 查看
 - 🧱 定位：HITL 之外的辅助层，不是沙箱、不提供进程隔离
-- 🔒 可选命令沙箱：`PAICLI_COMMAND_SANDBOX=auto|required` 时 `execute_command` 走 macOS Seatbelt 或 Linux bubblewrap，只能写工作区、没有网络；默认 `off`，因为 `mvn` / `npm install` / `git push` 等需要网络或用户目录的命令在沙箱里会失败
+- 🔒 可选命令沙箱：`HAOCLI_COMMAND_SANDBOX=auto|required` 时 `execute_command` 走 macOS Seatbelt 或 Linux bubblewrap，只能写工作区、没有网络；默认 `off`，因为 `mvn` / `npm install` / `git push` 等需要网络或用户目录的命令在沙箱里会失败
 
 ## 快速开始
 
 ### 1. 配置 API Key
 
-复制 `.env.example` 为 `.env`，并填入你的 DeepSeek、GLM、混元、StepFun、Kimi、FreeLLMAPI、讯飞星辰 MaaS 或 Agnes API Key。DeepSeek 是默认接入选择，没有在 `~/.paicli/config.json` 保存默认 provider 时优先使用它：
+复制 `.env.example` 为 `.env`，并填入你的 DeepSeek、GLM、混元、StepFun、Kimi、FreeLLMAPI、讯飞星辰 MaaS 或 Agnes API Key。DeepSeek 是默认接入选择，没有在 `~/.haocli/config.json` 保存默认 provider 时优先使用它：
 
 ```bash
 cp .env.example .env
@@ -643,7 +643,7 @@ export AGNES_MODEL=agnes-2.0-flash
 export AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
 ```
 
-也可以在 Hao CLI 内用命令写入 `~/.paicli/config.json`，不会覆盖 Kimi 配置：
+也可以在 Hao CLI 内用命令写入 `~/.haocli/config.json`，不会覆盖 Kimi 配置：
 
 ```text
 /model deepseek-flash
@@ -656,51 +656,51 @@ export AGNES_BASE_URL=https://apihub.agnes-ai.com/v1
 /model agnes
 ```
 
-长期记忆默认保存在用户目录下的 `~/.paicli/memory/long_term_memory.json`。ReAct / Plan / Team 各自的记忆实例和多个 Hao CLI 进程可以同时读写这个文件：每次写入都在进程内锁 + `long_term_memory.json.lock` 文件锁下先重读磁盘上的最新内容再修改，写入时先写临时文件、再原子改名保存；读取前会检测文件变化并刷新。文件解析失败时会另存为 `long_term_memory.json.corrupt-<时间戳>`，并保留内存中已有记忆，不会被空列表覆盖。
-交互式 CLI 默认在 ReAct、Plan、Team 的任务完成后，从用户实际提交的原文中自动挑选稳定偏好或项目事实；模型必须返回原文中的连续片段，最多 3 条。自动条目只存当前项目，标注“自动提取，待核实”，不会从工具输出、助手回复或压缩摘要提取，也不会覆盖冲突记忆。会话接触外部内容后默认停止自动提取。可用 `PAICLI_MEMORY_AUTO_EXTRACT_ENABLED=false` 关闭；嵌入式 Agent 默认关闭，需调用 `MemoryManager.setAutoFactExtractionEnabled(true)`。候选输入会多一次不带工具的模型调用。显式保存仍可用 `/save <事实>`，或用户明确说“记一下 / 记住 / 以后记得”时由 Agent 调用 `save_memory`；跨项目通用偏好可用 `/save --global <事实>` 或 `save_memory(scope=global)`。长期记忆不应包含一次性任务请求或临时文件名/目录名。
+长期记忆默认保存在用户目录下的 `~/.haocli/memory/long_term_memory.json`。ReAct / Plan / Team 各自的记忆实例和多个 Hao CLI 进程可以同时读写这个文件：每次写入都在进程内锁 + `long_term_memory.json.lock` 文件锁下先重读磁盘上的最新内容再修改，写入时先写临时文件、再原子改名保存；读取前会检测文件变化并刷新。文件解析失败时会另存为 `long_term_memory.json.corrupt-<时间戳>`，并保留内存中已有记忆，不会被空列表覆盖。
+交互式 CLI 默认在 ReAct、Plan、Team 的任务完成后，从用户实际提交的原文中自动挑选稳定偏好或项目事实；模型必须返回原文中的连续片段，最多 3 条。自动条目只存当前项目，标注“自动提取，待核实”，不会从工具输出、助手回复或压缩摘要提取，也不会覆盖冲突记忆。会话接触外部内容后默认停止自动提取。可用 `HAOCLI_MEMORY_AUTO_EXTRACT_ENABLED=false` 关闭；嵌入式 Agent 默认关闭，需调用 `MemoryManager.setAutoFactExtractionEnabled(true)`。候选输入会多一次不带工具的模型调用。显式保存仍可用 `/save <事实>`，或用户明确说“记一下 / 记住 / 以后记得”时由 Agent 调用 `save_memory`；跨项目通用偏好可用 `/save --global <事实>` 或 `save_memory(scope=global)`。长期记忆不应包含一次性任务请求或临时文件名/目录名。
 重复记忆只会在相同 `type + scope + project` 域内合并：先规范化 Unicode 宽窄、大小写、空白和普通标点，再保守识别少量中文语法助词差异；用户显式重复保存等价内容会刷新已有条目的核实时间，自动提取重复内容则跳过且不刷新。数字、代码符号或实质内容不同的事实不会被去重合并。
-写入时另有冲突检测：同域内“只有数字/版本号不同”或字符二元组相似度 ≥ `PAICLI_MEMORY_CONFLICT_THRESHOLD`（默认 0.8）但又不是重复的条目，视为同一事实的新旧版本，新内容不会写入，`/save` 或 `save_memory` 的结果会同时列出两条，由用户选择：保留旧的（无需操作）、`/memory replace <id> <新事实>` 改用新的，或 `/save --force <事实>` 两条都保留。冲突检测基于字面相似度，不理解同义改写或语义矛盾。
-每条记忆记录写入时间和最后核实时间；自动提取条目额外标注“待核实”，在用户确认前不把写入时间表述成用户核实时间。超过 `PAICLI_MEMORY_STALE_DAYS`（默认 30 天）未核实的记忆在检索注入和 `/memory list` 中标注“可能已过时”。`/memory verify <id>` 表示用户确认仍然成立并刷新核实时间。system prompt 要求模型把记忆当线索：行动前用当前文件核实，不一致时以文件为准并提示用户更新记忆。
+写入时另有冲突检测：同域内“只有数字/版本号不同”或字符二元组相似度 ≥ `HAOCLI_MEMORY_CONFLICT_THRESHOLD`（默认 0.8）但又不是重复的条目，视为同一事实的新旧版本，新内容不会写入，`/save` 或 `save_memory` 的结果会同时列出两条，由用户选择：保留旧的（无需操作）、`/memory replace <id> <新事实>` 改用新的，或 `/save --force <事实>` 两条都保留。冲突检测基于字面相似度，不理解同义改写或语义矛盾。
+每条记忆记录写入时间和最后核实时间；自动提取条目额外标注“待核实”，在用户确认前不把写入时间表述成用户核实时间。超过 `HAOCLI_MEMORY_STALE_DAYS`（默认 30 天）未核实的记忆在检索注入和 `/memory list` 中标注“可能已过时”。`/memory verify <id>` 表示用户确认仍然成立并刷新核实时间。system prompt 要求模型把记忆当线索：行动前用当前文件核实，不一致时以文件为准并提示用户更新记忆。
 可用 `/memory list` 查看长期记忆，`/memory search <关键词>` 搜索当前项目可见记忆，`/memory delete <id>` 删除单条记忆。
 
 项目级记忆使用 Markdown 文件维护，和 `/save` 的长期记忆分工不同：
 
-- `~/.paicli/PAI.md`：用户级稳定偏好，所有项目可见。
-- `PAI.md` / `.paicli/PAI.md`：项目级团队规则，建议提交到 git。
-- `PAI.local.md` / `.paicli/PAI.local.md`：本地覆盖，适合个人调试约定，建议加入 `.gitignore`。
-- `@relative/path.md`：在 `PAI.md` 中导入项目根内的相对文件；越靠后的文件越接近本地覆盖，优先级越高。
+- `~/.haocli/HAO.md`：用户级稳定偏好，所有项目可见。
+- `HAO.md` / `.haocli/HAO.md`：项目级团队规则，建议提交到 git。
+- `HAO.local.md` / `.haocli/HAO.local.md`：本地覆盖，适合个人调试约定，建议加入 `.gitignore`。
+- `@relative/path.md`：在 `HAO.md` 中导入项目根内的相对文件；越靠后的文件越接近本地覆盖，优先级越高。
 
-可用 `/init` 为当前项目生成一份短 `PAI.md`。该命令默认不覆盖已有文件；确认需要重建时使用 `/init --force`。
-代码索引默认保存在 `~/.paicli/rag/codebase.db`。
-调试日志默认滚动写入 `~/.paicli/logs/paicli.log`，旧日志会按保留天数和总容量自动清理。
+可用 `/init` 为当前项目生成一份短 `HAO.md`。该命令默认不覆盖已有文件；确认需要重建时使用 `/init --force`。
+代码索引默认保存在 `~/.haocli/rag/codebase.db`。
+调试日志默认滚动写入 `~/.haocli/logs/haocli.log`，旧日志会按保留天数和总容量自动清理。
 ReAct / Plan task / SubAgent / Planner 的模型 `reasoning_content` 会以 `LLM reasoning [...]` 形式写入该日志，便于排查模型为什么选择某个工具或路径。
 
 如果你想为某次运行指定单独目录，可以额外传入：
 
 ```bash
 # 指定记忆目录
-java -Dpaicli.memory.dir=/tmp/paicli-memory -jar target/paicli-1.0-SNAPSHOT.jar
+java -Dhaocli.memory.dir=/tmp/haocli-memory -jar target/haocli-1.0-SNAPSHOT.jar
 
 # 指定 RAG 索引目录
-java -Dpaicli.rag.dir=/tmp/paicli-rag -jar target/paicli-1.0-SNAPSHOT.jar
+java -Dhaocli.rag.dir=/tmp/haocli-rag -jar target/haocli-1.0-SNAPSHOT.jar
 
 # 指定日志目录与保留策略
-java -Dpaicli.log.dir=/tmp/paicli-logs \
-     -Dpaicli.log.level=DEBUG \
-     -Dpaicli.log.maxHistory=3 \
-     -Dpaicli.log.maxFileSize=5MB \
-     -Dpaicli.log.totalSizeCap=20MB \
-     -jar target/paicli-1.0-SNAPSHOT.jar
+java -Dhaocli.log.dir=/tmp/haocli-logs \
+     -Dhaocli.log.level=DEBUG \
+     -Dhaocli.log.maxHistory=3 \
+     -Dhaocli.log.maxFileSize=5MB \
+     -Dhaocli.log.totalSizeCap=20MB \
+     -jar target/haocli-1.0-SNAPSHOT.jar
 ```
 
 也可以放到 `.env` 或环境变量中：
 
 ```bash
-PAICLI_LOG_LEVEL=DEBUG
-PAICLI_LOG_DIR=/Users/yourname/.paicli/logs
-PAICLI_LOG_MAX_HISTORY=7
-PAICLI_LOG_MAX_FILE_SIZE=10MB
-PAICLI_LOG_TOTAL_SIZE_CAP=100MB
+HAOCLI_LOG_LEVEL=DEBUG
+HAOCLI_LOG_DIR=/Users/yourname/.haocli/logs
+HAOCLI_LOG_MAX_HISTORY=7
+HAOCLI_LOG_MAX_FILE_SIZE=10MB
+HAOCLI_LOG_TOTAL_SIZE_CAP=100MB
 ```
 
 ### 2. 可选：配置 MCP server
@@ -708,7 +708,7 @@ PAICLI_LOG_TOTAL_SIZE_CAP=100MB
 双协议核心已完成（completed）。协议版本默认 `2025-03-26`；在单个 server 中加 `"protocolVersion": "2026-07-28"` 可启用现代协议，两种传输都支持。只允许这两个版本，不自动协商、不降级。现代模式先发 `server/discover`，没有 initialize/session/DELETE/ping 或资源订阅，暂不支持变化通知。MRTR-1 已完成 elicitation 表单/URL 交互；MRTR-2 已接通现代 tools/call、resources/read、prompts/get 的有限往返（最多 4 轮、每轮 8 项），新 id 重试并原样回传本轮 requestState，拒绝/取消也回传服务端。其他请求仍严格拒绝 input_required。MRTR-3 仅在这三种现代 MRTR 操作每次发送时查询当前 UI，按实际支持声明 elicitation.form/url，保留其他元数据和自定义能力；普通请求和通知不声明。Main 仅在 System.console() 非空时连接交互 handler，无法确认交互性的路径保持空能力；切换 UI 后下一次请求立即生效。MRTR-4 为 Lanterna 全屏 TUI 增加表单/URL 界面，仅在 GUI 已运行时声明对应能力；该实现已通过本轮 43 类/387 项完整离线回归，真实终端手工验收仍待执行。WeChat 和无人值守路径默认取消且不声明。不实现旧 sampling。配置见 [双协议说明](docs/specs/mcp-protocol-eras.md)，MRTR 进度见 [MRTR 约定](docs/specs/mcp-mrtr.md)。
 
 
-MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，Hao CLI 会自动创建默认 chrome-devtools 配置：
+MCP 子系统默认开启。`~/.haocli/mcp.json` 不存在时，Hao CLI 会自动创建默认 chrome-devtools 配置：
 
 ```json
 {
@@ -721,7 +721,7 @@ MCP 子系统默认开启。`~/.paicli/mcp.json` 不存在时，Hao CLI 会自�
 }
 ```
 
-需要继续接入其他 server 时，可编辑 `~/.paicli/mcp.json` 或项目内 `.paicli/mcp.json`：
+需要继续接入其他 server 时，可编辑 `~/.haocli/mcp.json` 或项目内 `.haocli/mcp.json`：
 
 ```json
 {
@@ -758,7 +758,7 @@ stdio server 不会继承 Hao CLI 进程里的全部环境变量，只带过去 
 }
 ```
 
-项目内的 `.paicli/mcp.json` 会跟着仓库走，克隆别人的仓库时里面的命令不该直接执行。所以项目级 server 第一次启动前需要确认：启动时会提示哪些 server 还没确认，`/mcp` 会列出每个 server 要执行的命令（env 和 headers 只列名字），确认后输入 `/mcp trust <name>` 启动。确认记录保存在 `~/.paicli/mcp-trust.json`，仓库更新改了这个 server 的命令、参数、env、url 或 headers，就需要重新确认。
+项目内的 `.haocli/mcp.json` 会跟着仓库走，克隆别人的仓库时里面的命令不该直接执行。所以项目级 server 第一次启动前需要确认：启动时会提示哪些 server 还没确认，`/mcp` 会列出每个 server 要执行的命令（env 和 headers 只列名字），确认后输入 `/mcp trust <name>` 启动。确认记录保存在 `~/.haocli/mcp-trust.json`，仓库更新改了这个 server 的命令、参数、env、url 或 headers，就需要重新确认。
 
 `step_search` 是约定名称：如果项目 `.env`、用户 `~/.env` 或系统环境变量里存在 `STEP_API_KEY`，Hao CLI 会自动内置这个远程 MCP；上面的手写配置只用于覆盖默认地址或自定义鉴权。当前模型为 `step-3.7-flash*` 时，内置 `web_search` / `web_fetch` 会优先代理到该 MCP server。
 
@@ -766,13 +766,13 @@ stdio server 不会继承 Hao CLI 进程里的全部环境变量，只带过去 
 
 ```bash
 # macOS
-open -na "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-profile
+open -na "Google Chrome" --args --remote-debugging-port=9222 --user-data-dir=/tmp/haocli-chrome-profile
 
 # Windows
-start chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\paicli-chrome-profile
+start chrome.exe --remote-debugging-port=9222 --user-data-dir=%TEMP%\haocli-chrome-profile
 
 # Linux
-google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-profile
+google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/haocli-chrome-profile
 ```
 
 通常不需要用户预先切换；Agent 如果遇到登录页会自己调用 `browser_connect`。手工调试时也可以在 Hao CLI 内执行：
@@ -784,7 +784,7 @@ google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/paicli-chrome-pr
 /browser disconnect
 ```
 
-`/browser connect` 只在当前进程内把 `chrome-devtools` 切到 shared 模式，不会改写 `~/.paicli/mcp.json`。如果希望启动后默认 shared，可手动把 args 改为：
+`/browser connect` 只在当前进程内把 `chrome-devtools` 切到 shared 模式，不会改写 `~/.haocli/mcp.json`。如果希望启动后默认 shared，可手动把 args 改为：
 
 ```json
 ["-y", "chrome-devtools-mcp@latest", "--autoConnect"]
@@ -836,7 +836,7 @@ Streamable HTTP server 现在支持 OAuth 2.1 Authorization Code + PKCE S256（�
 
 登录会按配置的协议版本发送未认证探测：旧版使用 `initialize`，现代版使用 `server/discover`；取得挑战后再发现资源与授权服务器元数据。授权服务器必须明确支持 S256，issuer/授权/令牌端点必须用 HTTPS。回调只监听 127.0.0.1，等待 180 秒；不能自动打开浏览器时会打印授权 URL，手动打开即可。成功后保存令牌并重启该 server；启动与 401 重试不会自动打开浏览器。
 
-令牌只保存在 `~/.paicli/oauth/mcp-oauth-tokens.json`，可用 JVM 参数 `-Dpaicli.mcp.oauth.tokens=/用户私有目录/tokens.json` 改路径，不能放进项目。POSIX 下新建目录 0700、文件 0600；已有父目录必须已经是 0700，程序不会修改共享目录权限。非 POSIX 使用仅属主可访问的 ACL，不支持权限控制或原子替换就拒绝存储；可换到支持这些能力的本地文件系统。默认使用新建的专用 `oauth/` 目录，不修改已有 `~/.paicli` 权限。
+令牌只保存在 `~/.haocli/oauth/mcp-oauth-tokens.json`，可用 JVM 参数 `-Dhaocli.mcp.oauth.tokens=/用户私有目录/tokens.json` 改路径，不能放进项目。POSIX 下新建目录 0700、文件 0600；已有父目录必须已经是 0700，程序不会修改共享目录权限。非 POSIX 使用仅属主可访问的 ACL，不支持权限控制或原子替换就拒绝存储；可换到支持这些能力的本地文件系统。默认使用新建的专用 `oauth/` 目录，不修改已有 `~/.haocli` 权限。
 
 带 access token 的请求遇到 401，只刷新并重试一次；refresh token 轮换会保存新值，`invalid_grant` 清除该 issuer 的旧凭证并要求重新登录。403 权限不足不重试。旧模式注销会先尝试带令牌 DELETE 关闭 MCP 会话（现代模式不发 DELETE），再删除该资源/client ID 下全部 issuer 的凭证并停用当前连接；不调用远程令牌撤销接口。
 
@@ -849,13 +849,13 @@ Streamable HTTP server 现在支持 OAuth 2.1 Authorization Code + PKCE S256（�
 mvn clean package
 
 # 运行（只有 search_code 语义检索需要本地 Ollama + nomic-embed-text；grep_code 会优先使用本机 ripgrep，未安装时自动回退）
-java -jar target/paicli-1.0-SNAPSHOT.jar
+java -jar target/haocli-1.0-SNAPSHOT.jar
 ```
 
 或者直接运行：
 
 ```bash
-mvn clean compile exec:java -Dexec.mainClass="com.paicli.cli.Main"
+mvn clean compile exec:java -Dexec.mainClass="com.haocli.cli.Main"
 ```
 
 ### 4. 如何进入 Plan 模式
@@ -948,7 +948,7 @@ I
 - `web_search` - 在用户目标明确且需要联网时搜索互联网信息
 - `web_fetch` - 抓取当前顶层用户原文提供或本执行分支成功 `web_search` 结果发现的 URL，并提取正文 Markdown
 - `load_skill` - 加载 Skill 完整指引；带 `file` 时列出或读取 Skill 的 `references/`（内置 + 用户级补充）
-- `save_skill_reference` - 把新验证的经验写回 Skill 的用户级参考资料 `~/.paicli/skills/<name>/references/`，只能写 `.md`
+- `save_skill_reference` - 把新验证的经验写回 Skill 的用户级参考资料 `~/.haocli/skills/<name>/references/`，只能写 `.md`
 - `revert_turn` - 恢复到最近第 N 个 pre-turn 快照（走 HITL 与审计）
 - `mcp__{server}__{tool}` - MCP server 动态提供的外部工具
 - `mcp__{server}__list_resources` / `mcp__{server}__read_resource` - 支持 resources 的 MCP server 自动注册的虚拟工具
@@ -961,10 +961,10 @@ I
 
 进程级入口：
 
-- `paicli wechat setup` - 绑定微信 iLink 通道，选择 workspace 并完成扫码确认
-- `paicli wechat start` - 前台启动微信通道
-- `paicli wechat status` - 查看绑定状态和 daemon pid
-- `paicli wechat daemon start|stop|restart|status|logs` - 管理本机微信通道后台进程
+- `haocli wechat setup` - 绑定微信 iLink 通道，选择 workspace 并完成扫码确认
+- `haocli wechat start` - 前台启动微信通道
+- `haocli wechat status` - 查看绑定状态和 daemon pid
+- `haocli wechat daemon start|stop|restart|status|logs` - 管理本机微信通道后台进程
 
 交互式斜杠命令：
 
@@ -989,7 +989,7 @@ I
 - `/mcp logs <name>` - 查看 MCP server 最近 200 行 stderr 日志
 - `/mcp disable <name>` - 运行时禁用 MCP server 并移除其工具
 - `/mcp enable <name>` - 运行时启用 MCP server
-- `/mcp trust <name>` - 确认并启动项目级 `.paicli/mcp.json` 里的 server（配置改动后需要重新确认）
+- `/mcp trust <name>` - 确认并启动项目级 `.haocli/mcp.json` 里的 server（配置改动后需要重新确认）
 - `/mcp resources <name>` - 查看 MCP server 暴露的 resources
 - `/mcp prompts <name>` - 查看 MCP server 暴露的 prompts（只查看，不注入对话）
 - `/policy` - 查看安全策略状态（路径围栏 / 命令黑名单 / 资源上限 / 审计目录）
@@ -1007,10 +1007,10 @@ I
 - `/memory clear` - 清空长期记忆
 - `/save <事实>` - 手动保存项目级关键事实到长期记忆；`/save --global <事实>` 保存跨项目通用偏好；`/save --force <事实>` 与已有记忆冲突时两条都保留
 - `save_memory` - Agent 内置工具，仅在用户明确要求保存长期偏好或稳定事实时调用；默认 `scope=project`，跨项目通用偏好才用 `scope=global`
-- `/init` - 生成精简项目级记忆 `PAI.md`；已存在时不覆盖，`/init --force` 可重写
-- `/export` - 导出当前 ReAct 会话对话记录为 Markdown（包含完整 system prompt），写入 `~/.paicli/exports/session-*.md`
+- `/init` - 生成精简项目级记忆 `HAO.md`；已存在时不覆盖，`/init --force` 可重写
+- `/export` - 导出当前 ReAct 会话对话记录为 Markdown（包含完整 system prompt），写入 `~/.haocli/exports/session-*.md`
 - `/resume` - 列出当前项目可以恢复的历史会话（最近 10 个，按最后使用时间排序）；`/resume <序号>` 恢复其中一个，接着那次对话继续提问。恢复的是普通对话（ReAct）的内容，会替换当前对话；最后一轮没跑完的部分不恢复，system prompt 按当前项目重新生成。只支持默认的 inline 命令行界面，只能恢复支持该命令的版本之后开始的会话
-- `/better-harness [quick|normal] [--inline]` - 审查当前项目的 AI 编码工作流；默认在 `.paicli/better-harness/` 生成 Markdown、HTML 和 findings JSON
+- `/better-harness [quick|normal] [--inline]` - 审查当前项目的 AI 编码工作流；默认在 `.haocli/better-harness/` 生成 Markdown、HTML 和 findings JSON
 - `/index [路径]` - 索引代码库（默认当前目录）；增量进行，只重新处理内容变了的文件，删掉的文件自动清出索引
 - `/search <查询>` - 语义检索代码（RAG 辅助路径）
 - `/graph <类名>` - 查看代码关系图谱
@@ -1079,7 +1079,7 @@ Tips for getting started:
 ## 项目结构
 
 ```
-src/main/java/com/paicli
+src/main/java/com/haocli
 ├── agent/
 │   ├── Agent.java              # ReAct Agent
 │   ├── PlanExecuteAgent.java   # Plan-and-Execute Agent

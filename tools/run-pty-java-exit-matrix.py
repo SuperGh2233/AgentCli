@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Isolated Mac Java exit matrix for PaiCLI Phase 2B-3a.
-Runs only JDK java -version. No JLine, PaiCLI, model, network, Maven or Docker.
+"""Isolated Mac Java exit matrix for Hao CLI Phase 2B-3a.
+Runs only JDK java -version. No JLine, Hao CLI, model, network, Maven or Docker.
 Writes to a new target/phase2b3/exit-matrix-* folder. Never kills unrelated PIDs.
 """
 import errno

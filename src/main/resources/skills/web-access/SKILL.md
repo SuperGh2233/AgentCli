@@ -4,7 +4,7 @@ description: |
   所有联网与浏览器操作的决策手册：搜索、网页抓取、读 SPA / 防爬墙站点、访问需要登录的页面、抓取社交媒体内容（微信公众号、知乎专栏、Twitter、小红书等）。
   触发场景：用户要求搜索信息、阅读网页、调研话题、看公众号 / 知乎文章、读 GitHub 仓库内容、查看登录后的页面、抓取动态渲染站点。先调 load_skill 再决定用哪条工具链。
 version: "1.1.0"
-author: PaiCLI
+author: Hao CLI
 tags: [web, browser, fetch]
 ---
 
@@ -56,7 +56,7 @@ tags: [web, browser, fetch]
 
 **关键约束**：
 - shared 模式下敏感页面（settings / admin / billing / oauth / 2fa 等）的改写型工具会强制单步审批，不能批量放行。
-- `close_page` 只能关 PaiCLI 自己 `new_page` 出来的 tab，不要尝试关用户原有的 Gmail / Slack。
+- `close_page` 只能关 Hao CLI 自己 `new_page` 出来的 tab，不要尝试关用户原有的 Gmail / Slack。
 - 浏览器读页面优先 `take_snapshot`（结构化 DOM 文本）而非 `take_screenshot`。截图只在用户明确要看视觉布局、颜色、遮挡、截图验收时使用；vision 模型会收到图片，非 vision 模型仍只能走 fallback 文案。
 
 ## Jina Reader 兜底
@@ -94,7 +94,7 @@ load_skill(name="web-access", file="references/site-patterns")
 load_skill(name="web-access", file="references/site-patterns/mp.weixin.qq.com.md")
 ```
 
-返回结果会依次给出内置版本和用户级补充（`~/.paicli/skills/web-access/references/`）。内置已有：
+返回结果会依次给出内置版本和用户级补充（`~/.haocli/skills/web-access/references/`）。内置已有：
 
 - `mp.weixin.qq.com.md`（微信公众号文章）
 - `zhuanlan.zhihu.com.md`（知乎专栏）
@@ -133,5 +133,5 @@ navigate_page → wait_for（等关键元素出现）→ take_snapshot → 抽�
 - 不要在 SPA 站点反复 `web_fetch`：第一次空了就换浏览器，别浪费配额
 - 不要默认 `take_screenshot`：截图比 DOM 文本更贵，先用 snapshot；只有视觉问题再截图
 - 不要为了"全面"在敏感页面批量操作：每个改写型操作都强制审批，会卡住流程
-- 不要替用户输用户名密码：PaiCLI 不做自动登录
-- 不要用 `write_file` / `execute_command` 写 `~/.paicli/` 下的 references：写回只走 `save_skill_reference`
+- 不要替用户输用户名密码：Hao CLI 不做自动登录
+- 不要用 `write_file` / `execute_command` 写 `~/.haocli/` 下的 references：写回只走 `save_skill_reference`

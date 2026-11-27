@@ -95,7 +95,7 @@ def definition(source):
             and isinstance(source['nonce'], str) and re.fullmatch('[a-f0-9]{64}', source['nonce']), 'frozen definition')
     nonce = bytes.fromhex(source['nonce'])
     def derive(label):
-        return hashlib.sha256(('paicli-f3-definition-v1/' + label + '\0').encode() + nonce).digest()
+        return hashlib.sha256(('haocli-f3-definition-v1/' + label + '\0').encode() + nonce).digest()
     def h(label):
         return derive(label).hex()
     v = derive('values')

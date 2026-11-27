@@ -1,4 +1,4 @@
-# PaiCLI Mid-turn Steering：Phase 1 实施与验收报告
+# Hao CLI Mid-turn Steering：Phase 1 实施与验收报告
 
 > 日期：2026-10-21
 > 工作分支：`feat/steering-phase1`
@@ -7,7 +7,7 @@
 
 ## 1. 前置基线
 
-- 在 Mac 上为仅有本地源码的 `paicli-main` 建立完整备份（922 文件/197 子目录，约 17.7 MiB）与本地 Git 初始提交，无远程仓库。
+- 在 Mac 上为仅有本地源码的 `haocli-main` 建立完整备份（922 文件/197 子目录，约 17.7 MiB）与本地 Git 初始提交，无远程仓库。
 - Homebrew Maven 3.10.0 已安装，当前阶段显式使用 Temurin JDK 21.0.12.1（项目 `pom.xml` 目标 Java 17）。
 - Phase 0 核心烟雾测试：`CliCommandParserTest`（57）、`PlanReviewInputParserTest`（4）、`MainInputNormalizationTest`（30）、`CancellationContextTest`（1）、`ConversationLedgerTest`（5）、`TerminalHitlHandlerTest`（18），共 **115/115 通过**。
 - 注意：完整 `mvn test -Pquick` 未全部通过。此前受限大范围运行生成 847 个用例，804 通过、1 失败、42 异常，测试在 `SessionModeControllerTest` 停滞并被限时终止；异常主要为 Java 25 与 Byte Buddy 版本兼容，未修改原有业务源码。该记录不等于完整回归通过。
@@ -15,14 +15,14 @@
 ## 2. 本次新增文件（已写入 Mac 本地项目）
 
 ```text
-src/main/java/com/paicli/runtime/input/
+src/main/java/com/haocli/runtime/input/
   DeliveryMode.java
   InputAcceptance.java
   InputStatus.java
   RuntimeInput.java
   TurnInputManager.java
   TurnState.java
-src/test/java/com/paicli/runtime/input/
+src/test/java/com/haocli/runtime/input/
   TurnInputManagerTest.java
 ```
 
@@ -34,7 +34,7 @@ src/test/java/com/paicli/runtime/input/
 - `STEER` 只接受匹配活动 `expectedTurnId` 的输入；`ENQUEUE` 存在独立队列，当前 Turn 完成后每次取出一条开新 Turn；`INTERRUPT` 请求取消并暂停 Queue，完成取消后显式恢复。
 - 交付协议：`accept` → `reserveForRequest` → `commit`（已纳入请求）或 `requeue`（**确认请求尚未发出时**）；防止跨管理器提交、旧批次重复使用。
 - 默认限额：每 Turn Steer 20 条、Queue 50 条、消息内容 UTF-8 16 KiB，配置项可调整；无效/过期消息显式拒绝而非隐式改投下一轮。
-- 功能开关 `paicli.steering.enabled` **默认 false**。没有 JLine 输入路由，没有 Agent Loop 注入，更不支持实际运行中收发用户消息。
+- 功能开关 `haocli.steering.enabled` **默认 false**。没有 JLine 输入路由，没有 Agent Loop 注入，更不支持实际运行中收发用户消息。
 - `INCLUDED_IN_REQUEST` 仅表示消息进入已提交的模型请求，不能表述为模型已遵循。
 - 存储仅限内存，**未实现进程重启后恢复、Ledger 持久化或独立事件写入**；这属于后续阶段。
 

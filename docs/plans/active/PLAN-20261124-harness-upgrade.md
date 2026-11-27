@@ -40,8 +40,8 @@ Hao CLI 已经有、而且比参考对象做得细的地方，要保留并作为
 | 钩子 / 扩展 | 没有找到钩子机制 |
 | 命令沙箱 | macOS Seatbelt、Linux bubblewrap 都已实现（`tool/CommandSandbox`），但默认 `off` |
 | 会话存储 | `ConversationLedger` 只追加的 JSONL + `view_checkpoint`；`/resume`、`--continue`、`--session` 只恢复 ReAct；文件回退靠 Side-Git 快照和 `revert_turn`，和对话回退是两套 |
-| 运行中继续输入 | 只在 inline + ReAct + `-Dpaicli.steering.enabled=true` 时可用；Plan 的安全点在工作区里有代码但没接进 `Main` |
-| 命名 | 对外叫 Hao CLI，包名、配置目录、环境变量、jar 名仍是 paicli |
+| 运行中继续输入 | 只在 inline + ReAct + `-Dhaocli.steering.enabled=true` 时可用；Plan 的安全点在工作区里有代码但没接进 `Main` |
+| 命名 | 对外叫 Hao CLI，包名、配置目录、环境变量、jar 名仍是 haocli |
 
 ## 4. 需要改进或重构的地方（按影响排序）
 
@@ -111,11 +111,11 @@ inline、Lanterna、微信、Runtime API 各自从 Agent 取数据；`RuntimeEve
 | 2 统一内核 | 从 `Agent.java` 抽出 `AgentLoop`，ReAct 改为调用它；预算、RunawayGuard、压缩、Steering 安全点、`view_checkpoint` 只在内核实现一次 | 阶段 0 的回放测试全部通过；`Agent.java` 只剩组装和对外方法 |
 | 3 事件协议 + 无界面模式 | 定义 Session / Turn / Item 事件；内核只发事件；新增 `-p "任务"` 和 `--output-format text|json|stream-json`；Runtime API 改发同一套事件 | 无界面模式有端到端测试（假模型）；inline 显示不变 |
 | 4 拆 `Main` | 组装、会话控制、命令注册表、前端分开；斜杠命令改为注册表 | `Main.java` 降到 500 行以内；命令解析和 TUI 测试不退化 |
-| 5 Plan / 子 Agent / Team 迁移到内核 | Plan = 只读工具 + 方案审阅；新增子 Agent 工具，定义放 `.paicli/agents/*.md`；Team 改为编排多个子 Agent；Plan 的 Steering 安全点随之接通 | Plan / Team 已有测试通过；评测审计约定不变（planner / reviewer 不给工具） |
+| 5 Plan / 子 Agent / Team 迁移到内核 | Plan = 只读工具 + 方案审阅；新增子 Agent 工具，定义放 `.haocli/agents/*.md`；Team 改为编排多个子 Agent；Plan 的 Steering 安全点随之接通 | Plan / Team 已有测试通过；评测审计约定不变（planner / reviewer 不给工具） |
 | 6 策略引擎 + 沙箱 + 钩子 | 合并各处检查为一个引擎并输出决定记录；沙箱默认 `auto` 并提供三档；新增钩子（外部命令 + JSON） | 安全策略测试（CI 那条）全部通过；新增决定记录和钩子测试 |
 | 7 会话树 + 回退 | 会话分叉；`/rewind` 同时回退对话和文件；`/resume` 支持 Plan / Team 会话 | 分叉、回退、恢复都有测试；旧会话文件仍能读 |
 | 8 工具层与工程 | 拆 `ToolRegistry`；补丁工具；MCP 工具按需加载；多模块拆分；可观测性 | 各模块能单独构建测试；`ToolRegistry` 拆分后行为不变 |
-| 9 收尾 | 品牌和包名迁移（如果决定做）；README 重写架构说明；简历用的架构图和数据 | 兼容旧的 `~/.paicli` 和 `PAICLI_*` 至少一个版本 |
+| 9 收尾 | 品牌和包名迁移（如果决定做）；README 重写架构说明；简历用的架构图和数据 | 兼容旧的 `~/.haocli` 和 `HAOCLI_*` 至少一个版本 |
 
 顺序理由：先有回放测试才敢动内核（0）；内核依赖新的模型接口（1→2）；事件协议依赖统一内核（2→3）；拆 `Main` 要等事件协议定下来，否则前端会改两次（3→4）；Plan / Team 迁移依赖内核和事件（5）；其余可以并行或往后放。
 
@@ -123,9 +123,9 @@ inline、Lanterna、微信、Runtime API 各自从 Agent 取数据；`RuntimeEve
 
 开发分工：用户在本机跑测试，助手改代码（助手所在环境没有 JDK 和 Maven，没有编译过）。
 
-- `src/test/java/com/paicli/testing/ScriptedLlmClient.java`：共用的假模型，按脚本返回回复，记录每次请求的消息和工具定义；可指定第 N 次请求失败，或在第 N 次请求时回调（用来模拟取消）。脚本用完再请求会报错
-- `src/test/java/com/paicli/testing/ToolProtocolAssertions.java`：检查每个工具调用都紧跟着恰好一条对应的工具结果
-- `src/test/java/com/paicli/agent/ReActLoopReplayTest.java`：9 个回放测试，覆盖直接回答、单个工具调用、并行只读工具保持顺序、未知工具、参数缺失、多步循环、供应商报错、模型回复后取消、两轮对话复用历史
+- `src/test/java/com/haocli/testing/ScriptedLlmClient.java`：共用的假模型，按脚本返回回复，记录每次请求的消息和工具定义；可指定第 N 次请求失败，或在第 N 次请求时回调（用来模拟取消）。脚本用完再请求会报错
+- `src/test/java/com/haocli/testing/ToolProtocolAssertions.java`：检查每个工具调用都紧跟着恰好一条对应的工具结果
+- `src/test/java/com/haocli/agent/ReActLoopReplayTest.java`：9 个回放测试，覆盖直接回答、单个工具调用、并行只读工具保持顺序、未知工具、参数缺失、多步循环、供应商报错、模型回复后取消、两轮对话复用历史
 - `tools/test-failures.sh`：从 Surefire 报告里列出失败测试，用来对比改动前后的失败名单
 - 已有测试里已经覆盖、这次没有重复写的：Steering 安全点（`AgentSteeringSafePointTest`）、预算收尾（`AgentBudgetFinalizationTest`）、runaway 提醒（`AgentRunawayReminderTest`）。第 2 阶段把它们和本组测试一起当作对照
 - 还没覆盖：上下文压缩。压缩要假模型按四栏格式返回摘要，等第 2 阶段动压缩代码时再补
@@ -154,7 +154,7 @@ mvn test -Dtest=ReActLoopReplayTest -DskipTests=false                   # 新测
 
 做法：先加新接口和双向转换，旧接口一行不删；所有 Client 通过 `LegacyModelClient` 自动获得新接口，Agent 第 2 阶段再切过去。
 
-- 新包 `src/main/java/com/paicli/llm/core/`：
+- 新包 `src/main/java/com/haocli/llm/core/`：
   - `ContentBlock`：内容块，文字 / 思考 / 图片 / 工具调用四种（sealed interface，只能是这四种）
   - `ChatMessage`：角色（system、user、assistant、工具结果）+ 内容块；构造时检查工具结果必须带调用 id、只有助手消息能带思考和工具调用
   - `StopReason`：正常答完 / 要调工具 / 被长度截断 / 被审核拦下 / 不明。截断优先于工具调用（参数可能是半截 JSON）；DSML 转出的调用算要调工具；说 tool_calls 却没有调用算不明
@@ -173,7 +173,7 @@ mvn test -Dtest=ReActLoopReplayTest -DskipTests=false                   # 新测
 
 ```bash
 mvn test -DskipTests=false -Dtest='LegacyMessageCodecTest,ModelClientReplayTest'
-mvn test -DskipTests=false -Dtest='com.paicli.llm.*Test,ReActLoopReplayTest'   # 已有 llm 测试不退化
+mvn test -DskipTests=false -Dtest='com.haocli.llm.*Test,ReActLoopReplayTest'   # 已有 llm 测试不退化
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
 ```
 
@@ -199,7 +199,7 @@ mvn test -Pquick; bash tools/test-failures.sh                                  #
 
 ```bash
 mvn test -DskipTests=false -Dtest='AgentLoopTest,ReActLoopReplayTest'
-mvn test -DskipTests=false -Dtest='com.paicli.agent.*Test,UnexecutedToolCallNoticeTest,StartupSessionResumeTest,MainPlanAgentFactoryTest,DeepSeekConversationReplayTest'
+mvn test -DskipTests=false -Dtest='com.haocli.agent.*Test,UnexecutedToolCallNoticeTest,StartupSessionResumeTest,MainPlanAgentFactoryTest,DeepSeekConversationReplayTest'
 mvn test -DskipTests=false -Dtest='*Steering*Test,TurnInputManagerTest,InputCoordinatorTest,TerminalInputGateway*Test,JLineInputAdapterTest,InlineApprovalGatewayTest,AgentBudgetFinalizationTest,ToolRegistryToolStartGateTest'
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
 ```
@@ -213,7 +213,7 @@ mvn test -Pquick; bash tools/test-failures.sh                                  #
 mvn clean test -Pquick; bash tools/test-failures.sh                            # 应该没有输出
 ```
 
-另外建议手工跑一次 jar（`mvn clean package` 后 `java -jar target/paicli-1.0-SNAPSHOT.jar`），随便问一个要读文件的问题，看思考、工具调用、回答的显示和以前一样。
+另外建议手工跑一次 jar（`mvn clean package` 后 `java -jar target/haocli-1.0-SNAPSHOT.jar`），随便问一个要读文件的问题，看思考、工具调用、回答的显示和以前一样。
 
 第二步（模型调用走新的模型层，按停止原因处理截断）：
 
@@ -262,8 +262,8 @@ mvn test -Pquick; bash tools/test-failures.sh                                  #
 mvn clean test -DskipTests=false -Dtest='HeadlessOptionsTest,HeadlessRunnerTest,AgentLoopTest,ReActLoopReplayTest'
 mvn test -Pquick; bash tools/test-failures.sh                                  # 应该没有输出
 mvn clean package
-java -jar target/paicli-1.0-SNAPSHOT.jar -p "用一句话说明这个项目是做什么的"             # 会调用真实模型，消耗少量 Token
-java -jar target/paicli-1.0-SNAPSHOT.jar -p "列出 src/main/java/com/paicli 下的包" --output-format stream-json
+java -jar target/haocli-1.0-SNAPSHOT.jar -p "用一句话说明这个项目是做什么的"             # 会调用真实模型，消耗少量 Token
+java -jar target/haocli-1.0-SNAPSHOT.jar -p "列出 src/main/java/com/haocli 下的包" --output-format stream-json
 ```
 
 最后两条会调真实模型（按 AGENTS.md 要你同意才跑；不跑也不影响测试结论，只是少了一次真机验证）。
@@ -275,8 +275,8 @@ java -jar target/paicli-1.0-SNAPSHOT.jar -p "列出 src/main/java/com/paicli 下
 - 问题：Runtime API（`serve --http`）和后台任务调 `Main.runHeadlessTask`，用裸 `ToolRegistry`，没有审批也没有白名单。顺带发现：它返回 `agent.run()` 的值，真实模型流式输出时这个值是空串，Runtime API / 后台任务拿不到回答
 - `headless/UnattendedPermissions`（新）：从 `serve` 参数取 `--permission-mode`、`--allow-command`，或从配置值取模式；默认只读、不执行命令
 - `headless/UnattendedTaskRunner`（新，实现 `TaskRunner`）：每个任务一个 Agent，`HeadlessToolRegistry` 白名单 + 静默渲染器，结果取 `TurnFinished` 事件里的原始回答
-- `Main`：删除 `runHeadlessTask`；`startRuntimeApiAndBlock` 和 `openTaskManager` 改用 `UnattendedTaskRunner`；启动时打印权限说明；后台任务读 `PAICLI_TASK_PERMISSION_MODE`
-- **行为变化**：以前这两条路径什么都能执行，现在默认只读。需要写文件的调用方要加 `--permission-mode edit` 或设置 `PAICLI_TASK_PERMISSION_MODE=edit`；已写进 README、`.env.example`、`AGENTS.md`、`docs/specs/headless-mode.md`
+- `Main`：删除 `runHeadlessTask`；`startRuntimeApiAndBlock` 和 `openTaskManager` 改用 `UnattendedTaskRunner`；启动时打印权限说明；后台任务读 `HAOCLI_TASK_PERMISSION_MODE`
+- **行为变化**：以前这两条路径什么都能执行，现在默认只读。需要写文件的调用方要加 `--permission-mode edit` 或设置 `HAOCLI_TASK_PERMISSION_MODE=edit`；已写进 README、`.env.example`、`AGENTS.md`、`docs/specs/headless-mode.md`
 - 测试：
   - `UnattendedTaskRunnerTest`（6 个）：流式回答能拿到；原裸 Agent 路径流式时返回空串（记录问题）；默认拒绝命令和写文件；edit 能写；参数解析；配置值解析
   - `security/AgentSecurityRegressionTest`（5 个，评估报告 Phase 1 的“安全回归集”第一批）：假模型完全听从注入内容的最坏情况下——路径穿越和绝对路径读不到项目外文件、项目内符号链接逃不出去、文件里的注入命令不会被执行（且文件内容带不可信标记）、工具结果里出现的网址不能被抓取、只读模式下注入不能写文件
@@ -369,7 +369,7 @@ mvn test -Pquick; bash tools/test-failures.sh                                  #
 
 2026-11-26 的答复（详见新计划和 `docs/adr/`）：
 
-1. **包名和配置目录要不要从 paicli 改成 haocli**：~~改了简历上更统一，但影响所有用户配置和文档~~ → 显示名先改（R0）；收尾阶段做新旧名字都认（R1）和迁移工具（R2）；包名和 Maven 坐标整体迁移（R3）不做（`docs/adr/ADR-0001-architecture-boundaries.md`）
+1. **包名和配置目录要不要从 haocli 改成 haocli**：~~改了简历上更统一，但影响所有用户配置和文档~~ → 显示名先改（R0）；收尾阶段做新旧名字都认（R1）和迁移工具（R2）；包名和 Maven 坐标整体迁移（R3）不做（`docs/adr/ADR-0001-architecture-boundaries.md`）
 2. **要不要拆多模块**：→ 拆，4 个模块（`hao-core` / `hao-runtime` / `hao-cli` / `hao-eval`），先用依赖测试守边界，放在拆 Main 之后
 3. **Lanterna 全屏界面和微信通道还要不要继续维护**：→ 冻结，只修崩溃和安全问题；微信的默认拒绝策略在安全阶段并进统一策略入口
 4. **“DeepSeek harness”指哪个项目**：仍未回答，不影响新路线

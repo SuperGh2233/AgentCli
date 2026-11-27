@@ -3,7 +3,7 @@
 
 Must be launched directly in a real foreground Mac Terminal. This script
 compiles a stand-alone JLine class offline, then REPLACES itself with Java.
-No Codex sandbox, fake PTY, PaiCLI Main, model, network, or Git operations.
+No Codex sandbox, fake PTY, Hao CLI Main, model, network, or Git operations.
 """
 import json
 import os
@@ -38,7 +38,7 @@ def main():
         return 2
     CLASSES = RUN / "classes"
     CLASSES.mkdir(parents=True, exist_ok=False)
-    java_source = ROOT / "src/test/java/com/paicli/cli/JLineNativeCtrlProof.java"
+    java_source = ROOT / "src/test/java/com/haocli/cli/JLineNativeCtrlProof.java"
     classpath = os.pathsep.join((str(CLASSES), str(JLINE)))
     command = [str(JDK / "bin/javac"), "--release", "17", "-encoding", "UTF-8",
                "-cp", str(JLINE), "-d", str(CLASSES), str(java_source)]
@@ -61,8 +61,8 @@ def main():
     print(f"Native terminal test output: {state_file}")
     print("Java will take over THIS terminal process. Read the two prompts carefully.")
     sys.stdout.flush()
-    argv = [str(JDK / "bin/java"), f"-Dpaicli.nativectrl.stateFile={state_file}",
-            "-cp", classpath, "com.paicli.cli.JLineNativeCtrlProof"]
+    argv = [str(JDK / "bin/java"), f"-Dhaocli.nativectrl.stateFile={state_file}",
+            "-cp", classpath, "com.haocli.cli.JLineNativeCtrlProof"]
     # Replacing rather than spawning preserves the user's real controlling tty
     # and makes native SIGINT behavior observable, not translated by Python.
     os.execv(argv[0], argv)

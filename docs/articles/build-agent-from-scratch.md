@@ -1,8 +1,8 @@
 ---
 title: 手搓一个 Java 版 Claude Code，先把 Agent 循环拆明白：工具调用、结果回传和重复检测
 shortTitle: Agent 循环与工具注册
-description: PaiCLI 第 1 期，按最新源码拆解 Java Agent 的 ReAct 循环：工具如何注册给模型、流式工具调用如何拼接、工具结果如何安全交回模型、edit_file 如何容错，以及重复调用时如何提醒和强制收尾。
-keywords: ReAct, Tool Call, Agent 循环, 工具注册, PaiCLI
+description: Hao CLI 第 1 期，按最新源码拆解 Java Agent 的 ReAct 循环：工具如何注册给模型、流式工具调用如何拼接、工具结果如何安全交回模型、edit_file 如何容错，以及重复调用时如何提醒和强制收尾。
+keywords: ReAct, Tool Call, Agent 循环, 工具注册, Hao CLI
 tag:
   - Agent
   - Java
@@ -14,17 +14,17 @@ date: 2026-04-18
 
 大家好，我是二哥呀。
 
-Opus 5.5 发布后测试了几天，发现太强大了，加上GPT-6 Astra 也很牛逼，于是打算升级和重构一下PaiCLI的代码和教程。
+Opus 5.5 发布后测试了几天，发现太强大了，加上GPT-6 Astra 也很牛逼，于是打算升级和重构一下Hao CLI的代码和教程。
 
-这半年，我每天都在终端里和 Claude Code 打交道。于是我就用 Java 手搓了高仿 Claude Code 的命令行 Agent，名字就叫 PaiCLI。
+这半年，我每天都在终端里和 Claude Code 打交道。于是我就用 Java 手搓了高仿 Claude Code 的命令行 Agent，名字就叫 Hao CLI。
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925104211.png)
 
-这篇是 PaiCLI 系列的第 1 期。我们按 PaiCLI 现在的源码，把这个循环从头到尾拆开，看模型怎么知道有哪些工具，调用请求怎么从流式响应里拼出来，工具结果怎么安全地交回模型，第一批工具为什么这样设计，循环又在什么时候停下。
+这篇是 Hao CLI 系列的第 1 期。我们按 Hao CLI 现在的源码，把这个循环从头到尾拆开，看模型怎么知道有哪些工具，调用请求怎么从流式响应里拼出来，工具结果怎么安全地交回模型，第一批工具为什么这样设计，循环又在什么时候停下。
 
 ## 01、一次任务里模型被调用了几次
 
-先看一个具体的任务。在 PaiCLI 里输入“把 Hello.java 里的 Hello World 改成 Hello PaiCLI”。
+先看一个具体的任务。在 Hao CLI 里输入“把 Hello.java 里的 Hello World 改成 Hello Hao CLI”。
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925105713.png)
 
@@ -34,10 +34,10 @@ Opus 5.5 发布后测试了几天，发现太强大了，加上GPT-6 Astra 也�
 
 ![](https://cdn.paicoding.com/paicoding/2b87dffe07ccdfb8256df30f8602806c.png)
 
-PaiCLI 的主循环长这样，为了让大家看清骨架，我省掉了日志、状态栏和异常处理。
+Hao CLI 的主循环长这样，为了让大家看清骨架，我省掉了日志、状态栏和异常处理。
 
 ```java
-// src/main/java/com/paicli/agent/Agent.java，runInternal 节选
+// src/main/java/com/haocli/agent/Agent.java，runInternal 节选
 while (true) {
     if (CancellationContext.isCancelled()) {
         return "⏹️ 已取消当前任务。";
@@ -67,18 +67,18 @@ while (true) {
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925095306-26d5bc4f.png)
 
-每轮调用模型之前，PaiCLI 还会补语法诊断、压缩对话历史。
+每轮调用模型之前，Hao CLI 还会补语法诊断、压缩对话历史。
 
 ## 02、模型怎么知道有哪些工具
 
 循环能跑起来，前提是模型知道自己手上有哪些工具。
 
-模型看不到 Java 代码，它能看到的只有请求体里的一份工具清单。PaiCLI 里每个工具由四样东西组成，名字、描述、参数定义和执行逻辑，前三样发给模型，执行逻辑留在本地。
+模型看不到 Java 代码，它能看到的只有请求体里的一份工具清单。Hao CLI 里每个工具由四样东西组成，名字、描述、参数定义和执行逻辑，前三样发给模型，执行逻辑留在本地。
 
 以 `read_file` 为例。
 
 ```java
-// src/main/java/com/paicli/tool/ToolRegistry.java（节选）
+// src/main/java/com/haocli/tool/ToolRegistry.java（节选）
 tools.put("read_file", new Tool(
         "read_file",
         "读取文件内容（仅限项目根目录之内）；可用 offset/limit 按行读取，避免把大文件整段塞进上下文",
@@ -119,7 +119,7 @@ tools.put("read_file", new Tool(
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925095533-8c1616c7.png)
 
-PaiCLI 现在内置了 17 个工具，接入 MCP 之后，外部 server 的工具会以 `mcp__{server}__{tool}` 的名字动态注册进来。发给模型之前，工具清单会先按名字排个序。顺序固定下来之后，每次请求的前缀都一样，更容易命中模型服务的 prompt cache（提示词缓存）。
+Hao CLI 现在内置了 17 个工具，接入 MCP 之后，外部 server 的工具会以 `mcp__{server}__{tool}` 的名字动态注册进来。发给模型之前，工具清单会先按名字排个序。顺序固定下来之后，每次请求的前缀都一样，更容易命中模型服务的 prompt cache（提示词缓存）。
 
 发给模型的清单还会逐轮筛选，但这一步只做减法。用户明确说了不要联网，联网工具就不出现在清单里；用户只丢过来一个带书名号或者“（附面试题）”这类标记的标题，程序收掉联网工具，并在终端提示用户说明要做什么。本地工具在任何情况下都照常给。
 
@@ -133,7 +133,7 @@ PaiCLI 现在内置了 17 个工具，接入 MCP 之后，外部 server 的工�
 
 模型决定调用工具之后，调用请求是一块一块到的。
 
-PaiCLI 所有的模型请求都开了流式输出（`stream=true`），这样思考过程和回答能一个字一个字地显示在终端上。工具调用走的是同一条路线，比如 `list_dir` 的参数 `{"path":"."}`，可能被拆成两个片段送过来。
+Hao CLI 所有的模型请求都开了流式输出（`stream=true`），这样思考过程和回答能一个字一个字地显示在终端上。工具调用走的是同一条路线，比如 `list_dir` 的参数 `{"path":"."}`，可能被拆成两个片段送过来。
 
 ```text
 data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_abc","function":{"name":"list_dir","arguments":"{\"path\""}}]}}]}
@@ -144,7 +144,7 @@ data: [DONE]
 程序要做的是把碎片按 `index` 拼回去。
 
 ```java
-// src/main/java/com/paicli/llm/AbstractOpenAiCompatibleClient.java，mergeToolCallDeltas 节选
+// src/main/java/com/haocli/llm/AbstractOpenAiCompatibleClient.java，mergeToolCallDeltas 节选
 for (JsonNode tc : toolCallsNode) {
     int index = tc.path("index").asInt(accumulators.size());
     while (accumulators.size() <= index) {
@@ -162,7 +162,7 @@ for (JsonNode tc : toolCallsNode) {
 
 `index` 标明这是本次回复里的第几个工具调用，同一个 `index` 的名字和参数按到达顺序往后接。一次回复里有好几个工具调用时，它们各拼各的，互不干扰。
 
-`id` 通常只在第一个片段里出现，后面工具结果要靠它对上号。个别 OpenAI 兼容接口的流式返回压根不带 `id`，PaiCLI 的处理是补一个本地 id。
+`id` 通常只在第一个片段里出现，后面工具结果要靠它对上号。个别 OpenAI 兼容接口的流式返回压根不带 `id`，Hao CLI 的处理是补一个本地 id。
 
 ```java
 // buildToolCalls 节选
@@ -197,7 +197,7 @@ boolean canRetry = attempt < retryPolicy.maxAttempts()
         && retryPolicy.isRetryableFailure(failure);
 ```
 
-半截回答已经打印在屏幕上了，再重发一次，用户会看到同一段话出现两遍，第二遍的措辞还可能和第一遍对不上。这种时候 PaiCLI 选择把错误直接报出来，要不要重新问一次，交给用户决定。
+半截回答已经打印在屏幕上了，再重发一次，用户会看到同一段话出现两遍，第二遍的措辞还可能和第一遍对不上。这种时候 Hao CLI 选择把错误直接报出来，要不要重新问一次，交给用户决定。
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925100029-71337e46.png)
 
@@ -205,10 +205,10 @@ boolean canRetry = attempt < retryPolicy.maxAttempts()
 
 工具执行完，结果要以 `tool` 角色的消息追加进对话，靠 `tool_call_id` 和模型那次调用请求对上号。
 
-这一步 PaiCLI 先给结果套了一层标签。
+这一步 Hao CLI 先给结果套了一层标签。
 
 ```java
-// src/main/java/com/paicli/tool/ToolResultBoundary.java（节选）
+// src/main/java/com/haocli/tool/ToolResultBoundary.java（节选）
 public static String wrap(String toolName, String content) {
     String name = sanitizeName(toolName);
     String body = neutralize(content == null ? "" : content);
@@ -232,7 +232,7 @@ public static String wrap(String toolName, String content) {
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925100247-ee022e23.png)
 
-结果太长也不能原样塞进对话。超过 32000 字符的工具结果，会写进项目下的 `.paicli/tool-outputs/` 目录，对话里只留文件路径和首尾预览，模型需要细看时再用 `read_file` 分段读。
+结果太长也不能原样塞进对话。超过 32000 字符的工具结果，会写进项目下的 `.haocli/tool-outputs/` 目录，对话里只留文件路径和首尾预览，模型需要细看时再用 `read_file` 分段读。
 
 带工具调用的那条模型回复，会连同思考内容一起存进对话。DeepSeek、GLM、混元 Hy 和 Kimi 的思考模式，要求下一轮请求把这段思考内容原样带回去。
 
@@ -280,7 +280,7 @@ static final Set<String> PARALLEL_SAFE_TOOLS = Set.of(
 
 ### 为什么要有 edit_file
 
-只有 `write_file` 的话，模型想把一行 `Hello World` 改成 `Hello PaiCLI`，也得把整个文件重新输出一遍。文件一长，输出的 Token 多、速度慢，模型重写的时候还可能顺手改掉别的地方。
+只有 `write_file` 的话，模型想把一行 `Hello World` 改成 `Hello Hao CLI`，也得把整个文件重新输出一遍。文件一长，输出的 Token 多、速度慢，模型重写的时候还可能顺手改掉别的地方。
 
 `edit_file` 只让模型给出要换掉的那段原文 `old_text` 和新文本 `new_text`。默认情况下，原文必须在文件里恰好出现一次。
 
@@ -294,10 +294,10 @@ static final Set<String> PARALLEL_SAFE_TOOLS = Set.of(
 
 跑久了会发现，模型给的 `old_text` 经常和文件差一点点。文件里是弯引号，模型写成了直引号；文件行尾多了几个空格；最常见的是把 `read_file` 输出里的行号前缀 `   12 | ` 一起抄了过来。
 
-MiniMax Code（MiniMax 开源的终端编程 Agent）的 edit 工具专门处理了这几类误差，PaiCLI 参考它做了三层匹配。
+MiniMax Code（MiniMax 开源的终端编程 Agent）的 edit 工具专门处理了这几类误差，Hao CLI 参考它做了三层匹配。
 
 ```java
-// src/main/java/com/paicli/tool/TextEditMatcher.java（节选）
+// src/main/java/com/haocli/tool/TextEditMatcher.java（节选）
 static Result apply(String content, String oldText, String newText, boolean replaceAll, String path) {
     try {
         // 先精确匹配；精确找不到，再逐行归一化后匹配
@@ -342,7 +342,7 @@ static Result apply(String content, String oldText, String newText, boolean repl
 
 命令执行前会过一遍黑名单，`sudo`、对根目录和家目录的 `rm -rf`、`mkfs`、`curl | sh` 这类命令直接拦下。这份黑名单只是辅助手段，正则总有绕过去的写法。
 
-真正的把关在审批环节。PaiCLI 启动后默认处于 auto 模式，写文件、编辑文件直接执行，每条 Shell 命令则先交给一个轻量模型分类器审查。分类器只看用户这一轮的原话和命令本身，看不到网页和文件内容；它判定只读、低风险才直接执行；判定有风险或者审查出了问题，命令不会执行，拒绝原因作为工具结果交回给模型，让它换一种做法，或者在回复里向用户说明为什么需要这条命令。MCP 工具和回滚快照在 auto 下也是同样处理。模型在同一轮里连续被拦到第 3 次，才会弹出审批框交给用户决定。
+真正的把关在审批环节。Hao CLI 启动后默认处于 auto 模式，写文件、编辑文件直接执行，每条 Shell 命令则先交给一个轻量模型分类器审查。分类器只看用户这一轮的原话和命令本身，看不到网页和文件内容；它判定只读、低风险才直接执行；判定有风险或者审查出了问题，命令不会执行，拒绝原因作为工具结果交回给模型，让它换一种做法，或者在回复里向用户说明为什么需要这条命令。MCP 工具和回滚快照在 auto 下也是同样处理。模型在同一轮里连续被拦到第 3 次，才会弹出审批框交给用户决定。
 
 想让每个危险操作都经过人工确认，就按 Shift+Tab 切到 ask 模式，或者输入 `/hitl on`。Shift+Tab 在 auto、plan、ask 三个模式之间循环，状态栏左侧会显示当前模式。交互式命令行里没有“全部放行”的档位，最宽松就是 auto。
 
@@ -352,9 +352,9 @@ static Result apply(String content, String oldText, String newText, boolean repl
 
 主循环没写轮数上限。
 
-长上下文模型一次任务连着调用几十次工具很正常，写死 10 轮或者 50 轮，复杂一点的任务可能还没做完就被截断了。所以 PaiCLI 默认让模型自己决定什么时候停。
+长上下文模型一次任务连着调用几十次工具很正常，写死 10 轮或者 50 轮，复杂一点的任务可能还没做完就被截断了。所以 Hao CLI 默认让模型自己决定什么时候停。
 
-不设上限，就得防着模型一直重复同样的操作。同一个命令跑了一遍又一遍，同一个网页抓一次失败一次，PaiCLI 用两道关卡处理这种情况。
+不设上限，就得防着模型一直重复同样的操作。同一个命令跑了一遍又一遍，同一个网页抓一次失败一次，Hao CLI 用两道关卡处理这种情况。
 
 ### 先提醒
 
@@ -367,7 +367,7 @@ static Result apply(String content, String oldText, String newText, boolean repl
 某个动作只要在中间某一步没出现，连续计数就归零。连续达到 3 步，就在工具结果后面追加一条提醒。
 
 ```java
-// src/main/java/com/paicli/agent/RunawayGuard.java（节选）
+// src/main/java/com/haocli/agent/RunawayGuard.java（节选）
 private boolean advance(Map<String, Integer> previous, Map<String, Integer> next, String key, int count) {
     int prior = previous.getOrDefault(key, 0);
     int occurrences = prior + count;
@@ -391,7 +391,7 @@ private boolean advance(Map<String, Integer> previous, Map<String, Integer> next
 
 重复不一定是死循环。等一个还在编译的构建、网络抖动时重试一次，前几次重复都说得过去，直接停掉会把已经做完的工作一起丢掉。提醒让模型自己判断要不要换一条路。
 
-提醒里专门写了只对本次任务有效。PaiCLI 有长期记忆，模型要是把这条提醒当成用户偏好存下来，以后每次任务都会带着它，那就麻烦了。
+提醒里专门写了只对本次任务有效。Hao CLI 有长期记忆，模型要是把这条提醒当成用户偏好存下来，以后每次任务都会带着它，那就麻烦了。
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925101157-6a0870b0.png)
 
@@ -400,7 +400,7 @@ private boolean advance(Map<String, Integer> previous, Map<String, Integer> next
 模型被提醒之后，还原样重复到连续 5 轮，程序就不再给它机会了。它会关掉所有工具，再请求模型一次，让它基于已有结果收尾。
 
 ```java
-// src/main/java/com/paicli/agent/AgentBudget.java，finalizationInstruction 节选
+// src/main/java/com/haocli/agent/AgentBudget.java，finalizationInstruction 节选
 return "执行预算安全阀已触发：" + describeExit(reason) + "。\n"
         + "不要再调用任何工具。请只基于当前会话和已有工具结果，给出最佳努力的部分完成结果。\n"
         + "必须明确说明：1. 已完成；2. 已验证；3. 未完成或阻塞；4. 建议下一步。\n"
@@ -411,21 +411,21 @@ return "执行预算安全阀已触发：" + describeExit(reason) + "。\n"
 
 强制收尾的窗口是 5，提醒的阈值是 3，窗口必须比阈值大，否则提醒还没发出去循环就停了。测试里有一个用例专门守着这个大小关系。
 
-除了重复检测，Token 预算和轮数上限也能触发同样的收尾。它们默认都不限制，CI 或者微信这类无人值守的场景，可以用 `-Dpaicli.react.token.budget` 和 `-Dpaicli.react.hard.max.iterations` 显式打开。
+除了重复检测，Token 预算和轮数上限也能触发同样的收尾。它们默认都不限制，CI 或者微信这类无人值守的场景，可以用 `-Dhaocli.react.token.budget` 和 `-Dhaocli.react.hard.max.iterations` 显式打开。
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925101157-400e883a.png)
 
 
 ## 07、跑起来看看
 
-PaiCLI 需要 Java 17 以上和 Maven，外加至少一个模型的 API Key。我们首选 DeepSeek，默认模型是 DeepSeek V4.1 Flash（模型 ID `deepseek-flash`），1M 上下文，支持思考模式、工具调用和图片输入。
+Hao CLI 需要 Java 17 以上和 Maven，外加至少一个模型的 API Key。我们首选 DeepSeek，默认模型是 DeepSeek V4.1 Flash（模型 ID `deepseek-flash`），1M 上下文，支持思考模式、工具调用和图片输入。
 
-模型迭代很快，后续 PaiCLI 的默认模型可能还会继续升级，大家自己记得升级。
+模型迭代很快，后续 Hao CLI 的默认模型可能还会继续升级，大家自己记得升级。
 
 ```bash
 cp .env.example .env    # 填入 DEEPSEEK_API_KEY
 mvn clean package       # 默认跳过测试
-java -jar target/paicli-1.0-SNAPSHOT.jar
+java -jar target/haocli-1.0-SNAPSHOT.jar
 ```
 
 启动后默认使用 DeepSeek，没配 DeepSeek 的 Key 时，会按顺序找 GLM、混元、Kimi 等其他已配置的模型，运行中也可以用 `/model` 切换。
@@ -435,7 +435,7 @@ java -jar target/paicli-1.0-SNAPSHOT.jar
 先试试第 01 节的例子，让它读一个文件再改一行。
 
 ```text
-读取 demo/src/main/java/com/example/Hello.java，把输出改成 Hello PaiCLI
+读取 demo/src/main/java/com/example/Hello.java，把输出改成 Hello Hao CLI
 ```
 
 ![](https://cdn.paicoding.com/stutymore/build-agent-from-scratch-20260925111239.png)
@@ -450,7 +450,7 @@ java -jar target/paicli-1.0-SNAPSHOT.jar
 
 ## 简历怎么写
 
-### PaiCLI｜Java 终端 Coding Agent｜核心开发 第 1 期
+### Hao CLI｜Java 终端 Coding Agent｜核心开发 第 1 期
 
 项目简介：从 0 到 1 基于 Java 实现面向本地研发场景的 Terminal Coding Agent，通过 ReAct 自主完成代码检索、文件修改、命令执行与结果验证，并围绕 Tool Runtime、流式协议、安全边界与异常恢复完成工程化设计，支持 DeepSeek、GLM、Kimi 等 OpenAI Compatible 模型。
 

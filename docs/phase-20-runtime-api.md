@@ -7,14 +7,14 @@
 ### 后台任务
 
 - `DurableTaskManager`：SQLite 持久化任务队列
-- 默认数据库：`~/.paicli/tasks/tasks.db`
+- 默认数据库：`~/.haocli/tasks/tasks.db`
 - 生命周期：
   - `enqueued`
   - `running`
   - `completed`
   - `failed`
   - `canceled`
-- Worker Pool：默认 2 个后台 worker，可用 `PAICLI_TASK_WORKERS` 或 `-Dpaicli.task.workers` 覆盖
+- Worker Pool：默认 2 个后台 worker，可用 `HAOCLI_TASK_WORKERS` 或 `-Dhaocli.task.workers` 覆盖
 - 进程启动时把上次残留的 `running` 任务恢复为 `enqueued`
 - CLI 命令：
   - `/task` 或 `/task list [N]`
@@ -24,22 +24,22 @@
 
 ### Runtime API
 
-实现位于 `src/main/java/com/paicli/runtime/api/`，使用 JDK 内置 `HttpServer`，不引入 Spring / Javalin。
+实现位于 `src/main/java/com/haocli/runtime/api/`，使用 JDK 内置 `HttpServer`，不引入 Spring / Javalin。
 
 启动：
 
 ```bash
-PAICLI_RUNTIME_API_KEY=your_local_api_key \
-java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080
+HAOCLI_RUNTIME_API_KEY=your_local_api_key \
+java -jar target/haocli-1.0-SNAPSHOT.jar serve --http --port 8080
 ```
 
 安全策略：
 
 - 仅监听 `127.0.0.1`
-- 必须配置 `PAICLI_RUNTIME_API_KEY` 或 `-Dpaicli.runtime.api.key`
+- 必须配置 `HAOCLI_RUNTIME_API_KEY` 或 `-Dhaocli.runtime.api.key`
 - 请求头支持：
   - `Authorization: Bearer <key>`
-  - `X-PaiCLI-API-Key: <key>`
+  - `X-Hao CLI-API-Key: <key>`
 
 端点：
 
@@ -68,7 +68,7 @@ java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 8080
 
 之前模型调用失败时也发 `message.delta`（内容是错误文本）和 `turn.completed`，只看外层事件的客户端会把失败当成功（第 12 轮测试报告发现）。客户端判断“这一轮结束了”要同时监听 `turn.completed` 和 `turn.failed`。
 
-每个任务默认最多 50 次模型请求、200 万 Token、30 分钟，用环境变量 `PAICLI_UNATTENDED_MAX_TURNS`、`PAICLI_UNATTENDED_MAX_TOKENS`、`PAICLI_UNATTENDED_TIMEOUT` 调整（细则见 `docs/specs/headless-mode.md` 的“上限”）。
+每个任务默认最多 50 次模型请求、200 万 Token、30 分钟，用环境变量 `HAOCLI_UNATTENDED_MAX_TURNS`、`HAOCLI_UNATTENDED_MAX_TOKENS`、`HAOCLI_UNATTENDED_TIMEOUT` 调整（细则见 `docs/specs/headless-mode.md` 的“上限”）。
 
 所有事件的 `data` 都由 Jackson 生成，回答里有制表符等控制字符时也是合法 JSON（之前手写转义会写出不合法的 JSON）。
 
@@ -91,5 +91,5 @@ mvn test -Dtest=DurableTaskManagerTest,RuntimeApiServerTest,CliCommandParserTest
 mvn test -Pquick
 mvn test
 mvn -q clean package -DskipTests
-PAICLI_RUNTIME_API_KEY=test java -jar target/paicli-1.0-SNAPSHOT.jar serve --http --port 0
+HAOCLI_RUNTIME_API_KEY=test java -jar target/haocli-1.0-SNAPSHOT.jar serve --http --port 0
 ```

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated Phase2B-3 wake-up proof. Never starts PaiCLI Main, LLM, MCP, or Docker."""
+"""Isolated Phase2B-3 wake-up proof. Never starts Hao CLI Main, LLM, MCP, or Docker."""
 import argparse
 import fcntl
 import json
@@ -76,8 +76,8 @@ def compile_fresh_proof(env):
     command = [
         str(JDK / "bin/javac"), "--release", "17", "-encoding", "UTF-8",
         "-cp", cp, "-d", str(BASE / "build/test-classes"),
-        str(ROOT / "src/main/java/com/paicli/cli/WakeableLineReader.java"),
-        str(ROOT / "src/test/java/com/paicli/cli/JLineWakeupProof.java"),
+        str(ROOT / "src/main/java/com/haocli/cli/WakeableLineReader.java"),
+        str(ROOT / "src/test/java/com/haocli/cli/JLineWakeupProof.java"),
     ]
     with (RUN / "javac.log").open("w") as log:
         run = subprocess.run(command, cwd=ROOT, env=env,
@@ -134,8 +134,8 @@ def run_pty(env):
             [
                 str(JDK / "bin/java"), f"-Duser.home={BASE}/home",
                 f"-Djava.io.tmpdir={BASE}/tmp",
-                f"-Dpaicli.proof.exitAck={ack}", "-cp", cp,
-                "com.paicli.cli.JLineWakeupProof",
+                f"-Dhaocli.proof.exitAck={ack}", "-cp", cp,
+                "com.haocli.cli.JLineWakeupProof",
             ],
             stdin=slave, stdout=slave, stderr=slave,
             cwd=ROOT, env=env, start_new_session=True,

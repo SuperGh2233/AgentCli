@@ -42,20 +42,20 @@
 
 ## 验证记录
 
-2026-11-03 续接验收：实际工作树为 `/Users/a123/Projects/paicli-agentcli-public-export-20261021-6c9049d020`（当前机器没有名为 paicli-phase2b 的另一个目录）；分支 `feat/steering-phase2b`，HEAD 为 `6a0a35253d7b75b9b2d21f514fc4cfb6402509ec`。已核对原 MRTR-1 会话 `01a19f5b-ad3e-7bf1-a00c-73645e628776`，与此前双协议会话 `01a19f46-6046-71a2-89e0-57b55f441b97` 的目录和现有计划一致。
+2026-11-03 续接验收：实际工作树为 `/Users/a123/Projects/haocli-agentcli-public-export-20261021-6c9049d020`（当前机器没有名为 haocli-phase2b 的另一个目录）；分支 `feat/steering-phase2b`，HEAD 为 `6a0a35253d7b75b9b2d21f514fc4cfb6402509ec`。已核对原 MRTR-1 会话 `01a19f5b-ad3e-7bf1-a00c-73645e628776`，与此前双协议会话 `01a19f46-6046-71a2-89e0-57b55f441b97` 的目录和现有计划一致。
 
-复用 `tools/run-phase3b3-tests.py` 的 `isolated_pom`、JDK/Maven 查找及报告统计；本次适配脚本为 `/tmp/paicli-mrtr1-validation/run.py`。未改项目 runner。临时 POM、build、测试工作目录、HOME、JVM user.home/java.io.tmpdir、日志、错误文件及 Surefire 报告均置于该 `/tmp` 目录。依赖缓存复制到其 `repository/`，避免 Maven 锁文件写入原缓存。白名单环境不传 provider key；Maven 使用 `-o`。只用内存传输、MockWebServer 本机回环和模拟终端，没有外网、模型、真实浏览器、Docker 或评测执行。
+复用 `tools/run-phase3b3-tests.py` 的 `isolated_pom`、JDK/Maven 查找及报告统计；本次适配脚本为 `/tmp/haocli-mrtr1-validation/run.py`。未改项目 runner。临时 POM、build、测试工作目录、HOME、JVM user.home/java.io.tmpdir、日志、错误文件及 Surefire 报告均置于该 `/tmp` 目录。依赖缓存复制到其 `repository/`，避免 Maven 锁文件写入原缓存。白名单环境不传 provider key；Maven 使用 `-o`。只用内存传输、MockWebServer 本机回环和模拟终端，没有外网、模型、真实浏览器、Docker 或评测执行。
 
 执行入口：
 
 ```bash
-python3 -B /tmp/paicli-mrtr1-validation/run.py
+python3 -B /tmp/haocli-mrtr1-validation/run.py
 ```
 
 最终实际 Maven 命令（runner 另设 JDK 21、隔离 HOME/TMPDIR、TERM=xterm-256color；Surefire argLine 设置同一隔离 home/tmp、日志及 JVM 错误文件目录）：
 
 ```bash
-/opt/homebrew/bin/mvn -o -s /Users/a123/Projects/paicli-agentcli-public-export-20261021-6c9049d020/target/publication-check/settings.xml -f /tmp/paicli-mrtr1-validation/pom.xml -Dmaven.repo.local=/tmp/paicli-mrtr1-validation/repository -Duser.home=/tmp/paicli-mrtr1-validation/home -Djava.io.tmpdir=/tmp/paicli-mrtr1-validation/tmp -DskipTests=false -Dtest=ElicitationPrompterTest,RendererHitlHandlerTest,SwitchableHitlHandlerTest,PlainRendererTest,McpServerManagerTest,McpClientTest,McpProtocolEraTest,JsonRpcClientTest,ModernHttpTransportTest,McpCallToolResultTest,McpSchemaSanitizerTest,TerminalInputGatewayTest,TerminalInputGatewayWakeupTest,InlineApprovalGatewayTest,InlineRendererTest,TuiBootstrapTest test
+/opt/homebrew/bin/mvn -o -s /Users/a123/Projects/haocli-agentcli-public-export-20261021-6c9049d020/target/publication-check/settings.xml -f /tmp/haocli-mrtr1-validation/pom.xml -Dmaven.repo.local=/tmp/haocli-mrtr1-validation/repository -Duser.home=/tmp/haocli-mrtr1-validation/home -Djava.io.tmpdir=/tmp/haocli-mrtr1-validation/tmp -DskipTests=false -Dtest=ElicitationPrompterTest,RendererHitlHandlerTest,SwitchableHitlHandlerTest,PlainRendererTest,McpServerManagerTest,McpClientTest,McpProtocolEraTest,JsonRpcClientTest,ModernHttpTransportTest,McpCallToolResultTest,McpSchemaSanitizerTest,TerminalInputGatewayTest,TerminalInputGatewayWakeupTest,InlineApprovalGatewayTest,InlineRendererTest,TuiBootstrapTest test
 ```
 
 - 原始沙箱尝试：Maven 原依赖缓存锁不可写；改为 `/tmp` 缓存后，编译成功，143 项测试中有 36 项因本机监听/JVM attach 被沙箱拦截而出错。获准在沙箱外运行同一离线脚本后解决；未因此改产品代码。
@@ -63,17 +63,17 @@ python3 -B /tmp/paicli-mrtr1-validation/run.py
 - 修复后、TERM=dumb：148 项，4 失败、0 错误；仅剩上述渲染环境问题。
 - 最终 TERM=xterm-256color：**16 个测试类、148 项全部通过，0 失败、0 错误、0 跳过，BUILD SUCCESS**。生产代码 415 个源文件、测试代码 365 个源文件编译通过；未执行 benchmark/eval 测试。
 - 分项：ElicitationPrompterTest 16、RendererHitlHandlerTest 9、SwitchableHitlHandlerTest 1、PlainRendererTest 17、McpServerManagerTest 14、McpClientTest 13、McpProtocolEraTest 6、JsonRpcClientTest 8、ModernHttpTransportTest 3、McpCallToolResultTest 4、McpSchemaSanitizerTest 7、TerminalInputGatewayTest 11、TerminalInputGatewayWakeupTest 8、InlineApprovalGatewayTest 8、InlineRendererTest 19、TuiBootstrapTest 4。
-- 最终日志 `/tmp/paicli-mrtr1-validation/final-maven.log`；统计 `/tmp/paicli-mrtr1-validation/summary.json`；报告 `/tmp/paicli-mrtr1-validation/build/surefire-reports/`。此前结果另存 `before-fix-*`、`dumb-term-*`。
+- 最终日志 `/tmp/haocli-mrtr1-validation/final-maven.log`；统计 `/tmp/haocli-mrtr1-validation/summary.json`；报告 `/tmp/haocli-mrtr1-validation/build/surefire-reports/`。此前结果另存 `before-fix-*`、`dumb-term-*`。
 - Inline 新测试确认 elicitation 的每次读取都由 UI owner 执行，worker 等待不会占住终端锁，结束后 interaction 恢复 NONE。旧网关、超时、唤醒与审批回归通过。
 - 已静态检查 Main 的 TUI 启动失败分支恢复 `rendererHitl`；TuiBootstrapTest 与可切换 delegate 测试通过。未实际启动 TUI、CLI Main 或真实终端，不将这部分算作真人交互验收。
 - `git diff --check` 通过；最终 HEAD 未变、暂存区为空，现有 dirty/untracked 保留，项目 target 无本次写入。
 
 ## 本次续接实际修改文件
 
-1. `src/main/java/com/paicli/mcp/elicitation/ElicitationForm.java`：修正默认邮箱正则的重复转义。
-2. `src/main/java/com/paicli/mcp/elicitation/ElicitationPrompter.java`：必填空字符串同样走 enum/format/长度校验。
-3. `src/test/java/com/paicli/mcp/elicitation/ElicitationPrompterTest.java`：新增空输入、默认邮箱、enum/oneOf/数组默认值与重复选择、不可变复制、解析类型和模式混用回归。
-4. `src/test/java/com/paicli/render/inline/InlineRendererTest.java`：新增 elicitation 网关输入所有权与锁回归。
+1. `src/main/java/com/haocli/mcp/elicitation/ElicitationForm.java`：修正默认邮箱正则的重复转义。
+2. `src/main/java/com/haocli/mcp/elicitation/ElicitationPrompter.java`：必填空字符串同样走 enum/format/长度校验。
+3. `src/test/java/com/haocli/mcp/elicitation/ElicitationPrompterTest.java`：新增空输入、默认邮箱、enum/oneOf/数组默认值与重复选择、不可变复制、解析类型和模式混用回归。
+4. `src/test/java/com/haocli/render/inline/InlineRendererTest.java`：新增 elicitation 网关输入所有权与锁回归。
 5. `docs/specs/mcp-mrtr.md`：记录 MRTR-1 验收状态与当前交互限制。
 6. `README.md`：标明 MRTR-1 交互层完成。
 7. `ROADMAP.md`：标明 MRTR-1 交互层完成。
@@ -106,18 +106,18 @@ MRTR-2：原请求的新 id 重试、opaque requestState 原样回传、有限�
 验证入口：
 
 ```bash
-python3 -B /tmp/paicli-mrtr2-validation/run.py
+python3 -B /tmp/haocli-mrtr2-validation/run.py
 ```
 
-复用 MRTR-1 runner，复制依赖缓存到本次 `/tmp/paicli-mrtr2-validation/repository`，其余隔离设置不变：JDK 21、Maven `-o`、白名单环境（无 provider key）、TERM=xterm-256color、独立 HOME/user.home/tmp、测试工作目录、构建和报告。只读取仓库 target 中原有 settings.xml，没有写入仓库 target。最终 Maven 命令：
+复用 MRTR-1 runner，复制依赖缓存到本次 `/tmp/haocli-mrtr2-validation/repository`，其余隔离设置不变：JDK 21、Maven `-o`、白名单环境（无 provider key）、TERM=xterm-256color、独立 HOME/user.home/tmp、测试工作目录、构建和报告。只读取仓库 target 中原有 settings.xml，没有写入仓库 target。最终 Maven 命令：
 
 ```bash
-/opt/homebrew/bin/mvn -o -s /Users/a123/Projects/paicli-agentcli-public-export-20261021-6c9049d020/target/publication-check/settings.xml -f /tmp/paicli-mrtr2-validation/pom.xml -Dmaven.repo.local=/tmp/paicli-mrtr2-validation/repository -Duser.home=/tmp/paicli-mrtr2-validation/home -Djava.io.tmpdir=/tmp/paicli-mrtr2-validation/tmp -DskipTests=false -Dtest=McpMrtrTest,ElicitationPrompterTest,RendererHitlHandlerTest,SwitchableHitlHandlerTest,PlainRendererTest,McpServerManagerTest,McpClientTest,McpProtocolEraTest,JsonRpcClientTest,ModernHttpTransportTest,McpCallToolResultTest,McpSchemaSanitizerTest,TerminalInputGatewayTest,TerminalInputGatewayWakeupTest,InlineApprovalGatewayTest,InlineRendererTest,TuiBootstrapTest test
+/opt/homebrew/bin/mvn -o -s /Users/a123/Projects/haocli-agentcli-public-export-20261021-6c9049d020/target/publication-check/settings.xml -f /tmp/haocli-mrtr2-validation/pom.xml -Dmaven.repo.local=/tmp/haocli-mrtr2-validation/repository -Duser.home=/tmp/haocli-mrtr2-validation/home -Djava.io.tmpdir=/tmp/haocli-mrtr2-validation/tmp -DskipTests=false -Dtest=McpMrtrTest,ElicitationPrompterTest,RendererHitlHandlerTest,SwitchableHitlHandlerTest,PlainRendererTest,McpServerManagerTest,McpClientTest,McpProtocolEraTest,JsonRpcClientTest,ModernHttpTransportTest,McpCallToolResultTest,McpSchemaSanitizerTest,TerminalInputGatewayTest,TerminalInputGatewayWakeupTest,InlineApprovalGatewayTest,InlineRendererTest,TuiBootstrapTest test
 ```
 
 - 首轮：17 类、155 项，1 失败、2 错误，均来自新增测试替身使用了不合法的空字段表单；原有 148 项全部通过。修正替身并新增边界用例后，第二轮 158 项全部通过。
 - 最终源码回归：**17 个测试类、159 项，0 失败、0 错误、0 跳过，BUILD SUCCESS**；原 MRTR-1 的 16 类/148 项全部保留通过，新增 11 项全部通过。
-- 日志：`/tmp/paicli-mrtr2-validation/final-maven.log`；统计：`summary.json`；报告：`build/surefire-reports/`。首轮及第二轮证据以 first-/second- 前缀保留在同一临时目录。
+- 日志：`/tmp/haocli-mrtr2-validation/final-maven.log`；统计：`summary.json`；报告：`build/surefire-reports/`。首轮及第二轮证据以 first-/second- 前缀保留在同一临时目录。
 - 未运行真实 server、provider/model、外网、浏览器、Docker、eval 或 benchmark；相关原有 HTTP 测试只使用本机回环替身。未进行真实终端人工验收。
 - `git diff --check` 通过；分支仍为 feat/steering-phase2b，HEAD 仍为 6a0a35253d7b75b9b2d21f514fc4cfb6402509ec，暂存区为空。保留全部已有 dirty/untracked，未 reset/clean/stash/rebase/stage/commit/push/tag。
 
@@ -131,13 +131,13 @@ MRTR-2 协议往返的安全范围已验收；当前不声明 elicitation 能力
 
 按每次请求的当前 UI 声明 form/url。函数接口默认空能力，HITL 与 Renderer 逐层查询当前 delegate；Main 只在 System.console() 非空时连接交互 handler，否则保留 CANCEL。manager 为现有和新 client 传同一对象，client 向 JSON-RPC 提供实时 supplier，查询异常或 null 时为空。只在现代 requestWithInputs 的 tools/call、resources/read、prompts/get 声明；普通请求、通知、legacy 不声明。未知 mode 忽略，保留其他元数据。不改 UI、OAuth、版本选择、传输或重试语义。
 
-验收：精确 metadata、模式组合、普通/legacy 请求、默认取消、动态 delegate 与 manager 接线，以及原 159 项离线回归；所有构建产物放 /tmp/paicli-mrtr3-validation。回退仅移除本阶段能力查询和声明，保留 MRTR-2。
+验收：精确 metadata、模式组合、普通/legacy 请求、默认取消、动态 delegate 与 manager 接线，以及原 159 项离线回归；所有构建产物放 /tmp/haocli-mrtr3-validation。回退仅移除本阶段能力查询和声明，保留 MRTR-2。
 
 ## MRTR-3 验证记录（2026-11-03）
 
 实现按上节范围完成；独立 diff 检查指出原 putObject 会覆盖调用方自定义 capability，已改为保留同一对象内其他键，只按当前 UI 重建 elicitation。新增回归证明 custom capability 与其他 _meta 保留、调用方原对象不变，普通请求/通知不会继承传入的旧 elicitation。Main 的 Console 保守检查及动态 delegate 测试保留。
 
-验证入口：`python3 -B /tmp/paicli-mrtr3-validation/run.py`。复用 MRTR-2 runner，临时 POM、复制的依赖缓存、build、工作目录、HOME/user.home/tmp、日志和 Surefire 报告均在本次 /tmp 目录。JDK 21、Maven -o、TERM=xterm-256color、白名单环境无 provider key；仅读取仓库已有 settings.xml，无仓库 target 写入。完整 Maven 命令保存在 summary.json。
+验证入口：`python3 -B /tmp/haocli-mrtr3-validation/run.py`。复用 MRTR-2 runner，临时 POM、复制的依赖缓存、build、工作目录、HOME/user.home/tmp、日志和 Surefire 报告均在本次 /tmp 目录。JDK 21、Maven -o、TERM=xterm-256color、白名单环境无 provider key；仅读取仓库已有 settings.xml，无仓库 target 写入。完整 Maven 命令保存在 summary.json。
 
 首轮 18 类/169 项全部通过。按独立检查意见补充自定义能力保留及旧 elicitation 清理后，最终 **18 个测试类、170 项，0 失败、0 错误、0 跳过，BUILD SUCCESS**。以测试 classname/name 对照 MRTR-2 XML：原 159 项全部保留，无缺项，新增 11 项。新增能力测试类 9 项；manager 新增 1 项；Inline 新增 1 项，并在原输入网关交互回归内断言能力。
 
@@ -145,14 +145,14 @@ MRTR-2 协议往返的安全范围已验收；当前不声明 elicitation 能力
 
 新增回归覆盖模式组合与精确形状、未知模式、元数据保留、入口限制、默认 CANCEL/benchmark 风格 client、legacy、查询失败/null、Plain 与默认 Renderer/Lanterna、Renderer/HITL 动态查询、Switchable 在 client 创建后切换及 manager 为新建/现有 client 传活对象。新增 manager 回归通过实际发出请求的元数据验证更新，不反射私有 handler 字段；沿用既有测试配置装载 fixture。HTTP 请求等待有 3 秒上限。benchmark 只检查相同的默认 client 路径，未运行 eval/benchmark。未访问外网、provider/model、真实浏览器、Docker 或真实 server；HTTP 测试仅本机替身。未进行真实终端人工验收。
 
-移除新增私有字段反射、为本机请求等待设置上限后最终重跑仍为 18 类/170 项全部通过，耗时 40.120 秒。`git diff --check` 通过，暂存区为空；启动时文件哈希对照仅出现本节列出的 21 个已有文件修改和 1 个新增测试，没有删除原文件，其他原有文件哈希不变。完整核对结果在 `/tmp/paicli-mrtr3-validation/final-integrity.json`。
+移除新增私有字段反射、为本机请求等待设置上限后最终重跑仍为 18 类/170 项全部通过，耗时 40.120 秒。`git diff --check` 通过，暂存区为空；启动时文件哈希对照仅出现本节列出的 21 个已有文件修改和 1 个新增测试，没有删除原文件，其他原有文件哈希不变。完整核对结果在 `/tmp/haocli-mrtr3-validation/final-integrity.json`。
 
-最终证据：`/tmp/paicli-mrtr3-validation/final-maven.log`、`summary.json`、`build/surefire-reports/`；首轮证据 first-*。Console 为空的 IDE、重定向或无法确认交互性的 CLI 保持空能力；这可能保守漏报，不推测支持。Lanterna、WeChat、benchmark 仍不声明。不改 UI、OAuth、协议选择、传输或 MRTR 重试语义。
+最终证据：`/tmp/haocli-mrtr3-validation/final-maven.log`、`summary.json`、`build/surefire-reports/`；首轮证据 first-*。Console 为空的 IDE、重定向或无法确认交互性的 CLI 保持空能力；这可能保守漏报，不推测支持。Lanterna、WeChat、benchmark 仍不声明。不改 UI、OAuth、协议选择、传输或 MRTR 重试语义。
 
 本次文件清单（不包含此前已有改动）：
 
-- 源码：cli/Main.java；hitl/HitlHandler.java、RendererHitlHandler.java、SwitchableHitlHandler.java；mcp/McpClient.java、McpServerManager.java、elicitation/McpElicitationHandler.java、jsonrpc/JsonRpcClient.java、protocol/McpProtocolVersion.java；render/Renderer.java、PlainRenderer.java、inline/InlineRenderer.java（均在 src/main/java/com/paicli/ 下）。
-- 测试：src/test/java/com/paicli/mcp/McpElicitationCapabilitiesTest.java（新增）、McpServerManagerTest.java；src/test/java/com/paicli/render/inline/InlineRendererTest.java。
+- 源码：cli/Main.java；hitl/HitlHandler.java、RendererHitlHandler.java、SwitchableHitlHandler.java；mcp/McpClient.java、McpServerManager.java、elicitation/McpElicitationHandler.java、jsonrpc/JsonRpcClient.java、protocol/McpProtocolVersion.java；render/Renderer.java、PlainRenderer.java、inline/InlineRenderer.java（均在 src/main/java/com/haocli/ 下）。
+- 测试：src/test/java/com/haocli/mcp/McpElicitationCapabilitiesTest.java（新增）、McpServerManagerTest.java；src/test/java/com/haocli/render/inline/InlineRendererTest.java。
 - 文档：AGENTS.md、README.md、ROADMAP.md、docs/agents-reference.md、docs/index.md、本计划及 docs/specs/mcp-mrtr.md。
 
 原有 dirty/untracked 保留，分支 `feat/steering-phase2b`、验收前 HEAD `6a0a35253d7b75b9b2d21f514fc4cfb6402509ec` 不变。未 reset/clean/stash/rebase/stage/commit/push/tag。MRTR-1/2/3 的阶段性验收保持有效；MRTR-4 已通过本轮完整离线回归，真实终端手工验收仍待执行。
@@ -163,7 +163,7 @@ MRTR-2 协议往返的安全范围已验收；当前不声明 elicitation 能力
 
 本轮静态检查已发现并修正两处测试不匹配：`LanternaElicitation.Dialogs.show` 测试替身参数从旧 boolean 改为 `LanternaElicitation.Step`；`ElicitationDialog` 测试构造器改用 `Step.URL` / `Step.FIELD`。同时移除 MCP 能力测试中对无构造实例化 `LanternaRenderer` 并调用真实方法的错误断言；Lanterna 能力由 `LanternaElicitationTest.rendererAdvertisesExactlyBothOnlyWhileAvailable` 使用注入式 bridge 覆盖。相关说明已同步到 AGENTS、README、ROADMAP、agents-reference、MRTR 规范和 docs/index。另在 `LanternaRendererTest` 增加公开构造器生命周期测试，验证 GUI 未运行时不声明、运行时声明 form/url、renderer 关闭后再次清空能力。`ElicitationDialog` 的完成/关闭回调也改为幂等，避免按钮提交后 finally 清理再次触发关闭与重复回调。
 
-**当前验证状态：本轮完整 Maven 离线回归已实际执行并通过。** 使用 `/tmp/haocli-release-validation-exd496fi/rerun.py` 生成隔离 POM/环境，Maven `-o`，本地依赖缓存复制到 `/tmp`，Maven 与 Surefire JVM 的 HOME/user.home/tmp、构建目录、工作目录、日志和报告均隔离；临时测试工作目录包含只读 `pom.xml` fixture，以复现本地路径补全测试所需的项目根目录文件。最终 43 个测试类、387 项全部通过，0 失败、0 错误、0 跳过，BUILD SUCCESS，exit code 0，耗时 45.460 秒。首次运行中两项 `PaiCliCompleterTest` 因临时工作目录缺少 `pom.xml` 失败；补充只读 fixture 后完整重跑通过，没有跳过测试或修改产品代码。未进行真实 Lanterna 终端手工验收。
+**当前验证状态：本轮完整 Maven 离线回归已实际执行并通过。** 使用 `/tmp/haocli-release-validation-exd496fi/rerun.py` 生成隔离 POM/环境，Maven `-o`，本地依赖缓存复制到 `/tmp`，Maven 与 Surefire JVM 的 HOME/user.home/tmp、构建目录、工作目录、日志和报告均隔离；临时测试工作目录包含只读 `pom.xml` fixture，以复现本地路径补全测试所需的项目根目录文件。最终 43 个测试类、387 项全部通过，0 失败、0 错误、0 跳过，BUILD SUCCESS，exit code 0，耗时 45.460 秒。首次运行中两项 `HaoCliCompleterTest` 因临时工作目录缺少 `pom.xml` 失败；补充只读 fixture 后完整重跑通过，没有跳过测试或修改产品代码。未进行真实 Lanterna 终端手工验收。
 
 MRTR-4 的离线编译与回归已通过；本计划仍保留 active，直至真实 Lanterna 终端手工验收完成。发布前仍须复核所有 dirty/untracked 文件、敏感文件与 `git diff --check`。
 
@@ -171,23 +171,23 @@ MRTR-4 的离线编译与回归已通过；本计划仍保留 active，直至真
 
 本次执行 43 个测试类、387 项测试，最终 387 passed / 0 failed / 0 errors / 0 skipped，Maven `BUILD SUCCESS`，exit code 0，耗时 45.460 秒。测试名单由 runner 显式指定，包含：
 
-- `com.paicli.cli`：`CliCommandParserTest`、`McpOAuthCommandTest`、`PaiCliCompleterTest`、`TerminalInputGatewayTest`、`TerminalInputGatewayWakeupTest`
-- `com.paicli.hitl`：`RendererHitlHandlerTest`、`SwitchableHitlHandlerTest`
-- `com.paicli.mcp`：`McpClientTest`、`McpElicitationCapabilitiesTest`、`McpMrtrTest`、`McpProtocolEraTest`、`McpResourceFailureTest`、`McpServerLifecycleTest`、`McpServerManagerTest`、`McpToolRegistrationTest`
-- `com.paicli.mcp.config`：`McpConfigLoaderTest`、`McpOAuthConfigTest`
-- `com.paicli.mcp.elicitation`：`ElicitationPrompterTest`
-- `com.paicli.mcp.jsonrpc`：`JsonRpcClientTest`
-- `com.paicli.mcp.mention`：`AtMentionCompleterTest`、`AtMentionExpanderTest`、`AtMentionParserTest`
-- `com.paicli.mcp.notifications`：`NotificationRouterTest`
-- `com.paicli.mcp.oauth`：`LoopbackCallbackTest`、`OAuthDiscoveryTest`、`OAuthFlowTest`、`OAuthManagerTest`、`OAuthTokenStoreTest`、`OAuthTransportTest`
-- `com.paicli.mcp.protocol`：`McpCallToolResultTest`、`McpSchemaSanitizerTest`
-- `com.paicli.mcp.resources`：`McpResourceCacheTest`
-- `com.paicli.mcp.transport`：`McpChildEnvironmentTest`、`McpPidFileTest`、`ModernHttpTransportTest`、`StdioTransportTest`、`StreamableHttpTransportTest`
-- `com.paicli.render`：`PlainRendererTest`
-- `com.paicli.render.inline`：`InlineApprovalGatewayTest`、`InlineRendererTest`
-- `com.paicli.tui`：`LanternaElicitationTest`、`LanternaRendererTest`、`TuiBootstrapTest`
+- `com.haocli.cli`：`CliCommandParserTest`、`McpOAuthCommandTest`、`HaoCliCompleterTest`、`TerminalInputGatewayTest`、`TerminalInputGatewayWakeupTest`
+- `com.haocli.hitl`：`RendererHitlHandlerTest`、`SwitchableHitlHandlerTest`
+- `com.haocli.mcp`：`McpClientTest`、`McpElicitationCapabilitiesTest`、`McpMrtrTest`、`McpProtocolEraTest`、`McpResourceFailureTest`、`McpServerLifecycleTest`、`McpServerManagerTest`、`McpToolRegistrationTest`
+- `com.haocli.mcp.config`：`McpConfigLoaderTest`、`McpOAuthConfigTest`
+- `com.haocli.mcp.elicitation`：`ElicitationPrompterTest`
+- `com.haocli.mcp.jsonrpc`：`JsonRpcClientTest`
+- `com.haocli.mcp.mention`：`AtMentionCompleterTest`、`AtMentionExpanderTest`、`AtMentionParserTest`
+- `com.haocli.mcp.notifications`：`NotificationRouterTest`
+- `com.haocli.mcp.oauth`：`LoopbackCallbackTest`、`OAuthDiscoveryTest`、`OAuthFlowTest`、`OAuthManagerTest`、`OAuthTokenStoreTest`、`OAuthTransportTest`
+- `com.haocli.mcp.protocol`：`McpCallToolResultTest`、`McpSchemaSanitizerTest`
+- `com.haocli.mcp.resources`：`McpResourceCacheTest`
+- `com.haocli.mcp.transport`：`McpChildEnvironmentTest`、`McpPidFileTest`、`ModernHttpTransportTest`、`StdioTransportTest`、`StreamableHttpTransportTest`
+- `com.haocli.render`：`PlainRendererTest`
+- `com.haocli.render.inline`：`InlineApprovalGatewayTest`、`InlineRendererTest`
+- `com.haocli.tui`：`LanternaElicitationTest`、`LanternaRendererTest`、`TuiBootstrapTest`
 
-首次执行中 `PaiCliCompleterTest` 的两个本地路径补全用例因隔离测试工作目录缺少 `pom.xml` fixture 失败；在 `/tmp` 测试工作目录加入只读 `pom.xml` 副本后，完整 43 类测试重跑通过。未跳过这两个用例，未修改产品代码。
+首次执行中 `HaoCliCompleterTest` 的两个本地路径补全用例因隔离测试工作目录缺少 `pom.xml` fixture 失败；在 `/tmp` 测试工作目录加入只读 `pom.xml` 副本后，完整 43 类测试重跑通过。未跳过这两个用例，未修改产品代码。
 
 执行入口：`python3 -B /tmp/haocli-release-validation-exd496fi/rerun.py`。Maven 使用 `-o` 和与本机缓存来源匹配的 `phase0-central-only` settings；本地 Maven 仓库复制到 `/tmp`，Maven 与 Surefire JVM 的 `HOME`、`user.home`、`java.io.tmpdir`、工作目录、构建输出、日志和报告均隔离。环境白名单未传入 provider API keys；测试 HTTP 仅使用本机 MockWebServer/loopback，终端交互使用测试替身。没有访问外网、真实模型、真实浏览器、Docker、eval 或 benchmark。
 

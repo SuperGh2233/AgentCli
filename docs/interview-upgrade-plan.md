@@ -1,11 +1,11 @@
-# PaiCLI 面试题对齐升级计划
+# Hao CLI 面试题对齐升级计划
 
-来源：2026-10-09 面试文章《海康 Agent 面试 7 问》（toBeBetterJavaer `docs/src/sidebar/itwanger/ai/haikang-robot-agent-mianshi.md`）。文章按面试官期望的方案作答，下面是当前代码（HEAD `4ae374d`）和文章答案之间的差距，做完一项勾一项。路径相对 `src/main/java/com/paicli/`。
+来源：2026-10-09 面试文章《海康 Agent 面试 7 问》（toBeBetterJavaer `docs/src/sidebar/itwanger/ai/haikang-robot-agent-mianshi.md`）。文章按面试官期望的方案作答，下面是当前代码（HEAD `4ae374d`）和文章答案之间的差距，做完一项勾一项。路径相对 `src/main/java/com/haocli/`。
 
 ## P0：安全
 
 - [x] **项目级 MCP 配置首次启动前确认**（文章 03 题）
-  - 现状：`mcp/config/McpConfigLoader.java:27-55` 会加载项目目录下的 `.paicli/mcp.json`，启动时直接执行里面的命令。克隆一个自带 MCP 配置的陌生仓库，PaiCLI 一启动就会执行仓库作者写的命令
+  - 现状：`mcp/config/McpConfigLoader.java:27-55` 会加载项目目录下的 `.haocli/mcp.json`，启动时直接执行里面的命令。克隆一个自带 MCP 配置的陌生仓库，Hao CLI 一启动就会执行仓库作者写的命令
   - 目标：项目级配置里的 server 第一次启动前让用户确认，确认过的“命令 + 参数 + env + url + headers”记录哈希（cwd 固定为项目目录，配置里改不了，不参与计算），内容变化后重新确认；用户级配置不受影响
   - 做法：确认用 `/mcp trust <name>`（和 `/skill trust` 一致），没确认的 server 状态是“待确认”，启动时提示；交互式 CLI 是唯一会启动 MCP 的入口，没人确认就一直不启动
   - 注意：`load()` 用 `putAll` 合并，项目配置可以用同名 server 覆盖用户配置，所以确认要按“项目级来源 + 配置内容”记，不能只按名字；env 必须算进哈希（`NODE_OPTIONS=--require ./evil.js` 一样能执行任意代码）；记录方式参考 `skill/SkillStateStore.java` 的 `trustedProjectSkills`；微信、Runtime API、评测这类没人确认的场景默认不启动
@@ -37,8 +37,8 @@
   - 做法：ping 每 30 秒一次、只发给本地 stdio server，server 有请求在处理时跳过，连续 2 次不回才判定卡死；稳定运行 60 秒以上再崩溃，重启计数从头算；后台提示等下一个输入框前打印
 - [x] **结束整棵进程树、清理孤儿进程**（文章 03 题）
   - 现状：`StdioTransport.close()`（`:85-113`）只对直接子进程 destroy/destroyForcibly，npx 拉起的 node 进程会残留；JVM 被 kill -9 时 shutdown hook（`cli/Main.java:315`）不执行，没有其他清理手段。`eval/benchmark/BenchmarkSubprocess.java:54-156` 已有 `ProcessHandle.descendants()` 的写法可以复用
-  - 目标：关闭时先取 `descendants()`，从叶子进程开始依次结束；启动时把子进程 PID 写入 `~/.paicli/mcp-pids`，下次启动先清理仍存活的旧进程
-  - 注意：PID 会被复用，记录时一起存启动时间（`ProcessHandle.info().startInstant()`）和命令，清理前核对，对不上不杀；可能同时开着多个 PaiCLI，要记下所属 PaiCLI 的 PID，只在它已退出时清理；`BenchmarkSubprocess` 按 PID 倒序结束并不是真正的“从叶子开始”（PID 会回绕），能复用的是“先记下整棵进程树、再结束根进程”
+  - 目标：关闭时先取 `descendants()`，从叶子进程开始依次结束；启动时把子进程 PID 写入 `~/.haocli/mcp-pids`，下次启动先清理仍存活的旧进程
+  - 注意：PID 会被复用，记录时一起存启动时间（`ProcessHandle.info().startInstant()`）和命令，清理前核对，对不上不杀；可能同时开着多个 Hao CLI，要记下所属 Hao CLI 的 PID，只在它已退出时清理；`BenchmarkSubprocess` 按 PID 倒序结束并不是真正的“从叶子开始”（PID 会回绕），能复用的是“先记下整棵进程树、再结束根进程”
 - [x] 顺带：`McpServerManager.java:459` 创建的 `NotificationRouter` 没有保存引用，`close()` 从未被调用；`docs/phase-10-mcp-core.md:154` 写 initialize 超时 30 秒（代码是 60 秒），`:89` 写关闭前先发 shutdown 通知（代码已去掉），文档需要同步
 
 ## P2：代码索引性能
@@ -60,14 +60,14 @@
 - [x] **请求体流式写出**（文章 05 题）
   - 现状：`llm/AbstractOpenAiCompatibleClient.java:112-113` 每轮把完整对话历史 `buildRequestBody(...).toString()` 成一个字符串，再交给 OkHttp 编码成字节数组，长上下文时在 G1 里是巨型对象
   - 目标：自定义 OkHttp `RequestBody`，在 `writeTo(BufferedSink)` 里用 Jackson `JsonGenerator` 直接写出
-  - 实测：PaiCLI 自己的源码当工具结果拼出约 1M token 的对话（350 万字符代码）加 3 张 1MB 截图，请求体 7.9MB；原做法每次请求分配 90.5MB（建树 4.7 + toString 54.5 + 转字节 31.3），`JsonRequestBody` 4.7MB，请求体逐字节一致
+  - 实测：Hao CLI 自己的源码当工具结果拼出约 1M token 的对话（350 万字符代码）加 3 张 1MB 截图，请求体 7.9MB；原做法每次请求分配 90.5MB（建树 4.7 + toString 54.5 + 转字节 31.3），`JsonRequestBody` 4.7MB，请求体逐字节一致
   - 做法：先写一遍计数流拿长度，照常带 Content-Length，不用分块传输；emoji 用 `COMBINE_UNICODE_SURROGATES_IN_UTF8` 原样写出（默认会转义成代理对，内容等价但字节不同）
   - 注意（动手前的两个顾虑，都已解决）：一是这项原来没有实测数据，现在已补上，见上面的“实测”；二是担心改完只能走分块传输、个别代理网关不接受，现在先写计数流拿到长度，照常带 Content-Length
 
 ## 同步修改
 
 - [x] 进程生命周期做完后更新 `AGENTS.md` 的“下一步”和“还没做到的”（都写着 server 断线恢复 / 自动重启没做）
-- MCP 改动按 `AGENTS.md` 的同步表一起改 HITL、AuditLog、提示词、文档、测试，以及 `docs/articles/paicli-interview-mcp.md`
+- MCP 改动按 `AGENTS.md` 的同步表一起改 HITL、AuditLog、提示词、文档、测试，以及 `docs/articles/haocli-interview-mcp.md`
 
 ## 执行顺序
 
@@ -82,4 +82,4 @@
 - 样本：本地 flexmark-java、PaiFlow、pmhub、ruoyi-ai、paicoding 五个项目，按 `CodeIndex` 的目录过滤规则取 `.java` 文件，共 5874 个文件、2061 万字符、58 万行；解析出 6297 个类、30809 个方法、189455 处方法调用，1 个文件解析失败
 - 解析 + findAll 类/方法/方法调用：单线程首轮 5.5 秒，预热后约 4.6 秒；ThreadLocal 实例并行 2 线程 2.4–2.6 秒、4 线程 1.9–2.0 秒、8 线程 2.3–2.4 秒、16 线程约 3.0 秒（`-Xmx8g` 结果相同）
 - 单线程一轮分配约 4.8GB；整个测试 Young GC 70 次，累计约 0.1 秒，Old GC 0 次
-- Embedding：本地 Ollama `nomic-embed-text`，取 PaiCLI 源码里的 200 个真实方法体（平均 454 字符），逐条 `/api/embeddings` 平均 16.4ms/条；`/api/embed` 每批 10 条 8.1ms/条，每批 50 条 7.2ms/条。按 37106 个 chunk 估算，逐条约 10 分钟
+- Embedding：本地 Ollama `nomic-embed-text`，取 Hao CLI 源码里的 200 个真实方法体（平均 454 字符），逐条 `/api/embeddings` 平均 16.4ms/条；`/api/embed` 每批 10 条 8.1ms/条，每批 50 条 7.2ms/条。按 37106 个 chunk 估算，逐条约 10 分钟

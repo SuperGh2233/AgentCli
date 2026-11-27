@@ -99,12 +99,12 @@
 - 初次静态自审阶段尚未执行 Maven、测试或构建；当时的 `git diff --check` 无空白错误仅属于静态检查。2026-11-04 的一次全量回归尝试因 MockWebServer socket `EPERM` 按停止条件终止，虽有部分 Surefire 结果落盘，但不是完整回归；该次失败不计入本阶段定向回归结果。
 - 只读 javap 检查本机 JGit 7.6.0 的 FileMode.fromBits：0140000 不在已知 type switch 中，走未知模式分支（object type = -1）；测试显式断言 bits、OBJ_BAD、非 GITLINK 与 mutation hook 零次。javap 只读反汇编，未执行恢复代码或测试。
 - path-based NIO 在检查与操作之间仍有 TOCTOU residual，不能宣称抵御并发恶意目录替换；检测到不安全路径就失败，回滚也遵守同一边界。
-- 首轮隔离离线定向回归（修改缺失父目录处理前）已通过：`SideGitManagerTest` 4/4、`SnapshotRestorerTest` 13/13，共 17 passed、0 failures、0 errors、0 skipped，Maven `BUILD SUCCESS`。材料位于 `/private/tmp/paicli-sidegit-2hwrb_g7/`。
+- 首轮隔离离线定向回归（修改缺失父目录处理前）已通过：`SideGitManagerTest` 4/4、`SnapshotRestorerTest` 13/13，共 17 passed、0 failures、0 errors、0 skipped，Maven `BUILD SUCCESS`。材料位于 `/private/tmp/haocli-sidegit-2hwrb_g7/`。
 - 最终代码审查发现：current tree 中已跟踪文件若连同父目录一起缺失，旧 preflight 将其误判为不安全父路径。现改用 `existingParents` 区分“父目录不存在”（允许后续重建/跳过删除）与“父组件存在但不是实际目录”（拒绝）；新增 `restoresNestedTrackedFileWhenItsParentDirectoryIsMissing` 测试。修复后已重新执行定向回归并通过，首轮 17 项结果仅作为历史记录。
 
 ## 定向回归隔离命令（已执行两次；最终修复后 18/18 通过）
 
-以下是本阶段采用的可复核命令。最终修复后再次原样执行，使用全新 `/private/tmp/paicli-sidegit-*` 隔离副本；不更改原 pom，不写原 target 或原 ~/.m2。副本 pom 明确指定独立 build、classes、test-classes、report 和 workingDirectory；HOME、Java user.home、tmp、Maven repository、日志均隔离。Maven `-o` 禁止下载，macOS sandbox-exec 再禁止网络与隔离目录外写入。缺依赖或 Seatbelt 下 JVM 139 就停止并报告，不联网补包、不去掉限制重跑。没有 stage/commit/push/tag。
+以下是本阶段采用的可复核命令。最终修复后再次原样执行，使用全新 `/private/tmp/haocli-sidegit-*` 隔离副本；不更改原 pom，不写原 target 或原 ~/.m2。副本 pom 明确指定独立 build、classes、test-classes、report 和 workingDirectory；HOME、Java user.home、tmp、Maven repository、日志均隔离。Maven `-o` 禁止下载，macOS sandbox-exec 再禁止网络与隔离目录外写入。缺依赖或 Seatbelt 下 JVM 139 就停止并报告，不联网补包、不去掉限制重跑。没有 stage/commit/push/tag。
 
 ```bash
 /usr/bin/python3 - <<'PY'
@@ -117,8 +117,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 
 source = pathlib.Path.cwd().resolve()
-assert (source / 'pom.xml').is_file(), '请在 PaiCLI 工作区根目录启动'
-assert (source / 'src/main/java/com/paicli/snapshot/SideGitManager.java').is_file()
+assert (source / 'pom.xml').is_file(), '请在 Hao CLI 工作区根目录启动'
+assert (source / 'src/main/java/com/haocli/snapshot/SideGitManager.java').is_file()
 cache = pathlib.Path.home() / '.m2/repository'
 assert cache.is_dir(), '本机离线 Maven 缓存不存在；停止，不下载'
 mvn_found = shutil.which('mvn')
@@ -135,7 +135,7 @@ java = java_home / 'bin/java'
 assert java.is_file() and os.access(java, os.X_OK) and (java_home / 'lib/modules').is_file(), \
     '无法解析实际 JDK；请设置 JAVA_HOME，本脚本不调用 Java 探测'
 assert pathlib.Path('/usr/bin/sandbox-exec').is_file(), '需要 macOS sandbox-exec 禁网'
-isolated = pathlib.Path(tempfile.mkdtemp(prefix='paicli-sidegit-', dir='/private/tmp'))
+isolated = pathlib.Path(tempfile.mkdtemp(prefix='haocli-sidegit-', dir='/private/tmp'))
 for name in ('home', 'tmp', 'repository', 'build', 'log', 'report', 'workingDirectory'):
     (isolated / name).mkdir()
 work = isolated / 'source'

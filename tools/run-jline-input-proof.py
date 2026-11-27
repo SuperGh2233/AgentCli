@@ -69,7 +69,7 @@ def pty_case(name, steps, env, fake=False):
 
     child = subprocess.Popen([str(JDK / 'bin/java'), f'-Duser.home={BASE}/home',
                               f'-Djava.io.tmpdir={BASE}/tmp', '-cp', cp,
-                              'com.paicli.cli.JLineInputProof', name] + (['fake'] if fake else []),
+                              'com.haocli.cli.JLineInputProof', name] + (['fake'] if fake else []),
                              stdin=subprocess.PIPE if fake else slave,
                              stdout=subprocess.PIPE if fake else slave,
                              stderr=subprocess.STDOUT if fake else slave, cwd=ROOT, env=env,

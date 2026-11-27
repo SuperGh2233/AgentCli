@@ -30,13 +30,13 @@ Agent Skills 的标准做法是三级渐进加载（Claude Code、Claude Agent S
 2. **正文进入当前对话**：模型判断相关时读取完整 SKILL.md，正文作为对话内容出现在当前这一轮，而不是改写系统提示。系统提示全程不变，前缀缓存稳定；正文追加在消息历史里，当轮生效。
 3. **附属文件再按需读**：SKILL.md 引用的 references 文档用到才读；scripts 按引用执行，代码本身不进上下文，只有输出进入。
 
-PaiCLI 当前对照情况：
+Hao CLI 当前对照情况：
 
-| 层级 | 标准做法 | PaiCLI 现状 | 差距 |
+| 层级 | 标准做法 | Hao CLI 现状 | 差距 |
 |---|---|---|---|
 | 元数据 | name + description 常驻系统提示 | `SkillIndexFormatter` 生成索引段，≤20 个、≤4KB | 已对齐；但索引段位置影响缓存（S5） |
 | 正文 | 当轮进入对话 | `LoadedSkillMessages` 同轮注入（`cc864aa`） | 已对齐；压缩、去重、截断有缺陷（S1–S3） |
-| 附属文件 | 相对 Skill 目录按需读取 | 内置 Skill 在 SKILL.md 里写死 `~/.paicli/skills-cache/...` | 用户级、项目级 Skill 拿不到目录路径（S4） |
+| 附属文件 | 相对 Skill 目录按需读取 | 内置 Skill 在 SKILL.md 里写死 `~/.haocli/skills-cache/...` | 用户级、项目级 Skill 拿不到目录路径（S4） |
 | 压缩 | 已激活 Skill 不能在压缩中丢失 | 正文被当成普通 user 消息摘要 | 缺失（S1） |
 
 ## 3. P0 改造项
@@ -53,7 +53,7 @@ PaiCLI 当前对照情况：
 
 **方案**
 
-1. `LoadedSkillMessages` 增加稳定的注入标记常量（例如以 `[PAICLI_SKILL_INJECTION]` 开头的首行）和静态方法 `isSkillInjection(Message)`；`runaway_reminder` 同理给出 `isRuntimeReminder(Message)`。
+1. `LoadedSkillMessages` 增加稳定的注入标记常量（例如以 `[HAOCLI_SKILL_INJECTION]` 开头的首行）和静态方法 `isSkillInjection(Message)`；`runaway_reminder` 同理给出 `isRuntimeReminder(Message)`。
 2. `ConversationHistoryCompactor.userIndices` 跳过这两类内部 user 消息，只把真实用户输入算作轮次；`SessionMemoryCompactor` 中按 user/assistant 统计的地方（`SessionMemoryCompactor.java:258`）同步处理。
 3. 摘要输入中剔除 Skill 注入消息，不让摘要模型处理正文。
 4. 每个 Agent 实例维护 `activeSkills`（见 S2）。压缩完成后，若有 Skill 正文被移出历史，就在摘要消息之后重新挂载一条合并后的 Skill 注入消息。三条路径的挂载点分别在 `Agent.java:424/477`、`PlanExecuteAgent.java:260`、`SubAgent.java:140` 的压缩成功分支之后。
@@ -95,7 +95,7 @@ PaiCLI 当前对照情况：
 
 **方案**
 
-截断提示改为给出 `skill.skillMdPath()` 的绝对路径，提示模型用 `read_file` 读取剩余部分。内置 Skill 的 `skillMdPath` 需要指向 `~/.paicli/skills-cache/<name>/SKILL.md`，若当前只解压了 references，`SkillBuiltinExtractor` 同步解压 SKILL.md。
+截断提示改为给出 `skill.skillMdPath()` 的绝对路径，提示模型用 `read_file` 读取剩余部分。内置 Skill 的 `skillMdPath` 需要指向 `~/.haocli/skills-cache/<name>/SKILL.md`，若当前只解压了 references，`SkillBuiltinExtractor` 同步解压 SKILL.md。
 
 **改动文件**：`LoadedSkillMessages.java`、`SkillBuiltinExtractor.java`（视情况）
 
@@ -107,7 +107,7 @@ PaiCLI 当前对照情况：
 
 **问题**
 
-`Skill` 记录里有 `skillMdPath` 和 `referencesDir`，但 `LoadedSkillMessages` 只注入正文。内置 web-access 在 SKILL.md 里写死了 `~/.paicli/skills-cache/web-access/references/`，用户级和项目级 Skill 的作者无法预知安装路径，标准写法 `references/xxx.md` 在 PaiCLI 里没法用。
+`Skill` 记录里有 `skillMdPath` 和 `referencesDir`，但 `LoadedSkillMessages` 只注入正文。内置 web-access 在 SKILL.md 里写死了 `~/.haocli/skills-cache/web-access/references/`，用户级和项目级 Skill 的作者无法预知安装路径，标准写法 `references/xxx.md` 在 Hao CLI 里没法用。
 
 **方案**
 
@@ -147,7 +147,7 @@ scripts 继续走 `execute_command` 和既有 HITL，不注册成虚拟工具，
 
 **问题**
 
-`LoadedSkillMessages` 的类注释说明正文不放进工具结果，是因为 Skill 是本地可信指引。这对内置和用户级 Skill 成立，但项目级 Skill 位于 `<project>/.paicli/skills/`，随仓库分发。克隆一个陌生仓库后，其中的 SKILL.md 会以 user 消息身份进入上下文，模型会把它当作可信指令执行，这是一个 Prompt 注入面。
+`LoadedSkillMessages` 的类注释说明正文不放进工具结果，是因为 Skill 是本地可信指引。这对内置和用户级 Skill 成立，但项目级 Skill 位于 `<project>/.haocli/skills/`，随仓库分发。克隆一个陌生仓库后，其中的 SKILL.md 会以 user 消息身份进入上下文，模型会把它当作可信指令执行，这是一个 Prompt 注入面。
 
 **方案**
 
@@ -190,7 +190,7 @@ scripts 继续走 `execute_command` 和既有 HITL，不注册成虚拟工具，
 
 ## 7. 面试讲法
 
-这部分改造本身就是 PaiCLI 最好讲的一段工程经历。被问到 Skill 设计时，按五步讲：主动承认问题，说明当初考虑，讲清问题和影响，对标标准做法，给出改造和代价。
+这部分改造本身就是 Hao CLI 最好讲的一段工程经历。被问到 Skill 设计时，按五步讲：主动承认问题，说明当初考虑，讲清问题和影响，对标标准做法，给出改造和代价。
 
 参考回答：
 
@@ -201,8 +201,8 @@ scripts 继续走 `execute_command` 和既有 HITL，不注册成虚拟工具，
 按代码复核后，实现与上文方案有四处偏差，以这里为准：
 
 1. **S2 已激活集合从历史推导**：不在 Agent 上另存 `Set<String> activeSkills`，而是由 `LoadedSkillMessages.prepare(results, registry, history)` 扫描调用方自己的消息历史得出。ReAct 会话、每个 Plan 任务、每个 Team worker 天然隔离；压缩移出注入、`/clear` 清空历史后，集合和预算都自动释放，不存在另存一份状态、与历史不一致的问题。会话预算（S7）同样按历史里注入消息的长度计算。
-2. **S1 在压缩器里统一处理**：最初的实现是 `ConversationHistoryCompactor.rebuildWithSummary` 把分割点之前的 Skill 注入原样挂回摘要之后；后来（提交 `c08159f`）改成直接删掉落在摘要范围里的注入，在摘要末尾列出这些 Skill 的名字，提示模型需要时重新 `load_skill`，16KB 正文预算也随之释放。完整摘要和 Session Memory 两条路径共用这个方法，三条执行路径不需要各自在压缩成功分支里补处理。注入标记 `[PAICLI_SKILL_INJECTION]` 与 `[runaway guard]` 的识别放在 `memory/InternalUserMessages`（`tool` 依赖 `memory`，反向依赖会成环）。副作用：Plan 任务只有一条真实 user 消息（task_input），之后不再能借 Skill 注入 / runaway 提醒当分割点做摘要，只剩工具结果清理。
-3. **S3/S4 不用 `read_file`**：PathGuard 强制所有文件工具在项目根内，`read_file` 读不到 `~/.paicli/skills-cache/` 和 `~/.paicli/skills/`。改为给 `load_skill` 增加 `file`（+ offset/limit）参数，只读当前 Skill 自己的目录（realpath 校验），传目录则列出文件；截断提示给出 `load_skill(name, file="SKILL.md", offset=N)`。内置 web-access 的 SKILL.md 同步改用这个调用，`SkillBuiltinExtractor.CURRENT_VERSION` 升到 `1.1.2`。
+2. **S1 在压缩器里统一处理**：最初的实现是 `ConversationHistoryCompactor.rebuildWithSummary` 把分割点之前的 Skill 注入原样挂回摘要之后；后来（提交 `c08159f`）改成直接删掉落在摘要范围里的注入，在摘要末尾列出这些 Skill 的名字，提示模型需要时重新 `load_skill`，16KB 正文预算也随之释放。完整摘要和 Session Memory 两条路径共用这个方法，三条执行路径不需要各自在压缩成功分支里补处理。注入标记 `[HAOCLI_SKILL_INJECTION]` 与 `[runaway guard]` 的识别放在 `memory/InternalUserMessages`（`tool` 依赖 `memory`，反向依赖会成环）。副作用：Plan 任务只有一条真实 user 消息（task_input），之后不再能借 Skill 注入 / runaway 提醒当分割点做摘要，只剩工具结果清理。
+3. **S3/S4 不用 `read_file`**：PathGuard 强制所有文件工具在项目根内，`read_file` 读不到 `~/.haocli/skills-cache/` 和 `~/.haocli/skills/`。改为给 `load_skill` 增加 `file`（+ offset/limit）参数，只读当前 Skill 自己的目录（realpath 校验），传目录则列出文件；截断提示给出 `load_skill(name, file="SKILL.md", offset=N)`。内置 web-access 的 SKILL.md 同步改用这个调用，`SkillBuiltinExtractor.CURRENT_VERSION` 升到 `1.1.2`。
 4. **S6 不弹审批框**：auto 模式约定不弹框、微信通道没有审批面板，load_skill 中途插入交互会让无人值守通道卡住。改为未信任时正文由执行器放进工具结果（经 `ToolResultBoundary` 包成 untrusted-data），用户 `/skill show` 确认后 `/skill trust <name>` 显式信任；信任按 SKILL.md 绝对路径 + 正文 SHA-256 记在 `skills.json` 的 `trustedProjectSkills`，正文改动需重新信任。
 
 未做：S5 真实模型缓存命中对比、S8 金标真实评测（均需用户授权真实模型调用）；Plan 模式 mode 段里的 `{{taskDescription}}` 仍在 Skills 索引之前，Plan 任务之间前缀只能命中到 approval 段。

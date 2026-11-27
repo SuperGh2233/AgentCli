@@ -15,16 +15,16 @@
 ## 离线测试结果
 
 - 首次执行 exit code 1：空白 settings 没有匹配已有缓存的仓库标识，资源插件 maven-resources-plugin:3.5.0 无法离线解析。在编译前失败，没有部分测试，也没有 build 或测试报告生成；未联网下载。
-- 经用户批准，只修临时 settings/runner：精确复制项目 `target/publication-check/settings.xml` 到 `/tmp/paicli-hitl-display-7yaiamg5/settings.xml`，`cmp` 确认一致。mirror id 为 `phase0-central-only`，mirrorOf 为 `*`，URL 为 `https://repo.maven.apache.org/maven2`。保留原缓存元数据，不修改缓存标识。
-- 再次获得具体命令的一次性批准后，执行 `/tmp/paicli-hitl-display-7yaiamg5/run.py`。Maven 强制 `-o`，exit code 0，四类 / 57 项通过，0 failures、0 errors、0 skipped：ApprovalRequestDisplayTest 8 项、TerminalHitlHandlerTest 19 项、RendererHitlHandlerTest 9 项、ApprovalPolicyTest 21 项。仅编译这四个测试类；正常编译主代码，未执行评测或真实服务。
-- 隔离根目录 `/tmp/paicli-hitl-display-7yaiamg5`；settings.xml、pom.xml、repository、build、home、tmp、work、logs 均在该目录。Maven 与 Surefire fork 的 user.home/java.io.tmpdir 均显式指向 home/tmp；Surefire argLine 还包含 UTF-8、paicli.log.dir 和 ErrorFile；JUnit workingDirectory 显式指向 work。环境不继承 API Key。
+- 经用户批准，只修临时 settings/runner：精确复制项目 `target/publication-check/settings.xml` 到 `/tmp/haocli-hitl-display-7yaiamg5/settings.xml`，`cmp` 确认一致。mirror id 为 `phase0-central-only`，mirrorOf 为 `*`，URL 为 `https://repo.maven.apache.org/maven2`。保留原缓存元数据，不修改缓存标识。
+- 再次获得具体命令的一次性批准后，执行 `/tmp/haocli-hitl-display-7yaiamg5/run.py`。Maven 强制 `-o`，exit code 0，四类 / 57 项通过，0 failures、0 errors、0 skipped：ApprovalRequestDisplayTest 8 项、TerminalHitlHandlerTest 19 项、RendererHitlHandlerTest 9 项、ApprovalPolicyTest 21 项。仅编译这四个测试类；正常编译主代码，未执行评测或真实服务。
+- 隔离根目录 `/tmp/haocli-hitl-display-7yaiamg5`；settings.xml、pom.xml、repository、build、home、tmp、work、logs 均在该目录。Maven 与 Surefire fork 的 user.home/java.io.tmpdir 均显式指向 home/tmp；Surefire argLine 还包含 UTF-8、haocli.log.dir 和 ErrorFile；JUnit workingDirectory 显式指向 work。环境不继承 API Key。
 - 失败日志 `maven.log`，成功日志 `maven-settings-fixed.log`，报告 `build/surefire-reports/TEST-*.xml`。临时目录保留供审阅，没有清理。
 - 执行前后递归核验：项目 target 内最新文件 mtime 均为 2026-11-03 08:53:53.654120，原 ~/.m2 内均为 2026-11-02 16:23:58.128680，均早于本次运行；未发现此次写入。未使用运行前内容哈希，核验依据为路径隔离和文件时间。
 
 完整 Maven 命令（runner 使用无 API Key 的独立环境，工作目录为上述 work）：
 
 ```sh
-/opt/homebrew/bin/mvn -o -s /tmp/paicli-hitl-display-7yaiamg5/settings.xml -gs /tmp/paicli-hitl-display-7yaiamg5/settings.xml -f /tmp/paicli-hitl-display-7yaiamg5/pom.xml -Dmaven.repo.local=/tmp/paicli-hitl-display-7yaiamg5/repository -DskipTests=false -Dtest=ApprovalRequestDisplayTest,TerminalHitlHandlerTest,RendererHitlHandlerTest,ApprovalPolicyTest test
+/opt/homebrew/bin/mvn -o -s /tmp/haocli-hitl-display-7yaiamg5/settings.xml -gs /tmp/haocli-hitl-display-7yaiamg5/settings.xml -f /tmp/haocli-hitl-display-7yaiamg5/pom.xml -Dmaven.repo.local=/tmp/haocli-hitl-display-7yaiamg5/repository -DskipTests=false -Dtest=ApprovalRequestDisplayTest,TerminalHitlHandlerTest,RendererHitlHandlerTest,ApprovalPolicyTest test
 ```
 
 ## 第二轮补齐与验证
@@ -33,7 +33,7 @@
 
 编码只作用于显示副本；实际工具参数、modifiedArguments（修改后实际传递的参数）、原始工具名和缓存 key（审批缓存查询用的键）均原样保留。测试覆盖 ESC/CRLF/bidi、普通反斜线、MCP tool/server 两种放行范围和缓存命中。
 
-本轮获一次性命令批准后执行 `/tmp/paicli-hitl-display-followup-20261103/run.py`，使用本地已安装 JDK 21。Maven exit code 0，七类 / 97 项通过，0 failures、0 errors、0 skipped：
+本轮获一次性命令批准后执行 `/tmp/haocli-hitl-display-followup-20261103/run.py`，使用本地已安装 JDK 21。Maven exit code 0，七类 / 97 项通过，0 failures、0 errors、0 skipped：
 
 | 测试类 | 项数 |
 |---|---:|
@@ -48,10 +48,10 @@
 完整 Maven 命令：
 
 ```sh
-/opt/homebrew/bin/mvn -o -s /tmp/paicli-hitl-display-followup-20261103/settings.xml -gs /tmp/paicli-hitl-display-followup-20261103/settings.xml -f /tmp/paicli-hitl-display-followup-20261103/pom.xml -Dmaven.repo.local=/tmp/paicli-hitl-display-followup-20261103/repository -DskipTests=false -Dtest=ApprovalRequestDisplayTest,TerminalHitlHandlerTest,RendererHitlHandlerTest,ApprovalPolicyTest,PlainRendererTest,InlineApprovalPrompterTest,InlineApprovalGatewayTest test
+/opt/homebrew/bin/mvn -o -s /tmp/haocli-hitl-display-followup-20261103/settings.xml -gs /tmp/haocli-hitl-display-followup-20261103/settings.xml -f /tmp/haocli-hitl-display-followup-20261103/pom.xml -Dmaven.repo.local=/tmp/haocli-hitl-display-followup-20261103/repository -DskipTests=false -Dtest=ApprovalRequestDisplayTest,TerminalHitlHandlerTest,RendererHitlHandlerTest,ApprovalPolicyTest,PlainRendererTest,InlineApprovalPrompterTest,InlineApprovalGatewayTest test
 ```
 
-隔离根目录为 `/tmp/paicli-hitl-display-followup-20261103/`：
+隔离根目录为 `/tmp/haocli-hitl-display-followup-20261103/`：
 
 - settings.xml 精确复制项目已有的 `phase0-central-only` settings，`cmp` 一致；repository 为上轮离线缓存的独立副本。Maven 强制 `-o`，无联网、下载或真实服务调用。
 - Maven 的独立环境只包含必要变量，不带 API keys；Maven 与 Surefire fork 的 user.home/java.io.tmpdir 显式指向 home/tmp。Surefire argLine 还设置 UTF-8、logs 和 ErrorFile；JUnit workingDirectory 为 work。七份测试 XML 中的 user.home、java.io.tmpdir、user.dir 均核对一致。

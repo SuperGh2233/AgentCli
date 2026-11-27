@@ -73,10 +73,10 @@ Lanterna 形态保持 phase-16 现有设计：三栏布局、文件树、配置�
 
 ### 4.1 `Renderer` 接口（核心抽象层）
 
-新建 `com.paicli.render` 包，把 Agent / HITL / Main 对终端的全部输出统一交给一个接口处理：
+新建 `com.haocli.render` 包，把 Agent / HITL / Main 对终端的全部输出统一交给一个接口处理：
 
 ```java
-package com.paicli.render;
+package com.haocli.render;
 
 public interface Renderer extends AutoCloseable {
     /** 启动渲染器（设置滚动区域、初始化 widget 等）。 */
@@ -108,7 +108,7 @@ public interface Renderer extends AutoCloseable {
     ApprovalDecision promptApproval(ApprovalRequest request);
 
     // ---- 配置面板 / 命令选择 ----
-    void openConfigPanel(PaiCliConfig config);
+    void openConfigPanel(HaoCliConfig config);
     PaletteResult openPalette(String title, List<PaletteItem> items);
 }
 
@@ -126,15 +126,15 @@ public interface ToolBlock {
 ### 4.2 包结构
 
 ```
-com.paicli.render/                       ← 新增（接口层）
+com.haocli.render/                       ← 新增（接口层）
 ├── Renderer.java                        核心接口
 ├── ToolBlock.java                       工具调用 handle
 ├── StatusInfo.java                      状态栏数据载体（record）
 ├── ApprovalRequest.java、ApprovalDecision.java
 ├── PaletteItem.java、PaletteResult.java
-└── RendererFactory.java                 根据 PAICLI_RENDERER 创建实例
+└── RendererFactory.java                 根据 HAOCLI_RENDERER 创建实例
 
-com.paicli.render.inline/                ← 新增（inline 实现）
+com.haocli.render.inline/                ← 新增（inline 实现）
 ├── InlineRenderer.java                  实现 Renderer
 ├── AnsiSeq.java                         ANSI 序列常量 + 工具
 ├── TerminalCapabilities.java            探测 DECSTBM、TrueColor、bracketed paste
@@ -150,10 +150,10 @@ com.paicli.render.inline/                ← 新增（inline 实现）
     ├── SlashPalette.java                临时浮起命令选择列表
     └── ConfigPalette.java               /config palette 形态
 
-com.paicli.render.plain/                 ← 新增（纯 println 降级）
+com.haocli.render.plain/                 ← 新增（纯 println 降级）
 └── PlainRenderer.java                   等价 phase-15 行为，无折叠、无状态栏
 
-com.paicli.tui/                          ← 保留（Lanterna 实现）
+com.haocli.tui/                          ← 保留（Lanterna 实现）
 ├── LanternaRenderer.java                NEW：实现 Renderer，桥接到现有 LanternaWindow
 ├── LanternaWindow.java                  保留
 ├── RootPane.java、TuiBootstrap.java     保留
@@ -163,14 +163,14 @@ com.paicli.tui/                          ← 保留（Lanterna 实现）
 └── ...                                  整体加 @SinceDeprecated 注解：可继续维护、不强制
 ```
 
-`com.paicli.tui.highlight.CodeHighlighter` 两个实现都用，不迁移。
+`com.haocli.tui.highlight.CodeHighlighter` 两个实现都用，不迁移。
 
 ### 4.3 `RendererFactory` 选型
 
 ```java
 public final class RendererFactory {
-    public static Renderer create(Terminal terminal, PaiCliConfig config) {
-        String mode = resolveMode();  // env: PAICLI_RENDERER
+    public static Renderer create(Terminal terminal, HaoCliConfig config) {
+        String mode = resolveMode();  // env: HAOCLI_RENDERER
         return switch (mode) {
             case "lanterna" -> new LanternaRenderer(terminal, config);
             case "plain"    -> new PlainRenderer(System.out);
@@ -185,9 +185,9 @@ public final class RendererFactory {
     }
 
     private static String resolveMode() {
-        String prop = System.getProperty("paicli.renderer");
+        String prop = System.getProperty("haocli.renderer");
         if (prop != null && !prop.isBlank()) return prop.toLowerCase();
-        String env = System.getenv("PAICLI_RENDERER");
+        String env = System.getenv("HAOCLI_RENDERER");
         if (env != null && !env.isBlank()) return env.toLowerCase();
         return "inline";  // 默认
     }
@@ -199,25 +199,25 @@ public final class RendererFactory {
 | 变量 | 含义 |
 |---|---|
 | 默认 | `inline`（Claude Code 风格） |
-| `PAICLI_RENDERER=lanterna` | Lanterna 全屏 TUI |
-| `PAICLI_RENDERER=plain` | 纯 println，无折叠、无状态栏 |
-| `PAICLI_RENDERER=inline` | 显式声明 inline |
+| `HAOCLI_RENDERER=lanterna` | Lanterna 全屏 TUI |
+| `HAOCLI_RENDERER=plain` | 纯 println，无折叠、无状态栏 |
+| `HAOCLI_RENDERER=inline` | 显式声明 inline |
 | `NO_COLOR=1` | 已有：禁用 ANSI 颜色，对三种模式都生效 |
-| `PAICLI_TUI=true` | 兼容旧版：等价于 `PAICLI_RENDERER=lanterna`，打 deprecation 提示 |
+| `HAOCLI_TUI=true` | 兼容旧版：等价于 `HAOCLI_RENDERER=lanterna`，打 deprecation 提示 |
 
 ### 4.4 修改的现有文件
 
 | 文件 | 改动 |
 |---|---|
-| `com.paicli.cli.Main` | 启动时 `Renderer renderer = RendererFactory.create(...)`；删除 `TuiBootstrap.shouldUseTui` 二分支判断；CLI 主循环全部经 `renderer` 调用，不再直接 `System.out.println` |
-| `com.paicli.agent.Agent$StreamRenderer` | 持有 `Renderer`；`onReasoningDelta`/`onContentDelta` 走 `renderer.appendReasoningChunk/appendContentChunk`；`appendToolCall` 走 `renderer.startToolCall(...).appendResult(...)` |
-| `com.paicli.agent.PlanExecuteAgent`、`SubAgent` | 同上 |
-| `com.paicli.hitl.TerminalHitlHandler` | 改名 `RendererHitlHandler`，持有 `Renderer`；`requestApproval` 直接调 `renderer.promptApproval(req)`，不区分 CLI / TUI |
-| `com.paicli.hitl.SwitchableHitlHandler` | 简化：只剩开关逻辑（enable/disable），delegate 永远是同一个 `RendererHitlHandler` |
-| `com.paicli.hitl.TuiHitlHandler` | 删除（被 `LanternaRenderer.promptApproval` 取代） |
-| `com.paicli.tui.TuiBootstrap` | 删除 `shouldUseTui()` / `launch()`；保留为空类或直接删除（`LanternaRenderer` 自己负责启动 Lanterna 主循环） |
-| `com.paicli.tui.TuiSessionController` | 删除（职责由 `Main` + `LanternaRenderer` 承担） |
-| `com.paicli.util.AnsiStyle` | 扩充 cursor save/restore、line clear、scroll region、reverse 等序列；底层常量挪到 `com.paicli.render.inline.AnsiSeq` |
+| `com.haocli.cli.Main` | 启动时 `Renderer renderer = RendererFactory.create(...)`；删除 `TuiBootstrap.shouldUseTui` 二分支判断；CLI 主循环全部经 `renderer` 调用，不再直接 `System.out.println` |
+| `com.haocli.agent.Agent$StreamRenderer` | 持有 `Renderer`；`onReasoningDelta`/`onContentDelta` 走 `renderer.appendReasoningChunk/appendContentChunk`；`appendToolCall` 走 `renderer.startToolCall(...).appendResult(...)` |
+| `com.haocli.agent.PlanExecuteAgent`、`SubAgent` | 同上 |
+| `com.haocli.hitl.TerminalHitlHandler` | 改名 `RendererHitlHandler`，持有 `Renderer`；`requestApproval` 直接调 `renderer.promptApproval(req)`，不区分 CLI / TUI |
+| `com.haocli.hitl.SwitchableHitlHandler` | 简化：只剩开关逻辑（enable/disable），delegate 永远是同一个 `RendererHitlHandler` |
+| `com.haocli.hitl.TuiHitlHandler` | 删除（被 `LanternaRenderer.promptApproval` 取代） |
+| `com.haocli.tui.TuiBootstrap` | 删除 `shouldUseTui()` / `launch()`；保留为空类或直接删除（`LanternaRenderer` 自己负责启动 Lanterna 主循环） |
+| `com.haocli.tui.TuiSessionController` | 删除（职责由 `Main` + `LanternaRenderer` 承担） |
+| `com.haocli.util.AnsiStyle` | 扩充 cursor save/restore、line clear、scroll region、reverse 等序列；底层常量挪到 `com.haocli.render.inline.AnsiSeq` |
 | `pom.xml` | 保留 Lanterna 依赖 |
 
 ### 4.5 关键模块代码草图（inline 实现部分）
@@ -376,7 +376,7 @@ public final class LanternaRenderer implements Renderer {
 
 ### 5.1 已完成的代码怎么办
 
-**全部保留**：`com.paicli.tui.*` 在新架构下作为 Lanterna 实现存在，不删代码。
+**全部保留**：`com.haocli.tui.*` 在新架构下作为 Lanterna 实现存在，不删代码。
 - 现有 `CenterPane.appendAssistantChunk` / `appendToolCall` / `appendToolResult` 等方法被 `LanternaRenderer` 包装
 - `TuiHitlHandler` 删除，能力合并到 `LanternaRenderer.promptApproval`
 - `TuiBootstrap` / `TuiSessionController` 删除，启动逻辑由 `Main` + `RendererFactory` + `LanternaRenderer.start()` 接管
@@ -385,9 +385,9 @@ public final class LanternaRenderer implements Renderer {
 
 - `docs/phase-16-tui-productization.md`：在文档顶部加注 "本文档形态选型已被 inline-tui-pivot.md 修正：phase-16 工作以 Lanterna 实现的形式保留，但默认形态切换为 inline 流式"
 - `AGENTS.md`：第 16 期描述更新为"双形态可切换：默认 inline 流式，可切换 Lanterna 全屏"
-- `README.md`：新增"渲染器形态切换"段，说明 `PAICLI_RENDERER` 三档
+- `README.md`：新增"渲染器形态切换"段，说明 `HAOCLI_RENDERER` 三档
 - `ROADMAP.md`：第 16 期标 ✅，下一步 phase-17 为 LSP 诊断注入，图片输入后移 phase-21
-- `.env.example`：把 `PAICLI_TUI=true` 标 deprecated，新增 `PAICLI_RENDERER=inline|lanterna|plain`
+- `.env.example`：把 `HAOCLI_TUI=true` 标 deprecated，新增 `HAOCLI_RENDERER=inline|lanterna|plain`
 
 ---
 
@@ -413,7 +413,7 @@ public final class LanternaRenderer implements Renderer {
 
 ### Day 1：Renderer 接口 + RendererFactory + PlainRenderer
 
-- 新建 `com.paicli.render` 包：`Renderer` / `ToolBlock` / `StatusInfo` / `ApprovalRequest` / `ApprovalDecision` / `PaletteItem` / `PaletteResult`
+- 新建 `com.haocli.render` 包：`Renderer` / `ToolBlock` / `StatusInfo` / `ApprovalRequest` / `ApprovalDecision` / `PaletteItem` / `PaletteResult`
 - `PlainRenderer`：纯 `System.out.println`，状态栏 / 折叠 / palette 都退化为简单打印
 - `RendererFactory.create()` 实现，环境变量解析
 - `Main.java` 接入：删除 `TuiBootstrap.shouldUseTui` 分支，改 `Renderer renderer = RendererFactory.create(...)`，主循环对话输出全部经 `renderer`
@@ -423,7 +423,7 @@ public final class LanternaRenderer implements Renderer {
 
 ### Day 2：InlineRenderer 骨架 + AnsiSeq + TerminalCapabilities + BottomStatusBar
 
-- `com.paicli.render.inline` 包落地
+- `com.haocli.render.inline` 包落地
 - `AnsiSeq`：cursor save/restore、line clear、scroll region、show/hide cursor、reverse 等序列常量
 - `TerminalCapabilities`：探测 DECSTBM、TrueColor、bracketed paste；不支持时各特性独立降级
 - `BottomStatusBar` 完整实现（DECSTBM、200ms 节流、close 还原）
@@ -462,27 +462,27 @@ public final class LanternaRenderer implements Renderer {
 - 文档联动：phase-16 注废弃说明、AGENTS / README / ROADMAP / .env.example 更新
 - Lanterna 启动失败 → 自动回退 inline 验证
 - `mvn clean package` 验证 fat jar 仍可执行
-- Banner 微调："PaiCLI v16.1.0"（小版本号区分形态修正）
+- Banner 微调："Hao CLI v16.1.0"（小版本号区分形态修正）
 
 ---
 
 ## 8. 端到端手测清单（Day 6 必跑，inline / lanterna 双形态）
 
-每条用例在 `PAICLI_RENDERER=inline`（默认）和 `PAICLI_RENDERER=lanterna` 各跑一遍：
+每条用例在 `HAOCLI_RENDERER=inline`（默认）和 `HAOCLI_RENDERER=lanterna` 各跑一遍：
 
-1. ✅ 启动 PaiCLI，状态栏/状态面板显示模型 + token
+1. ✅ 启动 Hao CLI，状态栏/状态面板显示模型 + token
 2. ✅ `read_file ROADMAP.md`：inline 看到折叠块 + Ctrl+O 展开；lanterna 看到 `CenterPane` 内联工具结果
 3. ✅ `write_file` 修改文件：inline 行内 diff；lanterna 文本对话流显示 diff（不要求颜色一致）
 4. ✅ `/hitl on` + 危险命令：inline 单行提示 `[y/n/a/s/m]`；lanterna 模态框
 5. ✅ `/config`：inline palette 浮起；lanterna 模态框
 6. ✅ 长任务跑动期间 Ctrl+C 取消、状态显示停止刷新
 7. ✅ `NO_COLOR=1`：无颜色，其它正常
-8. ✅ `PAICLI_RENDERER=plain`：纯 println，无折叠、无状态栏
+8. ✅ `HAOCLI_RENDERER=plain`：纯 println，无折叠、无状态栏
 9. ✅ 终端 resize：inline 状态栏重新定位 + 已折叠块标 frozen；lanterna widget 自适应
-10. ✅ Vim 模式 `PAICLI_VI=true`：输入框支持 hjkl 移动
+10. ✅ Vim 模式 `HAOCLI_VI=true`：输入框支持 hjkl 移动
 11. ✅ 200 行代码粘贴：格式保留，不触发提交
 12. ✅ Lanterna 启动失败模拟：自动回退 inline，打日志提示
-13. ✅ `PAICLI_TUI=true`（deprecated 兼容）：等价 lanterna，提示 deprecation
+13. ✅ `HAOCLI_TUI=true`（deprecated 兼容）：等价 lanterna，提示 deprecation
 
 ---
 
@@ -492,8 +492,8 @@ public final class LanternaRenderer implements Renderer {
 |---|---|
 | 双形态架构 | **抽 `Renderer` 接口 + 三个实现**（inline / lanterna / plain） |
 | 默认形态 | **inline** |
-| 切换机制 | **启动时**通过 `PAICLI_RENDERER` 选择，不支持运行时热切换 |
-| 接口位置 | `com.paicli.render` 包，与 inline / lanterna 实现解耦 |
+| 切换机制 | **启动时**通过 `HAOCLI_RENDERER` 选择，不支持运行时热切换 |
+| 接口位置 | `com.haocli.render` 包，与 inline / lanterna 实现解耦 |
 | Lanterna 代码 | **保留**，作为 `LanternaRenderer` 桥接 |
 | 文件树（lanterna 形态） | 保留 phase-16 设计 |
 | 文件树（inline 形态） | **不要**，用 `@` mention 自动补全替代 |
@@ -504,7 +504,7 @@ public final class LanternaRenderer implements Renderer {
 | `/config`（inline） | palette |
 | `/config`（lanterna） | 保留模态框 |
 | 输入框 | JLine `LineReader`（双形态共用），可选 vi-mode |
-| 旧 `PAICLI_TUI=true` | 兼容映射到 `PAICLI_RENDERER=lanterna`，打 deprecation |
+| 旧 `HAOCLI_TUI=true` | 兼容映射到 `HAOCLI_RENDERER=lanterna`，打 deprecation |
 | 启动失败 fallback | Lanterna 启动失败自动回退 inline |
 | phase-17 计划 | **按 ROADMAP 更新为 LSP 诊断注入**；图片复制粘贴输入后移 phase-21 |
 
@@ -512,11 +512,11 @@ public final class LanternaRenderer implements Renderer {
 
 ## 10. 完成判定（DoD）
 
-- [ ] `com.paicli.render` 接口包落地（`Renderer` + 全部数据载体）
-- [ ] `com.paicli.render.inline` 落地，`InlineRenderer` 通过所有单测
-- [ ] `com.paicli.render.plain.PlainRenderer` 落地
-- [ ] `com.paicli.tui.LanternaRenderer` 落地，`TuiBootstrap` / `TuiSessionController` / `TuiHitlHandler` 删除
-- [ ] `RendererFactory` 三档切换工作正常，`PAICLI_TUI=true` 兼容映射
+- [ ] `com.haocli.render` 接口包落地（`Renderer` + 全部数据载体）
+- [ ] `com.haocli.render.inline` 落地，`InlineRenderer` 通过所有单测
+- [ ] `com.haocli.render.plain.PlainRenderer` 落地
+- [ ] `com.haocli.tui.LanternaRenderer` 落地，`TuiBootstrap` / `TuiSessionController` / `TuiHitlHandler` 删除
+- [ ] `RendererFactory` 三档切换工作正常，`HAOCLI_TUI=true` 兼容映射
 - [ ] `Main.java` / `Agent.StreamRenderer` / `RendererHitlHandler` 全部经 `Renderer` 接口
 - [ ] §8 全部手测在 inline / lanterna 双形态过
 - [ ] 文档联动完成（phase-16 / AGENTS / README / ROADMAP / .env.example）

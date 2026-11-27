@@ -16,7 +16,7 @@ Agent 能放心改代码的前提不是“永远不犯错”，而是“改坏�
 
 ### 1. 模块与数据结构
 
-新增包：`src/main/java/com/paicli/snapshot/`
+新增包：`src/main/java/com/haocli/snapshot/`
 
 - `SideGitManager`
   - 初始化 side-git 仓库
@@ -44,7 +44,7 @@ Agent 能放心改代码的前提不是“永远不犯错”，而是“改坏�
 默认目录：
 
 ```text
-~/.paicli/snapshots/<project_hash>/<worktree_hash>/.git
+~/.haocli/snapshots/<project_hash>/<worktree_hash>/.git
 ```
 
 约束：
@@ -117,7 +117,7 @@ postTurnSnapshot(turnId)
 
 ```text
 .git/
-.paicli/snapshots/
+.haocli/snapshots/
 target/
 node_modules/
 dist/
@@ -129,17 +129,17 @@ dist/
 可配置：
 
 ```bash
-PAICLI_SNAPSHOT_ENABLED=true
-PAICLI_SNAPSHOT_MAX=50
-PAICLI_SNAPSHOT_EXCLUDES=.git,.paicli/snapshots,target,node_modules,dist,.idea,*.class,*.jar
+HAOCLI_SNAPSHOT_ENABLED=true
+HAOCLI_SNAPSHOT_MAX=50
+HAOCLI_SNAPSHOT_EXCLUDES=.git,.haocli/snapshots,target,node_modules,dist,.idea,*.class,*.jar
 ```
 
 系统属性同样支持：
 
 ```bash
--Dpaicli.snapshot.enabled=false
--Dpaicli.snapshot.max=50
--Dpaicli.snapshot.excludes=...
+-Dhaocli.snapshot.enabled=false
+-Dhaocli.snapshot.max=50
+-Dhaocli.snapshot.excludes=...
 ```
 
 ### 7. CLI 命令

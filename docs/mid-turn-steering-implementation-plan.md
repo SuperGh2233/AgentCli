@@ -1,10 +1,10 @@
-# PaiCLI 执行中动态指令（Mid-turn Steering）与任务控制：设计及实施计划
+# Hao CLI 执行中动态指令（Mid-turn Steering）与任务控制：设计及实施计划
 
-> 状态（2026-11-24 按代码核对）：**Phase3A ReAct 安全点和 Phase3B-3A 的 `Main` 接线已实现，默认关闭**，只有 `paicli.steering.enabled=true` 且走交互式 inline ReAct 时启用；离线定向回归已通过，真实终端人工验收未完成。Phase4A-3 的 Plan 安全点只有代码和单元测试，`Main` 还没接。各阶段详情见下文 · 编写日期：2026-10-20
-> 当前实施仓库：`projects/paicli-agentcli-public-export-20261021-6c9049d020`；早期记录来自原仓库，本批不访问原仓库。
+> 状态（2026-11-24 按代码核对）：**Phase3A ReAct 安全点和 Phase3B-3A 的 `Main` 接线已实现，默认关闭**，只有 `haocli.steering.enabled=true` 且走交互式 inline ReAct 时启用；离线定向回归已通过，真实终端人工验收未完成。Phase4A-3 的 Plan 安全点只有代码和单元测试，`Main` 还没接。各阶段详情见下文 · 编写日期：2026-10-20
+> 当前实施仓库：`projects/haocli-agentcli-public-export-20261021-6c9049d020`；早期记录来自原仓库，本批不访问原仓库。
 > 范围：前台 CLI 的 ReAct / Plan-and-Execute / Multi-Agent 运行时输入控制，以及必要的上下文、工具、持久化衔接。  
 > 变更边界：本文是开发依据，**不代表完整功能已实现**；完成到哪一步以上面的状态行、下文各阶段记录和代码为准，后续每阶段单独验收。
-> 目标定位：以 Codex 的 Steer / Queue 思路作为交互参考，按照 PaiCLI 的 Java、JLine、工具调用架构重新设计，不照搬产品内部实现。
+> 目标定位：以 Codex 的 Steer / Queue 思路作为交互参考，按照 Hao CLI 的 Java、JLine、工具调用架构重新设计，不照搬产品内部实现。
 
 ## 0. 一句话目标与设计原则
 
@@ -201,7 +201,7 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 ### Phase 1：TurnInputManager 核心（不碰 TUI）
 - 新增 `runtime/input/*` 类型、状态机、消息上限、去重、Turn ID 校验、FIFO 和原子 finalize。
 - P0 使用内存有界队列：建议每 Turn Steer 上限 20 条、Queue 上限 50 条、每条 UTF-8 最大 16 KiB（均配置化）；超限显式拒绝，不静默丢消息。
-- 配置开关 `paicli.steering.enabled`，默认 **false**。
+- 配置开关 `haocli.steering.enabled`，默认 **false**。
 - **验收**：200 次以上随机并发入队/关闭竞态测试；无串 Turn、无丢失、无重复交付、相同 ID 不重复。
 
 ### Phase 2：JLine 输入通道改造
@@ -220,7 +220,7 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 
 本批结果（完成后停止）：
 
-- 仅新增 `src/main/java/com/paicli/cli/InputCoordinator.java`、`src/test/java/com/paicli/cli/InputCoordinatorTest.java`，更新本文。Main、Agent、PlanExecuteAgent、审批/renderer、Phase1、pom 和用户配置均未修改。工作区原有未提交/未跟踪文件保留，未发现相关文件并行编辑。
+- 仅新增 `src/main/java/com/haocli/cli/InputCoordinator.java`、`src/test/java/com/haocli/cli/InputCoordinatorTest.java`，更新本文。Main、Agent、PlanExecuteAgent、审批/renderer、Phase1、pom 和用户配置均未修改。工作区原有未提交/未跟踪文件保留，未发现相关文件并行编辑。
 - 11 条协调器测试覆盖：普通 Enter 与显式命令、中文/多行原文、状态查询、无效命令、审批/计划优先、跨线程审批请求、单一事件处理线程、一次性读取标识、过期任务、结束时保留待交付与队列、Esc 取消请求、默认关闭/非交互降级、交互释放。Esc 与方向键/粘贴的分类只复用既有纯函数，不算真实终端验证。
 - 测试环境为 Temurin 21.0.12.1、Maven 3.10.0；仍按项目 Java17 目标编译。`target/run-phase2a-tests.py` 使用环境变量白名单（不继承任何 Provider key）、隔离 home/tmp、`-o` 和原 `target/phase0-central-settings.xml`，本地仓库 ID 不变。
 - 先失败：`python3 target/run-phase2a-tests.py InputCoordinatorTest red`，exit 1；原因是新类尚不存在，测试编译失败，**未运行 JUnit**。实现后同类 11/11 通过，exit 0。
@@ -232,7 +232,7 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 
 #### Phase2B-1：统一输入所有者与审批输入桥接基础（2026-10-21）
 
-本批只在独立公开仓库 `paicli-agentcli-public-export-20261021-6c9049d020` 的
+本批只在独立公开仓库 `haocli-agentcli-public-export-20261021-6c9049d020` 的
 `feat/steering-phase2b` 工作；开始时 HEAD `89888aa`、工作区 clean，未发现本仓库并行写入者或锁。
 不访问原仓库，不提交、推送、变基或切分支，不进入 Phase3。
 
@@ -253,15 +253,15 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
   环境变量白名单清除 Provider key，home/tmp 隔离到 target。先运行失败测试，再运行新测试和指定输入/审批核心回归。
 
 **接线 Gate**：本批不为阻塞中的 `readLine` 编写未经验证的唤醒，也不往 Main 添加伪接线。
-即使 `paicli.steering.enabled=true`，Main 也不会自动使用新桥。Phase2B-2 必须验证唯一 JLine Reader 的可靠唤醒、
+即使 `haocli.steering.enabled=true`，Main 也不会自动使用新桥。Phase2B-2 必须验证唯一 JLine Reader 的可靠唤醒、
 审批优先切换、草稿恢复、Tab/Shift+Tab、中文/方向键/Escape、计划 raw/行输入及 raw mode 清理，再替换运行时旧读取。
 本批单测不是 PTY 验证，不代表 Steer 已进入模型。
 
 实际结果（Phase2B-1 完成后停止）：
 
-- 新增 `src/main/java/com/paicli/cli/TerminalInputGateway.java`（只新增一个顶层生产类型），以及
-  `src/test/java/com/paicli/cli/TerminalInputGatewayTest.java`、
-  `src/test/java/com/paicli/render/inline/InlineApprovalGatewayTest.java`。
+- 新增 `src/main/java/com/haocli/cli/TerminalInputGateway.java`（只新增一个顶层生产类型），以及
+  `src/test/java/com/haocli/cli/TerminalInputGatewayTest.java`、
+  `src/test/java/com/haocli/render/inline/InlineApprovalGatewayTest.java`。
   修改 `InlineApprovalPrompter.java`、本文和 `README.md`。未改 Main、Agent、InputCoordinator、Phase1、
   PlainRenderer、TerminalHitlHandler、InlineRenderer、工具审批策略、pom 或用户配置。
 - 数据语义：每个子请求有独立 UUID、输入类型和提示；一段 Session 对应一次审批或计划交互。
@@ -339,9 +339,9 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 **续验已结束，结论 `GATE_FAIL`，不接 Main，不进入 Phase3（2026-10-23）。**
 
 - 开始时为 `feat/steering-phase2b`、HEAD `89888aa0df70bca8b16cab5441d307c759d4dc55`。
-  一次进程核对及当前 agent 列表未发现相关并行写入者；没有启动子 Agent，没有访问或改动原 `paicli-main`。
+  一次进程核对及当前 agent 列表未发现相关并行写入者；没有启动子 Agent，没有访问或改动原 `haocli-main`。
   保留全部已有未提交文件，包括 `tools/run-jline-input-proof.py`；旧 `proof.log` 没有改写，仍不能算 PTY 验证。
-- 本次仅修改 `src/test/java/com/paicli/cli/JLineInputProof.java` 和本文；
+- 本次仅修改 `src/test/java/com/haocli/cli/JLineInputProof.java` 和本文；
   新驱动为 `target/phase2b2/run-validation.py`，从既有 runner 复制后最小调整，未改原脚本或 pom。
   proof 增加退出前的文件握手、实际 JLine 的所有者/重入检查、Tab/ShiftTab 和安全点审批/seed 草稿场景；
   阻塞审批场景去掉请求后的第二次控制键。adapter 与其三个单测原样保留，生产执行链路没有变化。
@@ -399,7 +399,7 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 
 #### Phase2B-3a：可审查的独立唤醒原型（2026-10-23，文件已写入，尚未运行）
 
-- 在公开导出仓库中仅新增两个文件：`src/test/java/com/paicli/cli/JLineWakeupProof.java`、`tools/run-jline-wakeup-proof.py`。未修改 `Main.java`、`Agent.java`、`JLineInputAdapter.java`、`TerminalInputGateway.java`、`pom.xml`、生产审批及工具逻辑。
+- 在公开导出仓库中仅新增两个文件：`src/test/java/com/haocli/cli/JLineWakeupProof.java`、`tools/run-jline-wakeup-proof.py`。未修改 `Main.java`、`Agent.java`、`JLineInputAdapter.java`、`TerminalInputGateway.java`、`pom.xml`、生产审批及工具逻辑。
 - `JLineWakeupProof` 是独立试验，不属于应用启动路径。继承 JLine `LineReaderImpl`，重用其 `BindingReader` 识别输入，只有 UI 构造线程能访问 JLine；worker 仅设置原子唤醒标志。内部事件在约 30ms 的限时 peek 周期后由 UI 线程观察，并使用专门的异常退出当前 `readLine`，把草稿和光标保存下来。然后 UI 线程才可处理审批请求，完成后以原文本及光标重新进入 JLine。
 - PTY 驱动放在仓库中的普通可审查脚本里，独立使用 `target/phase2b3`，不继承 Provider API key 环境变量；先离线编译并运行现有 14 项定向 JUnit，再只启动这一个独立 proof。审批发出后、观察到 `WAKE_WITHOUT_ENTER` 之前不能写任何终端输入。检查审批不被当成 Steer、草稿与光标恢复、JLine 属性与 **JVM 仍存活时** 的 OS PTY termios，并将失败日志保留在 `target/phase2b3`。失败时强制停止只属于驱动的清理，不算通过。
 - Mac 本机验证命令（需具备执行命令的已授权环境）：`python3 tools/run-jline-wakeup-proof.py`。只做编译可加 `--compile-only`。不要将脚本内容粘贴进未知的外部终端会话；普通命令运行即可。
@@ -410,7 +410,7 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 
 - 上次通过明确的一次性权限审批，Mac Codex 仅运行了 `python3 tools/run-jline-wakeup-proof.py` 一次，输出目录 `target/phase2b3/run-1792837258712217000/`。离线 Maven exit 0，JUnit 14/14；真实 PTY 证明了无 Enter 唤醒、审批隔离、草稿与光标恢复、JLine 对自身快照属性恢复。不过整体脚本 exit 1，系统级 `OS PTY termios not restored to pre-child snapshot`，不能称为 Gate 通过。
 - 检查原始 `pty-wakeup.log` 和当时的两段代码后，发现一个明确的验证时序问题：旧的 `PROOF:PASS` 在 Java 的 `try (Terminal ...)` **内部**打印，而 Python 收到它立即执行 `termios.tcgetattr(slave)`，当时仍未执行 `Terminal.close()`。因此先前 OS 差异可能只是关闭前正常状态；尚无证据表明关闭后仍泄漏。
-- 本次仅修改两处独立测试文件：`src/test/java/com/paicli/cli/JLineWakeupProof.java` 在退出 try-with-resources 后打印 `PROOF:TERMINAL_CLOSED`，在 JVM 保持存活期间等待父进程的属性核对及文件 ack，最后才发 `PROOF:PASS`；`tools/run-jline-wakeup-proof.py` 等待此关闭标记，记录所有未恢复的 `iflag/oflag/cflag/lflag/ispeed/ospeed/cc` 前后差异，然后确认/拒绝 ack。这是消除错误的验证时机，并非更改生产代码或放宽断言。
+- 本次仅修改两处独立测试文件：`src/test/java/com/haocli/cli/JLineWakeupProof.java` 在退出 try-with-resources 后打印 `PROOF:TERMINAL_CLOSED`，在 JVM 保持存活期间等待父进程的属性核对及文件 ack，最后才发 `PROOF:PASS`；`tools/run-jline-wakeup-proof.py` 等待此关闭标记，记录所有未恢复的 `iflag/oflag/cflag/lflag/ispeed/ospeed/cc` 前后差异，然后确认/拒绝 ack。这是消除错误的验证时机，并非更改生产代码或放宽断言。
 - 随后已提交一次限定单次执行的 Mac Codex 复验请求，但 Codex Provider 在执行命令之前返回 **usage limit**，任务 `agt_a5b3b172102c1bc54927d949` 失败。没有运行新版脚本、没有新版 `result.json`，也没有新的 JUnit/PTY 成绩；本次不再重复启动 Provider。
 - 下一项必须先执行 `python3 tools/run-jline-wakeup-proof.py` 获取新的日志，严格核对 `TERMINAL_CLOSED` 后的系统属性和完整退出码。如果通过，之后再独立增加真实 PTY 的方向键、Esc、Tab/ShiftTab、多行粘贴、Ctrl+C/EOF 及 macOS 中文输入法体验的测试；不能因这组局部 proof 就直接接 `Main` 或进入 Phase3。
 - **当前 Gate：FAIL（新的修正尚未实测）**。保持 Steering 默认关闭，保留所有用户已有未提交变更，不改业务代码，不 commit/push。
@@ -435,10 +435,10 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 
 #### Phase2B-3a：10 月 24 日进一步追因与负对照（最新）
 
-- 为了区分 JLine 泄漏与 macOS 沙箱进程问题，已仅在 `src/test/java/com/paicli/cli/JLineWakeupProof.java` 独立测试类增加线程诊断：唤醒事件超过 650ms 未被消费时由 daemon watchdog 保存 UI 线程栈到 `exit-ack.wake-diagnostic`，`main` 返回前保存非 daemon 线程到 `exit-ack.threads`，JVM 开始关闭后 850ms 保存**所有活跃线程（包括 daemon）**到 `exit-ack.shutdown-threads`；`tools/run-jline-wakeup-proof.py` 会在失败时保留这些日志。没有使用 `System.exit(0)` 绕过退出审计。
+- 为了区分 JLine 泄漏与 macOS 沙箱进程问题，已仅在 `src/test/java/com/haocli/cli/JLineWakeupProof.java` 独立测试类增加线程诊断：唤醒事件超过 650ms 未被消费时由 daemon watchdog 保存 UI 线程栈到 `exit-ack.wake-diagnostic`，`main` 返回前保存非 daemon 线程到 `exit-ack.threads`，JVM 开始关闭后 850ms 保存**所有活跃线程（包括 daemon）**到 `exit-ack.shutdown-threads`；`tools/run-jline-wakeup-proof.py` 会在失败时保留这些日志。没有使用 `System.exit(0)` 绕过退出审计。
 - 有实测：`target/phase2b3/run-1792851160288870000/`、`target/phase2b3/run-1792851352568460000/`、`target/phase2b3/run-1792851534986586000/`。三轮离线 Maven exit 0、JUnit 14/14、显式 javac exit 0；无 Enter 唤醒、审批隔离、草稿和光标恢复、JLine attrs 以及排除 PENDIN 临时位后的 OS 有效属性恢复通过，但独立 JVM 在 `PROOF:PASS` 后 `wait(timeout=5)` 仍超时，runner exit 1。
 - `run-1792851352568460000/exit-ack.shutdown-threads` 显示 JVM 已开始关闭，`DestroyJavaVM` 在 `ApplicationShutdownHooks.runHooks()` 的 `Thread.join()` 等待；`main` 返回前只有自己这一条非 daemon。之后 `run-1792851534986586000/exit-ack.shutdown-threads` 在关闭 850ms 后观察到 `DestroyJavaVM` 仍在等待以及观察用 hook、JVM 系统 daemon 线程，但**未见可直接归罪于 JLine 的活跃 Java hook 线程**。仍需区分 Java 退出阶段和沙箱进程管控，不可断言 JLine 泄漏。
-- 新增完全独立的 **负对照**：`tools/run-pty-java-exit-baseline.py`（不加载 JLine/PaiCLI，不运行 Maven/模型），直接将 JDK21 `java -version` 放进与原 proof 相同的 `pty.openpty + setsid + TIOCSCTTY` 环境。实测 `target/phase2b3/exit-baseline-1792851717274799000/result.json`：Java 已打印完整版本信息，但等待正常退出 8 秒超时；对该新建子进程 `terminate()` 后再等 2 秒依然超时。这证明退出异常**不要求 JLine 或 PaiCLI 参与**，原因可能在 Mac 沙箱、PTY/session 管理或 JVM 与其组合，尚不能区分三者。绝不能再把所有超时简单归为 JLine 资源泄漏。
+- 新增完全独立的 **负对照**：`tools/run-pty-java-exit-baseline.py`（不加载 JLine/Hao CLI，不运行 Maven/模型），直接将 JDK21 `java -version` 放进与原 proof 相同的 `pty.openpty + setsid + TIOCSCTTY` 环境。实测 `target/phase2b3/exit-baseline-1792851717274799000/result.json`：Java 已打印完整版本信息，但等待正常退出 8 秒超时；对该新建子进程 `terminate()` 后再等 2 秒依然超时。这证明退出异常**不要求 JLine 或 Hao CLI 参与**，原因可能在 Mac 沙箱、PTY/session 管理或 JVM 与其组合，尚不能区分三者。绝不能再把所有超时简单归为 JLine 资源泄漏。
 - 最新一次 Codex 任务后续遇 Provider `usage limit`；负对照在 Provider 错误前已生成真实 `result.json`，因此测试结果以上述文件为准。沙箱退出/清理限制可能留下测试子进程，当前**未确认任何具体 PID 仍存活**；切勿根据旧日志中的 PID 直接发送杀进程信号。
 - **下一步优先做本机普通 Terminal（非 Codex 沙箱）对照**：现在有单命令入口 `python3 tools/run-phase2b3-local-check.py`，它先运行旧的 `run-pty-java-exit-baseline.py`，严格确认 `java -version` 在控制终端 PTY 下得到实际 **exit 0 且无超时**，仅此前提成立才运行 `run-jline-wakeup-proof.py`。二者原始日志不覆盖，外层生成 `target/phase2b3/local-check-*/summary.json` 以及两阶段 stdout/stderr。基线失败时状态为 `BLOCKED_BY_JAVA_PTY_EXIT`、自动停止，不能因为打印了版本信息就放行；PTY proof 完整通过时才标记 `PROTOTYPE_PASS`，依旧不代表主程序集成。应使用普通 Terminal 运行，不在 Codex 沙箱内反复试跑。
 - **目前 Phase2B-3a 整体 Gate：FAIL / 测试环境阻塞 + 唤醒稳定性待验证**。保留全部用户未提交改动，正式 Steering 仍默认关闭，不接 `Main.java`、不进入 Phase 3、不 commit/push。待完整 Gate 通过后再按矩阵补方向键、Esc、Tab/Shift+Tab、括号粘贴、Ctrl+C/EOF 与 macOS 中文输入法手工体验。
@@ -446,13 +446,13 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 #### Phase2B-3a：2026-10-25 本机一键验收入口（已写代码、等待普通 Terminal 实测）
 
 - 新增 `tools/run-phase2b3-local-check.py`：用用户 Mac 的 Python3 在工作区生成新的 `target/phase2b3/local-check-*/summary.json`，先独立运行最小 `java -version` 控制终端 PTY 负对照，核对**真实进程退出码**和超时标志；如果基线失败，禁止启动第二阶段。仅基线正常时，运行现成的离线 Maven 指定 JUnit14、显式 javac、独立 JLine4 PTY proof，检查完整闭环及无异常清理；输出稳定机器可读的 `BLOCKED_BY_JAVA_PTY_EXIT` / `PROTOTYPE_FAIL` / `PROTOTYPE_PASS`。
-- 入口不会启动真实 PaiCLI 主程序、模型、联网或 Docker；不修改生产代码、提交历史或现有测试日志。原有脚本针对同一终端会话可能存在偶发唤醒超时、退出进程无法清理等风险，**不能重试挑选成功**。若外层或内层失败，依据最新 `summary.json`、`result.json` 与 PTY 原始输出排查。
+- 入口不会启动真实 Hao CLI 主程序、模型、联网或 Docker；不修改生产代码、提交历史或现有测试日志。原有脚本针对同一终端会话可能存在偶发唤醒超时、退出进程无法清理等风险，**不能重试挑选成功**。若外层或内层失败，依据最新 `summary.json`、`result.json` 与 PTY 原始输出排查。
 - Mac ServerFS 目前只暴露 Codex Agent 命令执行，没有与用户普通 Terminal 等价的命令执行接口。因此入口由 MCP **直接创建并核实存在**，但尚未在非 Codex 沙箱的普通终端执行，尚无新复验结果；请不要把“新建入口”当成 Gate PASS。
 - 后续只在基础环境退出与原型稳定性 Gate 成功后补方向键、Esc、Tab/Shift+Tab、粘贴、Ctrl+C/EOF、中文输入法等测试。正式 Steering 默认关闭，禁止提前接 `Main.java`、推进 Phase3 或 commit/push。
 
 #### Phase2B-3a：2026-10-25 macOS CTTY 根因对照与首次完整原型 PASS（最新）
 
-- 通过 Mac ServerFS/Codex 在**同一受限环境**内单次执行新工具 `tools/run-pty-java-exit-matrix.py`，日志 `target/phase2b3/exit-matrix-1792923407941765000/result.json`。五种独立 `java -version` 退出对照：普通文件 IO 191ms/exit0、文件IO+setsid 40ms/exit0、PTY 无 setsid 63ms/exit0、PTY+setsid 58ms/exit0；唯有 **PTY+setsid+TIOCSCTTY** 在6秒后超时，随后对该直接子进程 kill 并等待2秒仍无法回收。由此定位为该控制终端设置**及其与当前执行环境的组合**触发，不能归罪于 JLine 或 PaiCLI。没有确认旧 PID 仍存活，勿按日志 PID 盲目清理。
+- 通过 Mac ServerFS/Codex 在**同一受限环境**内单次执行新工具 `tools/run-pty-java-exit-matrix.py`，日志 `target/phase2b3/exit-matrix-1792923407941765000/result.json`。五种独立 `java -version` 退出对照：普通文件 IO 191ms/exit0、文件IO+setsid 40ms/exit0、PTY 无 setsid 63ms/exit0、PTY+setsid 58ms/exit0；唯有 **PTY+setsid+TIOCSCTTY** 在6秒后超时，随后对该直接子进程 kill 并等待2秒仍无法回收。由此定位为该控制终端设置**及其与当前执行环境的组合**触发，不能归罪于 JLine 或 Hao CLI。没有确认旧 PID 仍存活，勿按日志 PID 盲目清理。
 - 只修改独立 Python 测试驱动 `tools/run-jline-wakeup-proof.py`：PTY 子进程改用 `start_new_session=True`，**不再**执行 `TIOCSCTTY`，测试仍在真实 PTY 上进行，保留所有 JLine 草稿、审批、系统 termios 及 Java 正常退出断言；失败清理改为只对当次新建 JVM 的 PID 依次尝试 terminate/kill，不再向进程组发送信号。
 - 单次执行产出 `target/phase2b3/run-1792923593200598000/result.json`、`maven.log` 和 PTY 日志：离线 Maven exit0、JUnit **14/14**、最新 javac exit0，真实 PTY `status=PASS`，无 Enter 唤醒、审批隔离、中文草稿和光标恢复、JLine 属性、`Terminal.close` 文件握手、OS 有效属性恢复**全部通过**；JVM `child_exit_code=0`、`child_reaped=true`、无异常清理。原始 `PENDIN` 单个位差异如实保留，`os_attributes_exact=false`，排除该内核临时状态位后其余 termios 属性无差异。**这是独立原型第一次完整通过，不代表正式主程序集成或稳定性 Gate。**
 - 将 `tools/run-pty-java-exit-baseline.py` 与单命令入口 `tools/run-phase2b3-local-check.py` 的前置检测一致改为 `PTY+setsid`、不强制 `TIOCSCTTY`；有问题的 CTTY 负对照仍完整保存于独立 exit-matrix 工具和原始日志。此修改防止一键入口继续使用已定位的不兼容启动模式而无条件阻止测试。
@@ -461,7 +461,7 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 #### Phase2B-3a / 3b：2026-10-25 第二轮完整验收与键盘测试进展（最新）
 
 - **Phase2B-3a 独立原型连续两轮完整 PASS**，且均严格以真实 JVM exit0、正常回收、无 Enter 唤醒、审批隔离、草稿/光标及有效终端属性恢复为准：`target/phase2b3/run-1792923593200598000/result.json` 和第二轮 `target/phase2b3/local-check-1792923862113094000/summary.json`。第二轮前置 `java -version` 以 PTY+setsid、不强制控制终端自然 exit0，随后 Maven -o JUnit 14/14、显式 javac 0、PTY status PASS、child_exit_code 0、child_reaped true。与早前需 TIOCSCTTY 时的退出卡住形成可审计对照。**这仅通过独立原型阶段，不表示正式程序/Main集成通过。**
-- 为推进 Phase2B-3b，新增 `src/test/java/com/paicli/cli/JLineKeyMatrixProof.java` 和 `tools/run-jline-key-matrix-proof.py`，完全独立于原有 WakeupProof。新的类文件编译到每次独有 `target/phase2b3/key-matrix-*/classes/`，不覆盖主原型的共有 build/test-classes；Python 在 PTY+setsid 无 TIOCSCTTY 模式下只驱动单个 JLine4 JVM，执行完成后核对是否正常退出、终端有效属性恢复，保留完整日志。
+- 为推进 Phase2B-3b，新增 `src/test/java/com/haocli/cli/JLineKeyMatrixProof.java` 和 `tools/run-jline-key-matrix-proof.py`，完全独立于原有 WakeupProof。新的类文件编译到每次独有 `target/phase2b3/key-matrix-*/classes/`，不覆盖主原型的共有 build/test-classes；Python 在 PTY+setsid 无 TIOCSCTTY 模式下只驱动单个 JLine4 JVM，执行完成后核对是否正常退出、终端有效属性恢复，保留完整日志。
 - 初始键盘矩阵 `target/phase2b3/key-matrix-1792924117660346000/` 编译成功但左方向键失败：驱动发送普通模式 `ESC[D`，而终端输出已进入应用方向键模式 `ESC[?1h`。调整模拟键序列为应用模式 `ESCOD` 后，后续 run 中 **方向键修改光标位置、不误触独立 Esc；独立 Esc；Tab/Shift+Tab；中文多行 bracketed paste** 四项均通过，代表真实 PTY 用户输入链的局部证据。
 - `target/phase2b3/key-matrix-1792924361631922000/` 在 Ctrl+C 阶段超时：没有 `KEY:INTERRUPT_PASS`，所以 Ctrl+D、关闭握手、属性恢复阶段**均未执行**，不应标成各自已失败。`run-1792924555794582000/result.json` 的对应键盘日志明确记录 Ctrl+C 前 macOS PTY 为 `ISIG=true`、`ICANON=false`。后续 `run-1792924679815105000/result.json` 中测试驱动在发送 Ctrl+C 前临时清除 `ISIG`，记录 `ctrl_c_isig_at_send=false`，**仍未**得到 JLine 的 `UserInterruptException`，8秒超时，测试子 JVM 只被脚本对其自身 PID terminate 且已回收。这说明失败**不能仅归因于内核吞掉 VINTR**，仍需进一步检查 JLine 进入 raw 模式的时序/按键绑定/无控制终端下的信号行为。该临时清位只用于字节级诊断，不能冒充真实控制终端下的 Ctrl+C 验收。
 - **Phase2B-3b 总体 Gate 继续 FAIL（4 项有成功证据，Ctrl+C 待解决，Ctrl+D 未触及，且尚无键盘矩阵收尾属性/退出结果）。** 下一步应做更细的字节接收与 active JLine keymap 诊断，区分 kernel 线路 vs JLine send-break widget；必要时用真正普通 Mac Terminal 实测 Ctrl+C / Ctrl+D 原生信号机制，避免再让 Codex 沙箱 CTTY 退出缺陷污染结论。完整键盘矩阵、中文输入法候选窗口人工体验和无残留退出验证都通过前，不接 Main/Agent、不启动 Phase3、不提交或推送。
@@ -472,13 +472,13 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 - 单次独立诊断 `target/phase2b3/key-matrix-1792934297476245000/result.json` 及对应 `pty-keyboard.log` 确认：`KEY:CTRL_C_ORIGINAL_BINDING_null`（所读 MAIN keymap 无默认 0x03 绑定）；诊断专用 widget 明确打印 `KEY:CTRL_C_BYTE_SEEN`；驱动发送 0x03 时 `ICANON=false`、`ISIG=false`。但委托 JLine `LineReader.SEND_BREAK` widget 后只听到终端铃声，没有 `UserInterruptException`；本轮完整键盘矩阵真实 `FAIL`。因此 Ctrl+C 字节**到达 JLine**，问题是动作/真实中断语义，不能再将故障仅归于内核吃掉输入，更不能把诊断绑定本身当成真实中断成功。
 - 为避免一个尚未验证的原生 SIGINT 行为阻止其他按键评估，给**独立测试原型** `JLineKeyMatrixProof.java` 和驱动 `run-jline-key-matrix-proof.py` 加入显式 `--defer-ctrl-c` 分支。分支发出 `CTRL_C_DEFERRED`，不向该无控制终端 PTY 模拟 Ctrl+C，保持其为 **未验证**，并独立检查 Ctrl+D / EOF、`Terminal.close`、真实 `termios`、JVM 自然退出和子进程回收；整体必须标记 `PARTIAL_PASS_CTRL_C_UNVERIFIED`、脚本退出码 **2**，不得当作 Gate PASS。默认无参数仍执行严格 Ctrl+C 测试。
 - 实测 `target/phase2b3/key-matrix-1792934544308921000/result.json`：离线独立 javac 退出码 0；方向键、独立 Esc、Tab/Shift+Tab、UTF-8 多行粘贴、**Ctrl+D/EndOfFileException**、关闭握手、有效终端配置恢复均通过（只存在 macOS PENDIN 这个已记录的内核临时状态位差异）；Java JVM 自然 `child_exit_code=0` 且 `child_reaped=true`。状态准确为 `PARTIAL_PASS_CTRL_C_UNVERIFIED`，Ctrl+C `false` 且明确 deferred，脚本按约定 exit 2。
-- 新增仅用于用户**普通前台 macOS Terminal** 的最小验证类 `src/test/java/com/paicli/cli/JLineNativeCtrlProof.java` 和入口 `tools/run-jline-native-ctrl-check.py`。入口先检查 macOS、stdin/stdout 均为 TTY 且当前进程属于终端前台进程组，离线将该独立 Java 类编译到自己的 `target/phase2b3/native-ctrl-*/classes`，再使用 `os.execv` **直接替换 Python 为 Java**（不由 Python 模拟 PTY、也不强制 TIOCSCTTY），在真实 Terminal 提示用户分别按 Ctrl+C 与空行 Ctrl+D。真实 JLine 捕获 `UserInterruptException` 和 `EndOfFileException`，完成后写 `native-ctrl-*/state.txt` 的 `PASS_NATIVE_CTRL_C_AND_CTRL_D`；若进程被 SIGINT 杀掉或按 Enter 代替则不会写 PASS。它不替代后续中文输入法、窗口状态及用户操作验证。
-- **注意**：该新 native 入口是通过 ServerFS MCP 已写入的代码，尚未在用户真正的 Mac Terminal 交互执行；Codex 沙箱不是等价的控制终端，绝不能让它跑该脚本去声称已验证。使用方法：在普通 Terminal 内 `cd /Users/a123/Projects/paicli-agentcli-public-export-20261021-6c9049d020 && python3 tools/run-jline-native-ctrl-check.py`。最后查看新 `target/phase2b3/native-ctrl-*/state.txt` 与编译结果；若 Ctrl+C 意外影响终端输入，先新开终端或在该终端执行 `stty sane`，不要盲杀其他 Java 进程。
+- 新增仅用于用户**普通前台 macOS Terminal** 的最小验证类 `src/test/java/com/haocli/cli/JLineNativeCtrlProof.java` 和入口 `tools/run-jline-native-ctrl-check.py`。入口先检查 macOS、stdin/stdout 均为 TTY 且当前进程属于终端前台进程组，离线将该独立 Java 类编译到自己的 `target/phase2b3/native-ctrl-*/classes`，再使用 `os.execv` **直接替换 Python 为 Java**（不由 Python 模拟 PTY、也不强制 TIOCSCTTY），在真实 Terminal 提示用户分别按 Ctrl+C 与空行 Ctrl+D。真实 JLine 捕获 `UserInterruptException` 和 `EndOfFileException`，完成后写 `native-ctrl-*/state.txt` 的 `PASS_NATIVE_CTRL_C_AND_CTRL_D`；若进程被 SIGINT 杀掉或按 Enter 代替则不会写 PASS。它不替代后续中文输入法、窗口状态及用户操作验证。
+- **注意**：该新 native 入口是通过 ServerFS MCP 已写入的代码，尚未在用户真正的 Mac Terminal 交互执行；Codex 沙箱不是等价的控制终端，绝不能让它跑该脚本去声称已验证。使用方法：在普通 Terminal 内 `cd /Users/a123/Projects/haocli-agentcli-public-export-20261021-6c9049d020 && python3 tools/run-jline-native-ctrl-check.py`。最后查看新 `target/phase2b3/native-ctrl-*/state.txt` 与编译结果；若 Ctrl+C 意外影响终端输入，先新开终端或在该终端执行 `stty sane`，不要盲杀其他 Java 进程。
 - **Phase2B-3b 整体 Gate 仍未通过**：以上键盘剩余项已验证，但真实 Terminal Ctrl+C 和 macOS 中文输入法候选窗口行为待验，正式 Steering 不接入 `Main.java`/`Agent.java`，不进入 Phase3；保存全部旧日志和用户的未提交改动，不 commit/push。
 
 #### Phase2B-3b：2026-10-25 Codex CLI 实际执行与 INT handler 代理验证（最新）
 
-- 用户要求由 Codex CLI 执行。已启动 `agt_3f2d43b5ecd09ebe48582e5f`，在 Mac 的 Codex 沙箱里真实运行**一次** `python3 tools/run-jline-native-ctrl-check.py`：脚本退出码 **2**，原因是 `stdin.isatty=false`、`stdout.isatty=false`、`tcgetpgrp(0)` 返回 ENOTTY；按预检设计**未**启动交互 Java，也未创建 `native-ctrl-*` 产物。这是执行环境不具备前台控制终端，不是 PaiCLI 测试断言失败。不得用假 PTY 冒充原生 Ctrl+C 通过。
+- 用户要求由 Codex CLI 执行。已启动 `agt_3f2d43b5ecd09ebe48582e5f`，在 Mac 的 Codex 沙箱里真实运行**一次** `python3 tools/run-jline-native-ctrl-check.py`：脚本退出码 **2**，原因是 `stdin.isatty=false`、`stdout.isatty=false`、`tcgetpgrp(0)` 返回 ENOTTY；按预检设计**未**启动交互 Java，也未创建 `native-ctrl-*` 产物。这是执行环境不具备前台控制终端，不是 Hao CLI 测试断言失败。不得用假 PTY 冒充原生 Ctrl+C 通过。
 - 随后由 Codex 只读检查已缓存 JLine 4.0.0 jar 的真实字节码（任务 `agt_d54e97f6aee298943e450bea`），确认 `LineReader.SEND_BREAK` 实际是 `"abort"`，行为为清空输入、返回 false 并响铃，**不会抛 UserInterruptException**；之前将其作为中断断言属于**测试预期错误**。JLine 真正的 `INT` 信号处理路径会中断当前读行线程并让 `readLine` 转换为 `UserInterruptException`；在无控制终端的测试中，可通过 `terminal.raise(Terminal.Signal.INT)` 测该处理器，但绝不等价于 OS 前台键盘 Ctrl+C 投递。
 - 仅在独立 `JLineKeyMatrixProof.java` 里将 Ctrl+C 诊断 widget 修成：`CTRL_C_BYTE_SEEN` 后调用 `terminal.raise(Terminal.Signal.INT)`，读行捕获 `UserInterruptException` 后输出 `INTERRUPT_SIGNAL_PROXY_PASS`；`tools/run-jline-key-matrix-proof.py` 仍需从真实 PTY 发送 0x03 且诊断时关 `ISIG`，但该分支强制输出 `ctrl_c_status=JLINE_INT_HANDLER_PROXY_ONLY`、`ctrl_c=false`（原生未通过），整体状态为 `PARTIAL_PASS_NATIVE_CTRL_C_UNVERIFIED`，脚本有意 exit **2**，不得返回 0。
 - Codex 实际运行一次 `python3 tools/run-jline-key-matrix-proof.py`（任务 `agt_d05f91d311736006c9c3f5f7`），日志 `target/phase2b3/key-matrix-1792936480828632000/result.json` + `pty-keyboard.log`：离线 javac exit0；左箭头、Esc、Tab/ShiftTab、中文多行括号粘贴、`CTRL_C_BYTE_SEEN`、`INTERRUPT_SIGNAL_PROXY_PASS`、Ctrl+D EOF、`Terminal.close` 握手、macOS 有效 `termios` 配置恢复**全部通过**；原始 `PENDIN` 临时位差异仍保留。Java `child_exit_code=0` 且 `child_reaped=true`，`failure=null`。**这是 JLine INT handler 代理验证通过，而非真实 Ctrl+C 已通过。**
@@ -486,8 +486,8 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 
 #### Phase2B-3c：2026-10-26 独立唤醒机制提取、阻塞根因修复及双轮回归（最新）
 
-- **新增独立正式源码** `src/main/java/com/paicli/cli/WakeableLineReader.java`，将上一版仅存在 `JLineWakeupProof` 中的 JLine 唤醒技术机制提取为可复用组件。UI 创建线程是唯一物理读取者；worker 只能调用线程安全的 `requestWake()` 设置 `AtomicBoolean`，绝不从 worker 调用 JLine/Terminal；唤醒以单独的 `Wakeup` 异常传递，而不是 Ctrl+C/EOF；`Draft(text,cursor)` 仅在 UI 线程保存/读取/恢复。**尚未接入 Main/Agent，也没有让 Steering 默认开启**。
-- `src/test/java/com/paicli/cli/JLineWakeupProof.java` 已从私有 `EventLineReader` 切换到上述新类，真实 PTY 直接验证新的源码实现；`tools/run-jline-wakeup-proof.py` 显式 fresh javac 同时编译生产类和独立 proof，避免 Maven 旧 class 缓存假通过。项目仍在原仓库/分支，保留全部未提交文件。
+- **新增独立正式源码** `src/main/java/com/haocli/cli/WakeableLineReader.java`，将上一版仅存在 `JLineWakeupProof` 中的 JLine 唤醒技术机制提取为可复用组件。UI 创建线程是唯一物理读取者；worker 只能调用线程安全的 `requestWake()` 设置 `AtomicBoolean`，绝不从 worker 调用 JLine/Terminal；唤醒以单独的 `Wakeup` 异常传递，而不是 Ctrl+C/EOF；`Draft(text,cursor)` 仅在 UI 线程保存/读取/恢复。**尚未接入 Main/Agent，也没有让 Steering 默认开启**。
+- `src/test/java/com/haocli/cli/JLineWakeupProof.java` 已从私有 `EventLineReader` 切换到上述新类，真实 PTY 直接验证新的源码实现；`tools/run-jline-wakeup-proof.py` 显式 fresh javac 同时编译生产类和独立 proof，避免 Maven 旧 class 缓存假通过。项目仍在原仓库/分支，保留全部未提交文件。
 - 首次提取后独立运行 `target/phase2b3/run-1793017312789239000/result.json`：Maven JUnit **14/14**、fresh javac 0，但 worker 设置 `WAKE_FLAG_SET` 后 8 秒没有 `WAKE_WITHOUT_ENTER`；PTY **FAIL**，仅对新建 JVM `terminate:reaped`，不算 Java 正常退出。**此失败已保留**，不能把之前旧原型偶然通过视为本类稳定。
 - 随后通过 Codex **只读反查本机 JLine4.0.0 jar 字节码**：`BindingReader.readBinding(keys,local,false)` 第三参 false 只允许“本次已经读取至少一个字符”后的空返回；首次 `readCharacter` 会把内部每100ms过期继续循环，不保证外层20ms轮询。根因明确，不再靠超时调大掩盖。旧 proof 曾尝试 `terminal.reader().peek` 并出现阻塞，这次修复改为**同一个 `bindingReader.peekCharacter(20L)`** 先探测输入，再执行完整按键解析；在读取期间沿用 `LineReaderImpl` 的 `lock` 临时释放/`finally` 恢复，保留唯一读者。歧义 ESC 或 UTF-16 代理字符内部等待仍可能有额外延迟，不能声称全路径硬性20ms上限。
 - **修复后固定代码做两轮独立回归**，均不额外输入 Enter，保留所有中间失败：`target/phase2b3/run-1793017700213724000/result.json`、`target/phase2b3/run-1793017839745515000/result.json`。两轮均离线 Maven 14/14、显式 javac exit0、PTY status PASS；`wake_without_enter` / `approval_isolated` / `draft_restored` / `jline_attributes` / `os_attributes` / `terminal_close_handshake` 均 true；child_exit_code=0、child_reaped=true、failure=null。macOS 内核 `PENDIN` 原始状态位变化依然保留在 raw attrs，排除该易变位后有效配置无差异。
@@ -504,7 +504,7 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 - Ctrl+C 仍明确未通过：`ctrl_c=false`、`ctrl_c_status=JLINE_INT_HANDLER_PROXY_ONLY`。脚本为了把 `0x03` 当作普通字节观察，先清除了终端 `ISIG`，因此 `ctrl_c_isig_at_send=false`；随后只验证了 JLine 的 `terminal.raise(INT)` 代理处理，不是前台控制终端把键盘 Ctrl+C 转成 OS SIGINT。`launch_mode=PTY + setsid WITHOUT TIOCSCTTY` 也不具备真实 controlling-tty 信号语义。整体 `PARTIAL_PASS_NATIVE_CTRL_C_UNVERIFIED` 和脚本退出码 2 是预期的保守结果，不是方向键回归失败。
 - `termios_exact=false` 仅因 macOS `lflag` 原始值存在 `PENDIN` 易变位差异（before `1483` / after `536872395`）；`termios_config_differences={}` 且 `termios_config_restored=true`，有效终端配置已恢复。不得把 raw 属性逐位不相等误报为终端配置恢复失败。
 - **2026-11-02 用户真实 Mac 前台 Terminal 人工验收通过**：执行 `python3 tools/run-jline-native-ctrl-check.py`，在 `ctrl+c>` 提示直接按 Ctrl+C，出现 `Ctrl+C caught as UserInterruptException.`；接着在空 `ctrl+d>` 提示按 Ctrl+D，出现 `Ctrl+D caught as EndOfFileException.`，最后打印 `PASS_NATIVE_CTRL_C_AND_CTRL_D` 并正常返回 shell。此证据由用户在当前对话提供，尚未单独读取 `native-ctrl-*/state.txt` 文件。本 smoke 使用**普通 JLine Reader**，验证真实控制终端的 Ctrl+C→JLine INT 和 Ctrl+D→EOF，不等于 `WakeableLineReader` 或 Main 的真实前台组合交互已通过。
-- **尚未关闭的 Gate**：macOS 中文输入法候选窗口、真实 CLI 运行中审批/计划交接、所有旧 Reader 迁移以及 Main 端到端验证。`paicli.steering.enabled` 仍默认关闭。保留之前 `key-matrix` 脚本独立 PTY 结果中的 `ctrl_c=false` 和 `PARTIAL_PASS`：该脚本自己的覆盖范围并未因另一个人工 smoke 变成 FULL PASS。不 commit/push/reset/clean。
+- **尚未关闭的 Gate**：macOS 中文输入法候选窗口、真实 CLI 运行中审批/计划交接、所有旧 Reader 迁移以及 Main 端到端验证。`haocli.steering.enabled` 仍默认关闭。保留之前 `key-matrix` 脚本独立 PTY 结果中的 `ctrl_c=false` 和 `PARTIAL_PASS`：该脚本自己的覆盖范围并未因另一个人工 smoke 变成 FULL PASS。不 commit/push/reset/clean。
 
 ### Phase 3：接入 ReAct（首个可交付版本）
 - 在 `agent/Agent.java` 引入安全点注入、消息 Ledger 事件、Atomic Finalize。
@@ -515,10 +515,10 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 #### Phase 3A：2026-10-27 ReAct 下一次请求安全点代码（已实现，待测试）
 
 - **项目不再因 Phase2B 人工终端体验测试而停止 Phase3 的隔离开发**，但真正对用户启用 Steering 仍需全部安全验收。此前将真实 Mac Ctrl+C/中文输入法人工 Gate 等同于“Phase3 不准编写代码”，导致进度反复停在2B，本轮已纠正。
-- 已实际新增 `src/main/java/com/paicli/agent/ReActSteeringSafePoint.java`，仅处理已进入 RUNNING 的 `TurnInputManager` 保管的用户 `STEER` 消息：下一次模型请求前 `reserveForRequest`，将原文追加到**本次调用的消息快照**，绝不修改已经发送的请求。尚未开启下一 Turn 的 `ENQUEUE` 不会被 reserve，也不混入当前请求。预留和状态由现有管理器同步保护。
-- 已实际最小修改 `src/main/java/com/paicli/agent/Agent.java`，新增**包级可见**的显式 `configureSteeringSafePoint` 入口，主程序 `Main.java` 未接入。已有的 ReAct tool_result 完整追加在下一轮循环之前；新逻辑只在下一次 `llmClient.chat` 前构造临时历史快照。成功收到调用返回后才 `commit` 并向内存历史与 Ledger 追加 `runtime_steer_included` 的用户消息；若调用抛 `IOException` 或 `RuntimeException`，按结果可能已送达的保守原则 `markDeliveryUnknown`，不把未确定内容写入正式对话历史，不自动 requeue / 重发。
+- 已实际新增 `src/main/java/com/haocli/agent/ReActSteeringSafePoint.java`，仅处理已进入 RUNNING 的 `TurnInputManager` 保管的用户 `STEER` 消息：下一次模型请求前 `reserveForRequest`，将原文追加到**本次调用的消息快照**，绝不修改已经发送的请求。尚未开启下一 Turn 的 `ENQUEUE` 不会被 reserve，也不混入当前请求。预留和状态由现有管理器同步保护。
+- 已实际最小修改 `src/main/java/com/haocli/agent/Agent.java`，新增**包级可见**的显式 `configureSteeringSafePoint` 入口，主程序 `Main.java` 未接入。已有的 ReAct tool_result 完整追加在下一轮循环之前；新逻辑只在下一次 `llmClient.chat` 前构造临时历史快照。成功收到调用返回后才 `commit` 并向内存历史与 Ledger 追加 `runtime_steer_included` 的用户消息；若调用抛 `IOException` 或 `RuntimeException`，按结果可能已送达的保守原则 `markDeliveryUnknown`，不把未确定内容写入正式对话历史，不自动 requeue / 重发。
 - `TurnToolPolicy` 仍以该 Turn 原始用户提交内容决定工具和 URL 授权，不因为新增 Steer 中出现 URL 就自动扩权。没有改已请求工具的 tool_call/tool_result 顺序，没有改渲染/审批旧输入者、Agent 主启动路径或默认关闭开关。
-- 新增 `src/test/java/com/paicli/agent/AgentSteeringSafePointTest.java`（JUnit FakeLLM，目标覆盖：第1次模型请求中接收Steer后只在第2次且完整工具结果后出现；Queue 不混入当前 Turn；第2次模型异常按 DELIVERY_UNCERTAIN 且不留影子消息；默认 Agent 无新入口维持原行为）。
+- 新增 `src/test/java/com/haocli/agent/AgentSteeringSafePointTest.java`（JUnit FakeLLM，目标覆盖：第1次模型请求中接收Steer后只在第2次且完整工具结果后出现；Queue 不混入当前 Turn；第2次模型异常按 DELIVERY_UNCERTAIN 且不留影子消息；默认 Agent 无新入口维持原行为）。
 - **2026-11-02 Phase3A 离线验收通过**：`AgentSteeringSafePointTest` 5/5，`AgentBudgetFinalizationTest` 1/1，`git diff --check` 通过。首次 Maven 命令因沙箱无法读取本机 Maven 锁文件而停止；随后只批准本机缓存读写、使用 `-o` 离线模式完成测试，没有网络访问、真实 Provider、Docker、AgentBench 或全量测试。
 - **Phase3 已实际开始开发，Phase3A 已完成定向验收，但尚未接入 Main；Phase2B 的原生键盘/IME Gate 仍未完整通过。**
 - Phase3A 补充了 `steerCannotGrantWebToolsOrUrlAccess` 回归：原始 Turn 明确禁止联网时，即使后续 Steer 文本带 URL 并要求 `web_fetch`，两次模型请求的工具清单都不出现联网工具。仅修改 `AgentSteeringSafePointTest.java`；没有发现生产实现错误，`Main.java` 和终端输入/审批代码未改，其他既有 dirty/untracked 文件未被本任务触碰。
@@ -528,16 +528,16 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 
 #### Phase3B-3A：2026-11-02 统一 ReAct 运行输入与 HITL 审批（代码已接线，离线定向回归通过；原生终端验收待完成）
 
-- 新增 `cli/SteeringRunLoop.java`：仅在 `paicli.steering.enabled=true`、交互式 inline Renderer、真实控制台和 `WakeableLineReader` 同时满足时使用。UI 主线程是唯一 JLine 读取者；ReAct worker 通过 `TerminalInputGateway` 请求审批输入，不能直接读取 Terminal/stdin。默认关闭、Plan/Team、Lanterna 和非交互路径仍走原逻辑。
-- `Main` 先创建实际 Renderer，只有最终选中 inline 且为真实交互控制台时才创建 `WakeableLineReader`，并复用原有 `PaiCliHistory`、`PaiCliCompleter` 和 `PaiCliHighlighter`；Plain/Lanterna/非交互回退不改变原 Reader。Steering 运行期间统一路由普通文本、`/steer`、`/queue`、`/inputs`、`/cancel`；运行输入模式下独立 Esc 触发取消，审批模式下 Esc 只清空当前子提示，Ctrl+C 才取消整轮。审批选项及拒绝原因、修改 JSON、批准范围都由同一 JLine Reader 读取。普通输入和审批输入提交后都会清除编辑态回显；已接收的 Steer/Queue 会以脱敏后的用户消息形式写入可见对话记录。审批期间普通输入不会进入当前模型请求；输入模式在 Enter 前变化，或 Turn 已在 Enter 前完成原子收尾时，都会返回 RETRY 并把原文恢复为草稿，必须再次确认。
+- 新增 `cli/SteeringRunLoop.java`：仅在 `haocli.steering.enabled=true`、交互式 inline Renderer、真实控制台和 `WakeableLineReader` 同时满足时使用。UI 主线程是唯一 JLine 读取者；ReAct worker 通过 `TerminalInputGateway` 请求审批输入，不能直接读取 Terminal/stdin。默认关闭、Plan/Team、Lanterna 和非交互路径仍走原逻辑。
+- `Main` 先创建实际 Renderer，只有最终选中 inline 且为真实交互控制台时才创建 `WakeableLineReader`，并复用原有 `HaoCliHistory`、`HaoCliCompleter` 和 `HaoCliHighlighter`；Plain/Lanterna/非交互回退不改变原 Reader。Steering 运行期间统一路由普通文本、`/steer`、`/queue`、`/inputs`、`/cancel`；运行输入模式下独立 Esc 触发取消，审批模式下 Esc 只清空当前子提示，Ctrl+C 才取消整轮。审批选项及拒绝原因、修改 JSON、批准范围都由同一 JLine Reader 读取。普通输入和审批输入提交后都会清除编辑态回显；已接收的 Steer/Queue 会以脱敏后的用户消息形式写入可见对话记录。审批期间普通输入不会进入当前模型请求；输入模式在 Enter 前变化，或 Turn 已在 Enter 前完成原子收尾时，都会返回 RETRY 并把原文恢复为草稿，必须再次确认。
 - `InlineRenderer` 只在这类 ReAct Turn 运行期间绑定 `TerminalInputGateway`；worker 的 HITL 提示通过请求桥等待，默认路径仍保留原实现。`JLineInputAdapter` 将 Ctrl+C 转成独立的取消失败状态，审批按拒绝处理并由运行循环取消整轮；EOF 不会伪装成空 Enter。审批内部唤醒会保留子提示草稿，运行中被审批打断的草稿和光标会带回下一次普通提示。审批超时若发生在 UI 正读行期间，超时原因会随 Dispatch 返回；为防止迟到的 y/n 混入 Steer，下一行会被明确隔离，用户需重新输入。
 - `Agent.configureSteeringSafePoint` 现在由 `Main` 显式按 Turn 安装，并在执行线程确认停止后清除，避免后续 Plan/Team 或旧路径复用已结束的安全点。预算收尾请求期间如果又收到 Steer，会继续以无工具请求处理，直到输入窗口原子关闭；中间收尾响应会先写入历史，并重置流式渲染状态，再发起下一次无工具请求，避免上下文或终端输出串接。
 - `/queue` 会进入 `TurnInputManager` 的下一 Turn 队列，并且不会混入当前模型请求；本阶段**不自动启动排队任务**，只显示队列数量并明确告知用户。队列内容仍仅保存在当前进程内存，不承诺跨进程恢复。
 - 新增 `SteeringRunLoopTest`，覆盖普通文本作为 Steer、Queue 与当前 Turn 隔离及可见回显、HITL 选择和拒绝原因复用同一 UI Reader、审批唤醒后恢复运行草稿、独立 Esc 与 `/cancel` 停止 worker 并暂停队列。`InputCoordinatorTest` 覆盖 Turn 在 Enter 前收尾时将输入保留为草稿。`AgentSteeringBudgetTest` 新增预算收尾请求期间收到 Steer 的回归，确认下一次无工具请求保留上一条助手收尾结果。`JLineInputAdapterTest` 和 `TerminalInputGatewayWakeupTest` 同步更新 Ctrl+C 语义断言。
 - **2026-11-02 Phase3B-3A 离线定向回归通过**：通过 `tools/run-phase3b3-tests.py` 使用 JDK 21、Maven `-o` 离线模式和白名单子进程环境执行；398 个主源码、347 个测试源码编译通过，Surefire 12 suites / 94 tests，failures=0、errors=0、skipped=0，`BUILD SUCCESS`。报告：`target/phase3b3/run-1793598140874235000/summary.json`；日志：`target/phase3b3/run-1793598140874235000/maven.log`。独立构建目录位于 `target/phase3b3/run-*`，不覆盖 `target/classes` / `target/test-classes`；临时 POM 放在仓库根目录并在 Maven 结束后删除，若同名文件已存在则拒绝覆盖。该回归未运行 Main、未调用真实 Provider/API、未访问网络、未使用 Docker，也未执行 Git 写操作。
-- **2026-11-02 原生终端验收包已准备**：使用 `mvn -o -s target/publication-check/settings.xml -DskipTests package` 离线构建成功（`BUILD SUCCESS`），生成 `target/paicli-1.0-SNAPSHOT.jar`（35,702,713 bytes，约 34.05 MiB）。必须保留 `-s target/publication-check/settings.xml`，否则本地缓存中的 `maven-resources-plugin:3.5.0` 因 repository ID 不匹配无法离线解析；不要加 `clean`，以保留 Phase3B-3A 测试日志。真实终端验收命令：`java -Dpaicli.steering.enabled=true -jar target/paicli-1.0-SNAPSHOT.jar`；该命令尚未执行，须由用户在真实 macOS Terminal 交互运行。
+- **2026-11-02 原生终端验收包已准备**：使用 `mvn -o -s target/publication-check/settings.xml -DskipTests package` 离线构建成功（`BUILD SUCCESS`），生成 `target/haocli-1.0-SNAPSHOT.jar`（35,702,713 bytes，约 34.05 MiB）。必须保留 `-s target/publication-check/settings.xml`，否则本地缓存中的 `maven-resources-plugin:3.5.0` 因 repository ID 不匹配无法离线解析；不要加 `clean`，以保留 Phase3B-3A 测试日志。真实终端验收命令：`java -Dhaocli.steering.enabled=true -jar target/haocli-1.0-SNAPSHOT.jar`；该命令尚未执行，须由用户在真实 macOS Terminal 交互运行。
 - **2026-11-02 回归问题修复记录**：用户首次在 Mac Terminal 运行时，Maven 报 `SteeringRunLoop.java` 中 JLine `readLine` 的 `Character` / `MaskingCallback` 重载歧义；显式转换为 `(MaskingCallback) null` 后发现另一个遗漏的 `InterruptedException` 处理，均已修复。首次进入 JUnit 后 94 项中 5 项报错，定位为测试夹具：PipedInputStream 写入线程提前退出（`Write end dead`）、换行转义错误，以及审批输入早于 JLine 子提示接管。修正测试线程生命周期、真实换行和按提示发送输入后，最终 94/94 通过。此前 ServerFS 直接执行曾因工作区权限在 Maven 启动前遇到 `PermissionError`；后续由授权的 Codex workspace Agent 在同一工作区成功完成离线验收。
-- **当前 Gate：Phase3B-3A 代码接线及离线回归已验收；原生交互验收仍未完成**。仍需在真实 macOS Terminal 中用 `paicli.steering.enabled=true` 做受控端到端测试，覆盖 WakeableLineReader + Main 的组合、Ctrl+C/Ctrl+D、中文输入法候选窗、审批/Steer 输入归属及取消后的 worker 停止；普通 JLine 的单独按键证明不能替代这些组合测试。完成前 Steering 默认开关继续保持 `false`，不 commit/push/reset/clean。
+- **当前 Gate：Phase3B-3A 代码接线及离线回归已验收；原生交互验收仍未完成**。仍需在真实 macOS Terminal 中用 `haocli.steering.enabled=true` 做受控端到端测试，覆盖 WakeableLineReader + Main 的组合、Ctrl+C/Ctrl+D、中文输入法候选窗、审批/Steer 输入归属及取消后的 worker 停止；普通 JLine 的单独按键证明不能替代这些组合测试。完成前 Steering 默认开关继续保持 `false`，不 commit/push/reset/clean。
 
 ### Phase 4：Plan-and-Execute
 - 增加计划约束修订和批次安全检查点，不静默重跑已完成节点。
@@ -635,6 +635,6 @@ Steer 不是“覆盖前面的所有用户输入”。应保留原任务和后�
 - Codex 开源实现：`codex-rs/core/src/session/input_queue.rs`： https://github.com/openai/codex/blob/main/codex-rs/core/src/session/input_queue.rs
 - Codex 开源实现：`codex-rs/core/src/session/turn.rs`： https://github.com/openai/codex/blob/main/codex-rs/core/src/session/turn.rs
 - OpenAI Codex Queue / Steer 使用说明： https://developers.openai.com/blog/mastering-codex-remote-for-engineering
-- OpenAI API Steering 语义（仅针对支持的 Responses WebSocket API；PaiCLI 本方案不依赖该服务端能力）： https://developers.openai.com/api/docs/guides/deployment-checklist
+- OpenAI API Steering 语义（仅针对支持的 Responses WebSocket API；Hao CLI 本方案不依赖该服务端能力）： https://developers.openai.com/api/docs/guides/deployment-checklist
 
-> 以上来源为设计参考；本方案的线程模型、默认按键、状态机、持久化结构和实现阶段均属于 **PaiCLI 的拟议设计**，不是声称 Codex / Claude Code 内部与之逐项相同。
+> 以上来源为设计参考；本方案的线程模型、默认按键、状态机、持久化结构和实现阶段均属于 **Hao CLI 的拟议设计**，不是声称 Codex / Claude Code 内部与之逐项相同。

@@ -4,7 +4,7 @@
 
 ## 背景
 
-- 命令沙箱由 `PAICLI_COMMAND_SANDBOX=off|auto|required` 控制，默认 `off`。Linux 用 bubblewrap，macOS 用 Seatbelt（系统自带的沙箱机制）
+- 命令沙箱由 `HAOCLI_COMMAND_SANDBOX=off|auto|required` 控制，默认 `off`。Linux 用 bubblewrap，macOS 用 Seatbelt（系统自带的沙箱机制）
 - 沙箱里没有网络，也看不到 `~/.m2`、`~/.gitconfig`，所以 `mvn`、`npm install`、`git push` 会失败；macOS 的 Seatbelt 里 JVM 还有以 139 退出的已知问题
 - 主要使用场景是自己日常写 Java 代码，`mvn test` 是最高频的命令
 - auto 会话模式下，`execute_command` 先交给审查模型 `LlmApprovalClassifier` 判断

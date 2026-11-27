@@ -1,20 +1,20 @@
 # 无界面模式（`-p`）规格
 
-状态：第 3 阶段第一步实现（2026-11-25）· 代码：`src/main/java/com/paicli/headless/`、`src/main/java/com/paicli/agent/event/`
+状态：第 3 阶段第一步实现（2026-11-25）· 代码：`src/main/java/com/haocli/headless/`、`src/main/java/com/haocli/agent/event/`
 
 无界面模式执行一次任务后退出，给脚本、CI 和别的程序调用。它不弹任何确认，所以权限按白名单收紧；标准输出只放下面约定格式的内容，日志只写文件，诊断信息写标准错误。
 
 ## 命令
 
 ```bash
-java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--permission-mode read-only|edit] [--allow-command "精确命令"]...
+java -jar haocli.jar -p "任务" [--output-format text|json|stream-json] [--permission-mode read-only|edit] [--allow-command "精确命令"]...
                      [--max-turns 50] [--max-tokens 2000000] [--timeout 30m]
 ```
 
 - `-p` / `--print` 后面不写任务或写 `-` 时，从标准输入读到结束
 - 不能和 `--continue`、`--session` 等交互参数混用；不认识的参数直接报错（退出码 2）
 - 模型选择沿用交互模式的配置（环境变量 → 项目 `.env` → 用户 `.env` → 上次保存的模型 → 默认值）
-- 会话照常写进 `~/.paicli/history/raw/`，结果里的 `session_id` 就是那条记录的 ID；记录目录不可用时为 `null`
+- 会话照常写进 `~/.haocli/history/raw/`，结果里的 `session_id` 就是那条记录的 ID；记录目录不可用时为 `null`
 
 ## 上限（2026-11-26 起）
 
@@ -22,15 +22,15 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 
 | 上限 | 默认 | `-p` 参数 | 环境变量（`-p`、Runtime API、后台任务都读） |
 |---|---|---|---|
-| 模型请求次数 | 50 | `--max-turns` | `PAICLI_UNATTENDED_MAX_TURNS` |
-| 总 Token | 2000000 | `--max-tokens` | `PAICLI_UNATTENDED_MAX_TOKENS` |
-| 时间 | 30m | `--timeout`（纯数字按秒，可带 s / m / h） | `PAICLI_UNATTENDED_TIMEOUT` |
+| 模型请求次数 | 50 | `--max-turns` | `HAOCLI_UNATTENDED_MAX_TURNS` |
+| 总 Token | 2000000 | `--max-tokens` | `HAOCLI_UNATTENDED_MAX_TOKENS` |
+| 时间 | 30m | `--timeout`（纯数字按秒，可带 s / m / h） | `HAOCLI_UNATTENDED_TIMEOUT` |
 
 - 优先级：参数 > 环境变量 > 默认值；取值不合法直接报错（`-p` 退出码 2），不悄悄用默认值
 - 到达任一上限：停止调用工具，再发一次不带工具的请求让模型整理已完成的部分，状态 `partial`、退出码 3。所以实际请求数最多是上限加 1
 - 时间不是硬墙钟：在每次模型请求之前检查，正在进行的那次请求或那批工具不会被打断。工具自己有超时（单条命令默认 60 秒、一批工具 90 秒），所以最坏情况是上限再加一次模型请求和一批工具的时间
 - 只约束 ReAct；`-p`、Runtime API、后台任务目前都只走 ReAct。Plan / Team 迁进内核后（路线丙阶段）自动覆盖
-- 系统属性 `paicli.react.token.budget` / `paicli.react.hard.max.iterations` 仍然有效，和这里取更严的那个
+- 系统属性 `haocli.react.token.budget` / `haocli.react.hard.max.iterations` 仍然有效，和这里取更严的那个
 - 交互命令行有人看着，仍然不限
 
 ## 权限
@@ -42,7 +42,7 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 
 - `execute_command`：只有给了 `--allow-command` 才暴露给模型，执行时命令文本去掉首尾空白后必须和某一条完全相同（`git status && rm -rf x` 不等于 `git status`）
 - 其余工具一律不暴露也不执行：`save_memory`、`save_skill_reference`、`revert_turn`、浏览器工具、所有 MCP 工具（无界面模式不启动 MCP server）
-- 白名单之外的检查照常生效：PathGuard（路径必须在项目根目录内）、CommandGuard、命令沙箱（`PAICLI_COMMAND_SANDBOX`）、本轮网址来源规则
+- 白名单之外的检查照常生效：PathGuard（路径必须在项目根目录内）、CommandGuard、命令沙箱（`HAOCLI_COMMAND_SANDBOX`）、本轮网址来源规则
 - 被拒绝的调用写一条 deny 审计记录，失败结果还给模型
 
 ## 退出码
@@ -105,5 +105,5 @@ java -jar paicli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 
 - `tool_call_started` 和 `tool_call_finished` 按整批发：并行执行的只读工具没有各自的开始和结束时间
 - 没有审批事件（无界面模式不审批；交互终端的审批框仍由 HITL 直接弹出，不经过事件）
-- Runtime API（`serve --http`）从 2026-11-26 起把同一套事件写进事件流，事件名是 `agent.<type>`，`data` 里的 `event` 就是这里的一行 JSON（外面包一层 Runtime API 的 `turn_id`，详见 `docs/phase-20-runtime-api.md`）；后台任务还不输出事件。它们的工具白名单已经和本模式一致（2026-11-26，`UnattendedTaskRunner`）：`serve` 支持 `--permission-mode`、`--allow-command`，后台任务用 `PAICLI_TASK_PERMISSION_MODE`
+- Runtime API（`serve --http`）从 2026-11-26 起把同一套事件写进事件流，事件名是 `agent.<type>`，`data` 里的 `event` 就是这里的一行 JSON（外面包一层 Runtime API 的 `turn_id`，详见 `docs/phase-20-runtime-api.md`）；后台任务还不输出事件。它们的工具白名单已经和本模式一致（2026-11-26，`UnattendedTaskRunner`）：`serve` 支持 `--permission-mode`、`--allow-command`，后台任务用 `HAOCLI_TASK_PERMISSION_MODE`
 - 不支持 `--resume` 接着上次的无界面会话继续

@@ -20,7 +20,7 @@ HTTP 用 `url` 代替 command，可同时配置已有的 oauth 公共客户端�
 
 - `io.modelcontextprotocol/protocolVersion`: `2026-07-28`
 - `io.modelcontextprotocol/clientCapabilities`: `{}`
-- `io.modelcontextprotocol/clientInfo`: name 为 paicli，version 与当前启动画面使用同一常量（16.1.0）。
+- `io.modelcontextprotocol/clientInfo`: name 为 haocli，version 与当前启动画面使用同一常量（16.1.0）。
 
 普通完整结果在 JSON-RPC result 对象中保留原业务字段，并要求 `resultType: "complete"`。`input_required` 明确报“尚未实现 MRTR 用户交互”，不当空结果处理；缺失或未知 resultType 报协议无效。不把现代结果当旧版结果悄悄解析。
 

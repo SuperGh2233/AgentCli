@@ -1,4 +1,4 @@
-# PaiCLI 面试题库
+# Hao CLI 面试题库
 
 > 和 `docs/resume.md` 的 10 条核心职责一一对应。源码位置按提交 `2942615` 核对，路径相对仓库根目录；代码改动后行号可能偏移，面试前重新确认一遍。
 
@@ -15,7 +15,7 @@
 
 参考答案：ReAct 是“想一步、做一步、看结果再想下一步”，适合目标明确、步骤不多、需要边看边调整的任务，比如“修这个报错”“读一下这个类”，它的好处是灵活，每一步都能根据真实的工具结果改主意。Plan-and-Execute 先让模型把目标拆分成一张任务依赖图，用户审阅后再执行，适合步骤多、彼此有依赖、而且部分步骤可以并行的任务，比如“调研三个框架再写对比报告”。它的好处是用户能在动手前看到全貌、提前纠偏，没有依赖关系的任务还能同时执行。
 
-PaiCLI 默认走 ReAct，`/plan` 或 plan 模式才走 Plan-and-Execute，`/team` 走多 Agent。三种方式共用同一套工具注册、记忆、快照和会话记录，区别只在“怎么组织模型调用”，所以加一个新工具三种方式都能用上。
+Hao CLI 默认走 ReAct，`/plan` 或 plan 模式才走 Plan-and-Execute，`/team` 走多 Agent。三种方式共用同一套工具注册、记忆、快照和会话记录，区别只在“怎么组织模型调用”，所以加一个新工具三种方式都能用上。
 
 #### Q2: 模型生成的计划不合法怎么办？比如依赖引用了一个不存在的任务。
 
@@ -31,7 +31,7 @@ PaiCLI 默认走 ReAct，`/plan` 或 plan 模式才走 Plan-and-Execute，`/team
 
 之所以不悄悄删掉坏的依赖、也不去猜 id，是因为两种后果都很糟：删除依赖边会让本该后执行的任务提前执行，破坏依赖顺序；保留指向未知 id 的边，任务就永远等不到前置任务，计划卡死。Team 那边以前就出过“保留未知依赖导致步骤一直阻塞”的问题，后来改成同一套严格规则。另外 JSON 解析也开了严格模式，JSON 后面跟说明文字、键重复都算不合法，这是为了和评测重放脚本的 `json.loads` 行为保持一致。
 
-源码位置：`src/main/java/com/paicli/plan/Planner.java:160-210`
+源码位置：`src/main/java/com/haocli/plan/Planner.java:160-210`
 
 关键代码：
 ```java
@@ -53,12 +53,12 @@ if (!plan.computeExecutionOrder()) {
 
 考察点：拓扑调度和并发输出处理。
 
-源码位置：`src/main/java/com/paicli/agent/PlanExecuteAgent.java:528-610`，就绪判断在 `src/main/java/com/paicli/plan/Task.java:91-100`
+源码位置：`src/main/java/com/haocli/agent/PlanExecuteAgent.java:528-610`，就绪判断在 `src/main/java/com/haocli/plan/Task.java:91-100`
 
 关键代码：
 ```java
 ExecutorService executor = Executors.newFixedThreadPool(Math.min(executableTasks.size(), 4), r -> {
-    Thread t = new Thread(r, "paicli-plan-executor");
+    Thread t = new Thread(r, "haocli-plan-executor");
     t.setDaemon(true);
     return t;
 });
@@ -85,7 +85,7 @@ for (Task task : executableTasks) {
 
 考察点：失败恢复策略的设计权衡。
 
-源码位置：`src/main/java/com/paicli/agent/PlanExecuteAgent.java:451-507`，次数上限在 `:51-53`、`:1268-1282`
+源码位置：`src/main/java/com/haocli/agent/PlanExecuteAgent.java:451-507`，次数上限在 `:51-53`、`:1268-1282`
 
 关键代码：
 ```java
@@ -113,7 +113,7 @@ for (Task skipped : plan.skipDependentsOf(task.getId())) { ... }
 
 (2) 完成度不低于 50%，大部分工作已经做完，推倒重来不划算，只把依赖失败任务的下游（直接和间接的）标成 SKIPPED，其他分支继续跑，类似 CI 里一个 job 失败、依赖它的 job 被跳过。
 
-(3) 重规划最多 2 次（`PAICLI_PLAN_MAX_REPLANS` 可调），到上限后不再启动任何新任务，剩下的全部标 SKIPPED，防止“失败 → 重规划 → 再失败”无限循环。
+(3) 重规划最多 2 次（`HAOCLI_PLAN_MAX_REPLANS` 可调），到上限后不再启动任何新任务，剩下的全部标 SKIPPED，防止“失败 → 重规划 → 再失败”无限循环。
 
 (4) 用户按 ESC 取消导致的中断不算失败，这个判断必须放在失败处理之前，否则用户打断反而会触发重规划。
 
@@ -123,7 +123,7 @@ for (Task skipped : plan.skipDependentsOf(task.getId())) { ... }
 
 考察点：Agent 失控防护。
 
-源码位置：提醒在 `src/main/java/com/paicli/agent/RunawayGuard.java:70-114`；兜底在 `src/main/java/com/paicli/agent/AgentBudget.java:107-134`；收尾在 `src/main/java/com/paicli/agent/Agent.java:347-398`
+源码位置：提醒在 `src/main/java/com/haocli/agent/RunawayGuard.java:70-114`；兜底在 `src/main/java/com/haocli/agent/AgentBudget.java:107-134`；收尾在 `src/main/java/com/haocli/agent/Agent.java:347-398`
 
 关键代码：
 ```java
@@ -135,7 +135,7 @@ LlmClient.ChatResponse response = llmClient.chat(
         streamRenderer);
 ```
 
-参考答案：固定轮数一刀切，复杂任务会被半路截断，简单的死循环又要白跑到上限才停。PaiCLI 用两级机制：
+参考答案：固定轮数一刀切，复杂任务会被半路截断，简单的死循环又要白跑到上限才停。Hao CLI 用两级机制：
 
 (1) 提醒：同一个动作或同一类错误连续出现 3 步，往对话里加一条 `[runaway guard]` 提醒，只提醒、不拦工具，每个任务最多提醒一次。前几次重复往往是合理的，比如等编译、网络抖动重试。比较“同一个动作”时把参数按键名排序后再算哈希，模型换个键的顺序也认得出来；被安全策略拦下的调用不算重复。
 
@@ -160,7 +160,7 @@ LlmClient.ChatResponse response = llmClient.chat(
 
 考察点：并发安全和副作用识别。
 
-源码位置：`src/main/java/com/paicli/tool/ToolRegistry.java:1603-1641`
+源码位置：`src/main/java/com/haocli/tool/ToolRegistry.java:1603-1641`
 
 关键代码：
 ```java
@@ -197,7 +197,7 @@ static final Set<String> PARALLEL_SAFE_TOOLS = Set.of(
 
 考察点：参数校验和对弱模型的容错。
 
-源码位置：`src/main/java/com/paicli/tool/ToolArgumentValidator.java:73-112`、`:166-176`；MCP 用原始 Schema 在 `src/main/java/com/paicli/tool/ToolRegistry.java:1521-1524`
+源码位置：`src/main/java/com/haocli/tool/ToolArgumentValidator.java:73-112`、`:166-176`；MCP 用原始 Schema 在 `src/main/java/com/haocli/tool/ToolRegistry.java:1521-1524`
 
 关键代码：
 ```java
@@ -225,7 +225,7 @@ Set<ValidationMessage> messages = schema.validate(withoutNullFields(arguments));
 
 考察点：对模型常见输出误差的工程化处理。
 
-源码位置：`src/main/java/com/paicli/tool/TextEditMatcher.java:64-155`、`:207-271`
+源码位置：`src/main/java/com/haocli/tool/TextEditMatcher.java:64-155`、`:207-271`
 
 关键代码：
 ```java
@@ -268,7 +268,7 @@ return replaceFuzzy(content, oldText, replacement, path, lineNumbersStripped);
 
 考察点：状态设计，避免多个入口互相不一致。
 
-源码位置：`src/main/java/com/paicli/cli/SessionMode.java:46-70`、`src/main/java/com/paicli/cli/SessionModeController.java:36-40`
+源码位置：`src/main/java/com/haocli/cli/SessionMode.java:46-70`、`src/main/java/com/haocli/cli/SessionModeController.java:36-40`
 
 关键代码：
 ```java
@@ -290,7 +290,7 @@ public void apply(SessionMode mode) {
 
 考察点：LLM 做安全判断时的失败处理和防注入。
 
-源码位置：`src/main/java/com/paicli/hitl/LlmApprovalClassifier.java:87-168`；关闭思考在 `src/main/java/com/paicli/llm/LlmClientFactory.java:17-27`
+源码位置：`src/main/java/com/haocli/hitl/LlmApprovalClassifier.java:87-168`；关闭思考在 `src/main/java/com/haocli/llm/LlmClientFactory.java:17-27`
 
 关键代码：
 ```java
@@ -314,13 +314,13 @@ Future<LlmClient.ChatResponse> call = executor.submit(() -> client.chat(messages
 
 (4) 审查通过以后，路径限制和命令黑名单照常检查，审查放行绕不过它们。
 
-成本方面，审查请求关闭思考、最多输出 400 个 Token，默认跟着当前模型走，也可以用 `PAICLI_AUTO_CLASSIFIER_MODEL` 换成同供应商更便宜的模型。
+成本方面，审查请求关闭思考、最多输出 400 个 Token，默认跟着当前模型走，也可以用 `HAOCLI_AUTO_CLASSIFIER_MODEL` 换成同供应商更便宜的模型。
 
 #### Q3: 命令被审查拦下以后怎么办？会不会一直弹框打断用户？
 
 考察点：安全和体验的平衡。
 
-源码位置：`src/main/java/com/paicli/hitl/HitlToolRegistry.java:93-120`
+源码位置：`src/main/java/com/haocli/hitl/HitlToolRegistry.java:93-120`
 
 关键代码：
 ```java
@@ -342,7 +342,7 @@ MCP 工具、`revert_turn`、改动敏感页面不交给审查模型，直接拦
 
 考察点：间接提示注入和数据外发防护。
 
-源码位置：`src/main/java/com/paicli/tool/TurnToolPolicy.java:406-426`、`:506-515`；工具结果边界在 `src/main/java/com/paicli/tool/ToolResultBoundary.java:16-51`
+源码位置：`src/main/java/com/haocli/tool/TurnToolPolicy.java:406-426`、`:506-515`；工具结果边界在 `src/main/java/com/haocli/tool/ToolResultBoundary.java:16-51`
 
 关键代码：
 ```java
@@ -379,11 +379,11 @@ if ((isWebFetchTool(name) || isBrowserTool(name) || networkCommand)
 
 ### 面试提问
 
-#### Q1: 用户克隆了一个陌生仓库，里面带了 `.paicli/mcp.json`，会有什么风险？你们怎么防？
+#### Q1: 用户克隆了一个陌生仓库，里面带了 `.haocli/mcp.json`，会有什么风险？你们怎么防？
 
 考察点：供应链式的配置投毒。
 
-源码位置：`src/main/java/com/paicli/mcp/config/McpConfigLoader.java:74-93`、`src/main/java/com/paicli/mcp/McpServerManager.java:553-558`
+源码位置：`src/main/java/com/haocli/mcp/config/McpConfigLoader.java:74-93`、`src/main/java/com/haocli/mcp/McpServerManager.java:553-558`
 
 关键代码：
 ```java
@@ -397,7 +397,7 @@ node.set("headers", MAPPER.valueToTree(new TreeMap<>(config.getHeaders())));
 byte[] digest = MessageDigest.getInstance("SHA-256").digest(MAPPER.writeValueAsBytes(node));
 ```
 
-参考答案：MCP 的 stdio server 本质是“启动一条命令”，以前 PaiCLI 一启动就会执行仓库作者写在配置里的命令，等于打开一个仓库就被执行了任意代码。现在项目级配置里的 server 第一次启动前，状态是“待确认”，用户执行 `/mcp trust <name>` 才会启动。几个细节：
+参考答案：MCP 的 stdio server 本质是“启动一条命令”，以前 Hao CLI 一启动就会执行仓库作者写在配置里的命令，等于打开一个仓库就被执行了任意代码。现在项目级配置里的 server 第一次启动前，状态是“待确认”，用户执行 `/mcp trust <name>` 才会启动。几个细节：
 
 (1) 确认按“配置文件路径 + server 名 + 内容指纹”记，不只按名字。因为项目配置可以用同名 server 覆盖用户自己的配置，只按名字记就能被调包。
 
@@ -413,7 +413,7 @@ byte[] digest = MessageDigest.getInstance("SHA-256").digest(MAPPER.writeValueAsB
 
 考察点：最小权限和实际可用性的平衡。
 
-源码位置：`src/main/java/com/paicli/mcp/transport/McpChildEnvironment.java:16-61`
+源码位置：`src/main/java/com/haocli/mcp/transport/McpChildEnvironment.java:16-61`
 
 参考答案：子进程默认继承父进程的全部环境变量，用户机器上的各种 API Key（模型的、云服务的、GitHub 的）都会原样传给第三方 MCP server。现在先清空，只保留运行必需的变量，再加上配置里给这个 server 单独写的 env。单独写的 env 会进指纹，所以也要经过用户确认。
 
@@ -423,7 +423,7 @@ byte[] digest = MessageDigest.getInstance("SHA-256").digest(MAPPER.writeValueAsB
 
 考察点：子进程生命周期管理。
 
-源码位置：`src/main/java/com/paicli/mcp/McpServerManager.java:662-727`
+源码位置：`src/main/java/com/haocli/mcp/McpServerManager.java:662-727`
 
 关键代码：
 ```java
@@ -451,11 +451,11 @@ catch (IOException e) {
 
 另外修过两个隐蔽的 bug：server 往 stdout 打了一行普通日志，以前整个读线程就退出了，之后所有请求都只能等超时，状态还显示正常，现在改成每一行单独解析，坏行跳过；server 主动发来的 ping 请求 id 也从 1 开始，以前会和我们自己的 1 号请求撞号，被当成回复，现在先看有没有 `method` 字段区分方向。
 
-#### Q4: 关闭 MCP server 时，为什么要结束整棵进程树？PaiCLI 被 kill -9 了怎么办？
+#### Q4: 关闭 MCP server 时，为什么要结束整棵进程树？Hao CLI 被 kill -9 了怎么办？
 
 考察点：孤儿进程清理和 PID 复用问题。
 
-源码位置：`src/main/java/com/paicli/mcp/transport/StdioTransport.java:165-225`、`src/main/java/com/paicli/mcp/transport/McpPidFile.java:78-127`
+源码位置：`src/main/java/com/haocli/mcp/transport/StdioTransport.java:165-225`、`src/main/java/com/haocli/mcp/transport/McpPidFile.java:78-127`
 
 关键代码：
 ```java
@@ -481,13 +481,13 @@ return ProcessHandle.of(entry.path("pid").asLong())
 
 (3) 从最深的叶子进程开始结束，按树的深度排序，不按 PID 大小，因为 PID 会回绕。
 
-kill -9 时 JVM 的关闭钩子不会执行，所以启动子进程时就把它的信息写进 `~/.paicli/mcp-pids.json`，下次启动先清理。清理时有三层核对：所属的 PaiCLI 进程已经退出才清理，避免误杀另一个正在运行的 PaiCLI 的子进程；PID 对应进程的启动时间和命令要和记录一致，防止 PID 被系统复用后误杀无关进程；对不上就只删除记录、不杀进程。多个 PaiCLI 同时读写这个文件，所以用文件锁加原子替换。
+kill -9 时 JVM 的关闭钩子不会执行，所以启动子进程时就把它的信息写进 `~/.haocli/mcp-pids.json`，下次启动先清理。清理时有三层核对：所属的 Hao CLI 进程已经退出才清理，避免误杀另一个正在运行的 Hao CLI 的子进程；PID 对应进程的启动时间和命令要和记录一致，防止 PID 被系统复用后误杀无关进程；对不上就只删除记录、不杀进程。多个 Hao CLI 同时读写这个文件，所以用文件锁加原子替换。
 
 #### Q5: MCP 工具的参数 Schema 发给模型前为什么要“清洗”？清洗后的 Schema 能用来校验参数吗？
 
 考察点：兼容弱模型和校验准确性的取舍。
 
-源码位置：`src/main/java/com/paicli/mcp/protocol/McpSchemaSanitizer.java:54-128`
+源码位置：`src/main/java/com/haocli/mcp/protocol/McpSchemaSanitizer.java:54-128`
 
 参考答案：很多 MCP server 的 Schema 是 Python / TS 类型自动生成的，满是 `$ref`、`anyOf`，弱模型看不懂，容易传错类型。清洗分三级：去掉 null 选项后只剩一个选项（最常见的 `Optional[X]`），把它的字段合并进来；全是简单类型，就写成 type 或 type 数组，保留真实类型；其他复杂情况不写 type，只把各个选项列进描述里。
 
@@ -510,7 +510,7 @@ kill -9 时 JVM 的关闭钩子不会执行，所以启动子进程时就把它�
 
 考察点：上下文压缩策略的分层设计。
 
-源码位置：`src/main/java/com/paicli/memory/AutoCompactionManager.java:64-80`
+源码位置：`src/main/java/com/haocli/memory/AutoCompactionManager.java:64-80`
 
 关键代码：
 ```java
@@ -527,7 +527,7 @@ boolean compacted = fullCompactor.compactIfNeeded(history, triggerTokens);
 
 参考答案：按代价从小到大，能用便宜的办法解决就不用贵的：
 
-(1) 单个工具结果超过 32000 字符，在它进入对话之前就写进 `.paicli/tool-outputs/`，对话里只留开头 2000 字符、结尾 800 字符和文件路径。信息没丢，模型需要时用 `read_file` 分段读回。这一步不调用模型，几乎零成本。
+(1) 单个工具结果超过 32000 字符，在它进入对话之前就写进 `.haocli/tool-outputs/`，对话里只留开头 2000 字符、结尾 800 字符和文件路径。信息没丢，模型需要时用 `read_file` 分段读回。这一步不调用模型，几乎零成本。
 
 (2) 对话接近清理线时，把较早的工具结果正文换成一句占位说明（“这次输出已清理，需要时重新调用工具”），只换正文，消息条数和 `tool_call_id` 都不变，最近 3 条保留。也不调用模型。
 
@@ -539,7 +539,7 @@ boolean compacted = fullCompactor.compactIfNeeded(history, triggerTokens);
 
 考察点：对 OpenAI 兼容接口消息结构的理解。
 
-源码位置：`src/main/java/com/paicli/memory/ToolResultClearer.java:67-74`、`:105`
+源码位置：`src/main/java/com/haocli/memory/ToolResultClearer.java:67-74`、`:105`
 
 关键代码：
 ```java
@@ -554,7 +554,7 @@ history.set(index, LlmClient.Message.tool(message.toolCallId(), placeholder(tool
 
 考察点：参数随模型自适应。
 
-源码位置：`src/main/java/com/paicli/context/ContextProfile.java:83-89`
+源码位置：`src/main/java/com/haocli/context/ContextProfile.java:83-89`
 
 关键代码：
 ```java
@@ -571,7 +571,7 @@ return Math.max(1_000, Math.min(safeWindow - 1, trigger));
 
 考察点：压缩失败的兜底。
 
-源码位置：`src/main/java/com/paicli/memory/ConversationHistoryCompactor.java:172-177`、`:227-248`
+源码位置：`src/main/java/com/haocli/memory/ConversationHistoryCompactor.java:172-177`、`:227-248`
 
 关键代码：
 ```java
@@ -600,7 +600,7 @@ history.addAll(rebuilt);
 
 考察点：前缀缓存。
 
-源码位置：`src/main/java/com/paicli/prompt/PromptAssembler.java:23-53`
+源码位置：`src/main/java/com/haocli/prompt/PromptAssembler.java:23-53`
 
 关键代码：
 ```java
@@ -633,7 +633,7 @@ append(prompt, dynamicSection("Project Context", ctx.projectMemoryContext(), ctx
 
 考察点：记忆作用域设计。
 
-源码位置：`src/main/java/com/paicli/memory/LongTermMemory.java:272-287`
+源码位置：`src/main/java/com/haocli/memory/LongTermMemory.java:272-287`
 
 关键代码：
 ```java
@@ -651,7 +651,7 @@ public static boolean isVisibleInProject(MemoryEntry entry, String projectKey) {
 
 考察点：冲突检测和由谁做决定。
 
-源码位置：`src/main/java/com/paicli/memory/MemoryConflictDetector.java:32-68`
+源码位置：`src/main/java/com/haocli/memory/MemoryConflictDetector.java:32-68`
 
 关键代码：
 ```java
@@ -669,11 +669,11 @@ return isNumericVariant(left, right) || bigramDice(left, right) >= similarityThr
 
 这是纯字面检测，有盲区：“构建用 Maven”和“不用 Gradle”语义上相关，但字面不像，识别不出来。
 
-#### Q3: 用户开了两个终端同时用 PaiCLI，记忆文件会不会被写坏？
+#### Q3: 用户开了两个终端同时用 Hao CLI，记忆文件会不会被写坏？
 
 考察点：多进程并发写文件。
 
-源码位置：`src/main/java/com/paicli/memory/LongTermMemory.java:289-295`、`src/main/java/com/paicli/memory/LongTermMemoryFile.java:45-104`
+源码位置：`src/main/java/com/haocli/memory/LongTermMemory.java:289-295`、`src/main/java/com/haocli/memory/LongTermMemoryFile.java:45-104`
 
 关键代码：
 ```java
@@ -699,7 +699,7 @@ private <T> T withStorageLock(Supplier<T> mutation) {
 
 考察点：记忆污染和提示注入防护。
 
-源码位置：`src/main/java/com/paicli/memory/AutoFactExtractor.java:95-104`；写入在 `src/main/java/com/paicli/memory/MemoryManager.java:77-106`
+源码位置：`src/main/java/com/haocli/memory/AutoFactExtractor.java:95-104`；写入在 `src/main/java/com/haocli/memory/MemoryManager.java:77-106`
 
 关键代码：
 ```java
@@ -730,7 +730,7 @@ facts.add(quote);
 
 考察点：记忆时效性。
 
-源码位置：`src/main/java/com/paicli/memory/MemoryRetriever.java:83-131`
+源码位置：`src/main/java/com/haocli/memory/MemoryRetriever.java:83-131`
 
 关键代码：
 ```java
@@ -742,7 +742,7 @@ if (stale) {
 }
 ```
 
-参考答案：两层提醒。动态的一层：注入记忆时开头就写明“记忆是线索不是事实”，超过 30 天没核实的条目单独标“可能已过时”，自动提取的条目带“待核实”前缀。静态的一层：system prompt 的记忆规则要求行动前先用 `read_file` 对照当前文件；记忆和文件冲突时以文件为准，并提醒用户更新，不能自己去改记忆。写入时间和核实时间分开存，只有用户执行 `/memory verify` 才刷新核实时间，模型没有这个权限。天数可以用 `PAICLI_MEMORY_STALE_DAYS` 调。
+参考答案：两层提醒。动态的一层：注入记忆时开头就写明“记忆是线索不是事实”，超过 30 天没核实的条目单独标“可能已过时”，自动提取的条目带“待核实”前缀。静态的一层：system prompt 的记忆规则要求行动前先用 `read_file` 对照当前文件；记忆和文件冲突时以文件为准，并提醒用户更新，不能自己去改记忆。写入时间和核实时间分开存，只有用户执行 `/memory verify` 才刷新核实时间，模型没有这个权限。天数可以用 `HAOCLI_MEMORY_STALE_DAYS` 调。
 
 ### 延伸问题
 - 记忆检索为什么用关键词，不用向量？（记忆通常只有几十条，关键词零依赖也够用）
@@ -761,7 +761,7 @@ if (stale) {
 
 考察点：RAG 切分策略。
 
-源码位置：`src/main/java/com/paicli/rag/CodeChunker.java:85-128`
+源码位置：`src/main/java/com/haocli/rag/CodeChunker.java:85-128`
 
 关键代码：
 ```java
@@ -786,7 +786,7 @@ cu.findAll(ClassOrInterfaceDeclaration.class).forEach(clazz -> {
 
 考察点：性能优化思路和实测数据。
 
-源码位置：增量判断在 `src/main/java/com/paicli/rag/CodeIndex.java:97-112`、`:180-188`；并行解析在 `src/main/java/com/paicli/rag/JavaSourceParser.java:10-29`、`CodeIndex.java:155-178`；批量调用在 `src/main/java/com/paicli/rag/EmbeddingClient.java:78-100`
+源码位置：增量判断在 `src/main/java/com/haocli/rag/CodeIndex.java:97-112`、`:180-188`；并行解析在 `src/main/java/com/haocli/rag/JavaSourceParser.java:10-29`、`CodeIndex.java:155-178`；批量调用在 `src/main/java/com/haocli/rag/EmbeddingClient.java:78-100`
 
 关键代码：
 ```java
@@ -813,7 +813,7 @@ if (previous != null && previous.contentSha256().equals(sha256)
 
 考察点：并发调优和对 GC 的理解。
 
-参考答案：实测出来的。5 个开源项目共 5874 个 Java 文件、58 万行：单线程预热后约 4.6 秒，2 线程 2.4 到 2.6 秒，4 线程 1.9 到 2.0 秒，8 线程反而 2.3 到 2.4 秒，16 线程约 3.0 秒。单线程执行一轮就要分配约 4.8GB 内存，线程一多分配速度和 GC 压力跟着上来，瓶颈不在 CPU。所以默认 4，可以用 `PAICLI_INDEX_THREADS` 调。
+参考答案：实测出来的。5 个开源项目共 5874 个 Java 文件、58 万行：单线程预热后约 4.6 秒，2 线程 2.4 到 2.6 秒，4 线程 1.9 到 2.0 秒，8 线程反而 2.3 到 2.4 秒，16 线程约 3.0 秒。单线程执行一轮就要分配约 4.8GB 内存，线程一多分配速度和 GC 压力跟着上来，瓶颈不在 CPU。所以默认 4，可以用 `HAOCLI_INDEX_THREADS` 调。
 
 还有两个细节：JavaParser 的实例不是线程安全的，每个线程用 ThreadLocal 持有自己的一份，不用加锁；解析结果在主线程按提交顺序消费，只允许解析领先 Embedding“线程数 × 4”个文件，防止解析太快、结果全堆在内存里。
 
@@ -821,7 +821,7 @@ if (previous != null && previous.contentSha256().equals(sha256)
 
 考察点：失败时保住旧数据。
 
-源码位置：`src/main/java/com/paicli/rag/CodeIndex.java:223-246`、`src/main/java/com/paicli/rag/VectorStore.java:136-166`
+源码位置：`src/main/java/com/haocli/rag/CodeIndex.java:223-246`、`src/main/java/com/haocli/rag/VectorStore.java:136-166`
 
 关键代码：
 ```java
@@ -845,7 +845,7 @@ try {
 
 考察点：对 RAG 适用边界的判断。
 
-源码位置：`src/main/java/com/paicli/tool/RipgrepCodeSearchEngine.java:33-80`；测试 `src/test/java/com/paicli/tool/CodeSearchGoldenSetTest.java:20-57`
+源码位置：`src/main/java/com/haocli/tool/RipgrepCodeSearchEngine.java:33-80`；测试 `src/test/java/com/haocli/tool/CodeSearchGoldenSetTest.java:20-57`
 
 参考答案：大部分代码问题是找某个类名、方法名、报错信息，精确匹配比向量相似度可靠得多，也不用先建索引。所以默认顺序是 `glob_files` 找文件 → `grep_code` 定位到行 → `read_file` 读上下文，语义检索只用在“权限校验是在哪做的”这种说不出关键词的模糊问题上。`grep_code` 优先用 ripgrep，没装、超时（8 秒）或出错时自动退回纯 Java 实现，任何机器都能跑。
 
@@ -868,7 +868,7 @@ try {
 
 考察点：模板方法模式和差异隔离。
 
-源码位置：`src/main/java/com/paicli/llm/AbstractOpenAiCompatibleClient.java:91-99`、`:473-481`
+源码位置：`src/main/java/com/haocli/llm/AbstractOpenAiCompatibleClient.java:91-99`、`:473-481`
 
 关键代码：
 ```java
@@ -887,7 +887,7 @@ protected OkHttpClient httpClient() { return SHARED_HTTP_CLIENT; }
 
 考察点：思考模型的多轮协议细节。
 
-源码位置：`src/main/java/com/paicli/llm/AbstractOpenAiCompatibleClient.java:382-406`、`:433-438`
+源码位置：`src/main/java/com/haocli/llm/AbstractOpenAiCompatibleClient.java:382-406`、`:433-438`
 
 参考答案：DeepSeek 这类思考模型在“思考 + 工具调用”的多轮对话里，要求把上一轮的思考内容带回请求历史，否则会报错或者推理断档；但有的模型收到这个字段反而报错。所以解析时统一兼容 `reasoning_content`、`reasoning`、`reasoning_details` 三种字段名，回传时按供应商和模型配置决定带不带：DeepSeek、Kimi、混元带，GLM 只有 5.3 带，其余不带。用户自己添加的模型也可以在能力目录里单独指定。
 
@@ -895,7 +895,7 @@ protected OkHttpClient httpClient() { return SHARED_HTTP_CLIENT; }
 
 考察点：重试策略的边界。
 
-源码位置：`src/main/java/com/paicli/llm/LlmRetryPolicy.java:107-172`；调用方 `AbstractOpenAiCompatibleClient.java:137-151`
+源码位置：`src/main/java/com/haocli/llm/LlmRetryPolicy.java:107-172`；调用方 `AbstractOpenAiCompatibleClient.java:137-151`
 
 关键代码：
 ```java
@@ -913,7 +913,7 @@ boolean canRetry = attempt < retryPolicy.maxAttempts()
 
 考察点：JVM 内存和大对象。
 
-源码位置：`src/main/java/com/paicli/llm/JsonRequestBody.java:28-66`
+源码位置：`src/main/java/com/haocli/llm/JsonRequestBody.java:28-66`
 
 关键代码：
 ```java
@@ -949,7 +949,7 @@ public void writeTo(BufferedSink sink) throws IOException { write(sink.outputStr
 
 考察点：多供应商用量字段的统一。
 
-源码位置：`src/main/java/com/paicli/llm/AbstractOpenAiCompatibleClient.java:408-421`、`src/main/java/com/paicli/context/TokenUsageFormatter.java:31-55`
+源码位置：`src/main/java/com/haocli/llm/AbstractOpenAiCompatibleClient.java:408-421`、`src/main/java/com/haocli/context/TokenUsageFormatter.java:31-55`
 
 参考答案：各家返回缓存命中 Token 的字段名不一样：DeepSeek 是 `prompt_cache_hit_tokens`，OpenAI 系是 `prompt_tokens_details.cached_tokens`，还有 `cached_tokens`、`input_cache_hit_tokens` 等，按固定顺序逐个读，统一到内部的一个字段。只有输入、输出 Token 都是合法数字时才采信这份用量。费用 = 未命中输入 × 输入单价 + 命中输入 × 缓存单价 + 输出 × 输出单价，单价按供应商写在代码里，是估算值，状态栏标的就是“估算”。
 
@@ -970,7 +970,7 @@ public void writeTo(BufferedSink sink) throws IOException { write(sink.outputStr
 
 考察点：渐进加载的成本考量。
 
-源码位置：`src/main/java/com/paicli/skill/SkillIndexFormatter.java:16-59`
+源码位置：`src/main/java/com/haocli/skill/SkillIndexFormatter.java:16-59`
 
 参考答案：20 个 Skill 每个正文 2k 到 3k Token，全放进 system prompt 就是 40k 到 60k Token，每轮都要发，大部分时候用不上。所以分三级：
 
@@ -986,7 +986,7 @@ public void writeTo(BufferedSink sink) throws IOException { write(sink.outputStr
 
 考察点：注入位置和信任边界。
 
-源码位置：`src/main/java/com/paicli/agent/Agent.java:278-289`、`src/main/java/com/paicli/tool/LoadedSkillMessages.java:94-98`
+源码位置：`src/main/java/com/haocli/agent/Agent.java:278-289`、`src/main/java/com/haocli/tool/LoadedSkillMessages.java:94-98`
 
 关键代码：
 ```java
@@ -998,13 +998,13 @@ sections.values().forEach(section -> message.append(section).append("\n\n"));
 
 参考答案：工具结果统一被包成“不可信数据”，模型不会执行其中的指令，Skill 正文放进去就失效了。改写 system prompt 又会让前缀缓存失效。所以工具结果只返回一句“已加载”，正文作为一条单独的 user 消息，紧跟在这批工具结果后面加进对话，同一轮下一次请求模型就能看到。顺序上工具结果在前、注入消息在后，不破坏 tool_call 和 tool_result 的配对。
 
-第一版是等用户下一条消息时才注入，模型加载完 Skill 当轮看不到正文，只能瞎做，后来改成了同轮注入。消息第一行带 `[PAICLI_SKILL_INJECTION]` 标记，供压缩时识别。
+第一版是等用户下一条消息时才注入，模型加载完 Skill 当轮看不到正文，只能瞎做，后来改成了同轮注入。消息第一行带 `[HAOCLI_SKILL_INJECTION]` 标记，供压缩时识别。
 
 #### Q3: 模型重复加载同一个 Skill，或者一口气加载很多个，怎么控制？
 
 考察点：去重和预算的实现方式。
 
-源码位置：`src/main/java/com/paicli/tool/LoadedSkillMessages.java:66-118`
+源码位置：`src/main/java/com/haocli/tool/LoadedSkillMessages.java:66-118`
 
 关键代码：
 ```java
@@ -1028,7 +1028,7 @@ int usedChars = injectedChars(history);
 
 考察点：压缩和注入消息的交互。
 
-源码位置：`src/main/java/com/paicli/memory/ConversationHistoryCompactor.java:321-352`
+源码位置：`src/main/java/com/haocli/memory/ConversationHistoryCompactor.java:321-352`
 
 关键代码：
 ```java
@@ -1052,7 +1052,7 @@ String summary = removedSkills.isEmpty() ? summaryMessage : summaryMessage
 
 考察点：提示注入面。
 
-源码位置：`src/main/java/com/paicli/skill/SkillRegistry.java:103-128`、`src/main/java/com/paicli/tool/ToolRegistry.java:885-891`
+源码位置：`src/main/java/com/haocli/skill/SkillRegistry.java:103-128`、`src/main/java/com/haocli/tool/ToolRegistry.java:885-891`
 
 参考答案：项目目录下的 Skill 随仓库分发，克隆一个陌生仓库，它的 SKILL.md 就能以“可信指令”的身份进入对话，相当于一个提示注入入口。所以项目级 Skill 在用户执行 `/skill trust` 之前，正文只作为不可信数据出现在工具结果里，并明确告诉模型不能照着执行。信任绑定正文的 SHA-256，仓库更新改了正文就要重新信任。
 
@@ -1074,7 +1074,7 @@ String summary = removedSkills.isEmpty() ? summaryMessage : summaryMessage
 
 考察点：快照方案设计。
 
-源码位置：`src/main/java/com/paicli/snapshot/SnapshotService.java:29-62`、`src/main/java/com/paicli/snapshot/SideGitManager.java:103-124`、`:177-192`
+源码位置：`src/main/java/com/haocli/snapshot/SnapshotService.java:29-62`、`src/main/java/com/haocli/snapshot/SideGitManager.java:103-124`、`:177-192`
 
 关键代码：
 ```java
@@ -1090,7 +1090,7 @@ public <T> T runTurn(String mode, String input, ThrowingSupplier<T> supplier) th
 }
 ```
 
-参考答案：每一轮对话开始前和结束后各拍一次快照，存在 `~/.paicli/snapshots/` 下一个独立的 git 仓库里，工作区指向用户项目，但 `.git` 目录完全分开。回退时把文件内容写回到某一轮开始前的状态。
+参考答案：每一轮对话开始前和结束后各拍一次快照，存在 `~/.haocli/snapshots/` 下一个独立的 git 仓库里，工作区指向用户项目，但 `.git` 目录完全分开。回退时把文件内容写回到某一轮开始前的状态。
 
 不在用户仓库里提交有三个原因：会污染 git log；用户正在 rebase 或 merge 时插一个提交会打乱状态；快照不是有意义的提交。用 JGit 不调系统 git，不依赖用户机器装了什么。
 
@@ -1100,7 +1100,7 @@ public <T> T runTurn(String mode, String input, ThrowingSupplier<T> supplier) th
 
 考察点：把诊断结果反馈给模型。
 
-源码位置：`src/main/java/com/paicli/lsp/LspManager.java:38-92`；注入在 `src/main/java/com/paicli/agent/Agent.java:595-605`
+源码位置：`src/main/java/com/haocli/lsp/LspManager.java:38-92`；注入在 `src/main/java/com/haocli/agent/Agent.java:595-605`
 
 参考答案：`write_file` 和 `edit_file` 写完 Java 文件后，用 JavaParser 解析一遍，有语法错误就按文件暂存，下一次请求模型之前作为一条消息加进对话，最多 20 条、错误优先，模型在同一个任务里就能自己修。同一个文件再次编辑会覆盖旧的诊断，避免重复提示。
 
@@ -1110,7 +1110,7 @@ public <T> T runTurn(String mode, String input, ThrowingSupplier<T> supplier) th
 
 考察点：无人值守通道的权限设计。
 
-源码位置：`src/main/java/com/paicli/wechat/WechatPolicyDecider.java:16-75`
+源码位置：`src/main/java/com/haocli/wechat/WechatPolicyDecider.java:16-75`
 
 关键代码：
 ```java
@@ -1130,7 +1130,7 @@ return WechatPolicyDecision.deny("微信通道未将该工具列入允许清单:
 
 考察点：Agent 评测的严谨性。
 
-源码位置：容器隔离在 `src/main/java/com/paicli/eval/benchmark/DockerBenchmarkWorkerProcess.java:640-670`；证据检查在 `src/main/java/com/paicli/eval/benchmark/BenchmarkProviderEvidenceGate.java:23-36`
+源码位置：容器隔离在 `src/main/java/com/haocli/eval/benchmark/DockerBenchmarkWorkerProcess.java:640-670`；证据检查在 `src/main/java/com/haocli/eval/benchmark/BenchmarkProviderEvidenceGate.java:23-36`
 
 关键代码：
 ```java
@@ -1143,13 +1143,13 @@ arguments.add("--memory"); arguments.add("1g");
 arguments.add("--cpus"); arguments.add("2");
 ```
 
-参考答案：评的是“模型在 PaiCLI 里完成任务”的能力，不是裸模型排行。设计了 28 道题，题目生成器已经接入 25 道，还缺 3 道，所以目前还不是正式榜单，这一点要说清楚。几个关键设计：
+参考答案：评的是“模型在 Hao CLI 里完成任务”的能力，不是裸模型排行。设计了 28 道题，题目生成器已经接入 25 道，还缺 3 道，所以目前还不是正式榜单，这一点要说清楚。几个关键设计：
 
 (1) 隔离：被测的 Agent 运行在没有网络、只读、去掉所有权限、限制进程数和内存的容器里，真实的模型 Key 只留在宿主机的转发进程上，容器里拿不到。
 
 (2) 不挑分：禁止多跑几次挑最好的、禁止只挑部分题、禁止自动重试，正式成绩取 3 次独立运行的均值和标准差。
 
-(3) 区分“评测无效”和“0 分”：模型身份、Token 用量、请求指纹这些证据缺失或对不上，判这次评测无效，不算 PaiCLI 得 0 分；但模型一次都没被调用、调用失败，算 PaiCLI 的失败。证据不全记 0 分，会把基础设施的问题算到产品头上；反过来把真实失败洗成“无效”，就是挑分。
+(3) 区分“评测无效”和“0 分”：模型身份、Token 用量、请求指纹这些证据缺失或对不上，判这次评测无效，不算 Hao CLI 得 0 分；但模型一次都没被调用、调用失败，算 Hao CLI 的失败。证据不全记 0 分，会把基础设施的问题算到产品头上；反过来把真实失败洗成“无效”，就是挑分。
 
 #### Q5: 1800 多个单测，跑一次全量要多久？日常怎么跑？
 

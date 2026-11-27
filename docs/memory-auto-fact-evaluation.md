@@ -14,7 +14,7 @@ mvn -q -Dtest=AutoFactExtractionEvaluationTest -DskipTests=false test
 
 # 真实模型：使用本机已配置的 GLM 凭证，发送合成输入
 mvn -q -Dtest=AutoFactExtractionEvaluationTest -DskipTests=false \
-  -Dpaicli.test.memory.live=true -Dpaicli.test.memory.provider=glm test
+  -Dhaocli.test.memory.live=true -Dhaocli.test.memory.provider=glm test
 ```
 
 运行报告保存在 `target/memory-eval/`。凭证不会写入报告。真实模型测试默认关闭。

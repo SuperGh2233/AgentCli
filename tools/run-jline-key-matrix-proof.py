@@ -44,8 +44,8 @@ def compile_proof(env):
     cmd = [
         str(JDK / "bin/javac"), "--release", "17", "-encoding", "UTF-8",
         "-cp", CP, "-d", str(CLASSES),
-        str(ROOT / "src/main/java/com/paicli/cli/WakeableLineReader.java"),
-        str(ROOT / "src/test/java/com/paicli/cli/JLineKeyMatrixProof.java"),
+        str(ROOT / "src/main/java/com/haocli/cli/WakeableLineReader.java"),
+        str(ROOT / "src/test/java/com/haocli/cli/JLineKeyMatrixProof.java"),
     ]
     with (RUN / "javac.log").open("wb") as log:
         return subprocess.run(cmd, cwd=ROOT, env=env,
@@ -105,11 +105,11 @@ def run_pty(env, defer_ctrl_c=False, direct_sigint=False):
             str(JDK / "bin/java"),
             f"-Duser.home={BASE}/home",
             f"-Djava.io.tmpdir={BASE}/tmp",
-            f"-Dpaicli.keymatrix.exitAck={ack}",
-            f"-Dpaicli.keymatrix.wakeRequest={wake_request}",
-            f"-Dpaicli.keymatrix.deferCtrlC={str(defer_ctrl_c).lower()}",
-            f"-Dpaicli.keymatrix.directSigint={str(direct_sigint).lower()}",
-            "-cp", CP, "com.paicli.cli.JLineKeyMatrixProof",
+            f"-Dhaocli.keymatrix.exitAck={ack}",
+            f"-Dhaocli.keymatrix.wakeRequest={wake_request}",
+            f"-Dhaocli.keymatrix.deferCtrlC={str(defer_ctrl_c).lower()}",
+            f"-Dhaocli.keymatrix.directSigint={str(direct_sigint).lower()}",
+            "-cp", CP, "com.haocli.cli.JLineKeyMatrixProof",
         ], cwd=ROOT, env=env, stdin=slave, stdout=slave, stderr=slave,
             start_new_session=True)
         details["child_pid"] = process.pid

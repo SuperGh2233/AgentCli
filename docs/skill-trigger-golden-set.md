@@ -12,7 +12,7 @@
 ## 环境
 
 - 启用内置 `web-access`、`better-harness`
-- 项目级 `.paicli/skills/code-review/SKILL.md`（按 `docs/articles/paicli-skill-system.md` 第 10 节的示例），已 `/skill trust code-review`
+- 项目级 `.haocli/skills/code-review/SKILL.md`（按 `docs/articles/haocli-skill-system.md` 第 10 节的示例），已 `/skill trust code-review`
 - 每条在新会话中执行（`/clear`），ReAct 模式
 
 ## 条目
@@ -25,8 +25,8 @@
 | 4 | 帮我把 https://github.com/itwanger/paicli 的 README 总结成 5 条 | web-access | 已知 URL |
 | 5 | 知乎专栏这篇 https://zhuanlan.zhihu.com/p/xxxx 的评论区主要观点是什么 | web-access | 懒加载站点 |
 | 6 | 审查一下当前项目的 AI 编码工作流有什么问题 | better-harness | 与 `/better-harness` 同主题 |
-| 7 | 看看这个仓库的 AGENTS.md、PAI.md 对 Agent 的约束是否够用 | better-harness | Harness 资产审查 |
-| 8 | 帮我 review 一下 src/main/java/com/paicli/tool/LoadedSkillMessages.java | code-review | 项目级 Skill |
+| 7 | 看看这个仓库的 AGENTS.md、HAO.md 对 Agent 的约束是否够用 | better-harness | Harness 资产审查 |
+| 8 | 帮我 review 一下 src/main/java/com/haocli/tool/LoadedSkillMessages.java | code-review | 项目级 Skill |
 | 9 | 这次改动有没有 SQL 注入或者路径遍历风险，帮我查一下 | code-review | 匹配安全维度 |
 | 10 | 帮我检查 ToolRegistry 里有没有方法超过 50 行、嵌套太深 | code-review | 匹配风格维度 |
 | 11 | 当前项目用的是哪个 Java 版本 | 不触发 | 本地文件即可回答 |

@@ -39,7 +39,7 @@ git diff --check 通过；无真实模型、网络、Docker 或 Git 写操作。
 
 ## Day2-C 接入（completed）
 
-只通过 -Dpaicli.stagnation.resource.observer.enabled=true 启用，默认关闭。
+只通过 -Dhaocli.stagnation.resource.observer.enabled=true 启用，默认关闭。
 每次 ReAct run、Plan 单任务、SubAgent execute 创建带项目根目录的局部观察器。
 工具批次返回后、Skill 改写前观察原始结果，只记一次固定事件，不含路径、正文或任务标识。
 不改变模型输入、工具顺序、返回值、策略、预算和 RunawayGuard。关闭属性即可回退。
@@ -59,7 +59,7 @@ git diff --check 通过；无真实模型、网络、Docker 或 Git 写操作。
 
 复用 tools/run-phase3b3-tests.py 的隔离 POM、JDK 21、白名单环境和 Maven -o，
 仅在调用进程内替换 RUN 和测试名单；开启组给 Maven 增加
--Dpaicli.stagnation.resource.observer.enabled=true，Surefire XML 确认属性传入。
+-Dhaocli.stagnation.resource.observer.enabled=true，Surefire XML 确认属性传入。
 各组 maven.log 与 summary.json 同目录，不覆盖旧构建产物。
 最初一次 Maven 在编译前因本地缓存 .locks 写权限失败；获准只写该锁目录后通过。
 没有网络、API、Docker、敏感配置或 Git 写操作；git diff --check 通过。
@@ -95,10 +95,10 @@ Skill 正文改写均保留失败码。本节取代前面阶段依赖固定错�
   ResourceFailureObserverTest、ResourceFailureIntegrationTest、ToolFailureCodeTest、
   TextEditMatcherTest、ToolResultOffloaderTest、RunawayGuardTest、AgentBudgetTest、
   ToolArgumentValidationTest、CommandExecutionObservationTest。
-  报告：/private/tmp/paicli-day2d-1793668208704158000/summary.json
+  报告：/private/tmp/haocli-day2d-1793668208704158000/summary.json
 - ToolRegistryTest 中工具顺序、串行编辑、读写顺序、浏览器批次和超时取消：
   1 组 / 5 项，零失败、零错误、零跳过。
-  报告：/private/tmp/paicli-day2d-order-1793668225174934000/summary.json
+  报告：/private/tmp/haocli-day2d-order-1793668225174934000/summary.json
 各目录另有 maven.log 和 Surefire XML 报告。
 
 首次 Maven 在编译前因本地缓存锁只读失败，仅授权写 ~/.m2/repository/.locks。

@@ -22,7 +22,7 @@
 
 - 相关回归：250 tests，0 failures / errors / skipped。日志 `/tmp/haocli-oauth-1793671246448743000/maven.log`。
 - 最终受影响测试（默认专用目录、scope 三分支、补全、DELETE 前刷新与非 OAuth 跳转兼容性）：159 tests，0 failures / errors / skipped。日志 `/tmp/haocli-oauth-1793671833017014000/maven.log`。使用 JDK 21 编译，source/target 保持 Java 17；未升级依赖。
-- 测试入口：`python3 /tmp/run-haocli-oauth-tests.py 'OAuth*Test,LoopbackCallbackTest,McpOAuth*Test,StreamableHttpTransportTest,CliCommandParserTest,PaiCliCompleterTest,MainInputNormalizationTest,MainBrowserCommandTest'`。适配器调用现有 `tools/run-phase3b3-tests.py` 的隔离 POM 生成函数，Maven `-o -DskipTests=false`；源代码只读，构建与测试 home/tmp 都在 /tmp。
+- 测试入口：`python3 /tmp/run-haocli-oauth-tests.py 'OAuth*Test,LoopbackCallbackTest,McpOAuth*Test,StreamableHttpTransportTest,CliCommandParserTest,HaoCliCompleterTest,MainInputNormalizationTest,MainBrowserCommandTest'`。适配器调用现有 `tools/run-phase3b3-tests.py` 的隔离 POM 生成函数，Maven `-o -DskipTests=false`；源代码只读，构建与测试 home/tmp 都在 /tmp。
 - 早期失败已修正：测试误实例化私有构造器、Dispatcher 重名；macOS /tmp symlink 路径被误拒；超大回调连接关闭后的 TCP reset。最终结果以完整 Maven 日志为准。
 - 已检查完整变更与 `git diff --check`。未运行真实浏览器、外部提供商、模型或 Docker；没有改动提交、分支或标签。
 
@@ -30,7 +30,7 @@
 
 1. 在 HTTPS AS 预注册公共客户端，允许随机端口的 `http://127.0.0.1:<port>/oauth/callback`；配置 HTTP MCP url 与 oauth.clientId。需要限制 scope 时配置允许范围。
 2. 项目配置先 `/mcp trust remote`，再 `/mcp login remote`；完成浏览器授权，确认恢复 READY、工具可用。无自动浏览器支持时手动打开打印的 URL。
-3. 检查默认 `~/.paicli/oauth/` 是 0700、`mcp-oauth-tokens.json` 是 0600，原有 0755 的 `~/.paicli` 权限不变；项目 mcp.json 没有令牌。
+3. 检查默认 `~/.haocli/oauth/` 是 0700、`mcp-oauth-tokens.json` 是 0600，原有 0755 的 `~/.haocli` 权限不变；项目 mcp.json 没有令牌。
 4. 令牌失效后验证一次刷新与轮换；服务返回 403 时应直接提示，invalid_grant 时要求重新登录。
 5. `/mcp logout remote` 后工具移除、连接 DISABLED；再次 login 成功恢复，取消或失败仍停用。
 
