@@ -151,8 +151,8 @@ tools/test-failures.sh > /tmp/before.txt    # 列出上次测试的失败名单�
 
 | 改动 | 需要一起改 |
 |---|---|
-| 行为 | `AGENTS.md`（规则变了时）、`README.md`、`ROADMAP.md`（只在完成状态变化时）、受影响的 `docs/articles/` |
-| 命令入口 | `Main.java` + `CliCommandParser.java` + 测试 + `README.md` |
+| 行为 | `AGENTS.md`（规则变了时）、`docs/guide.md`（首页 `README.md` 只在概览、快速开始或评测现状变化时改）、`ROADMAP.md`（只在完成状态变化时）、受影响的 `docs/articles/` |
+| 命令入口 | `Main.java` + `CliCommandParser.java` + 测试 + `docs/guide.md`（常用命令还要改 `README.md`） |
 | Plan 审阅交互 | `Main.java` + `PlanReviewInputParser.java` + 测试 + 手工验证 |
 | 工具集 | `ToolRegistry.java` + 三种执行方式和 Planner 的提示词 + 文档 |
 | 模型 / 接口 | 对应的 Client + `LlmClientFactory.java` + `.env.example` + 文档 |
