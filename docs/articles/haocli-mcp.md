@@ -91,7 +91,7 @@ Agent 自动调用了 `zread.read` 这个 MCP 工具，去 GitHub 上抓取了 R
 
 整个仓库的目录结构一目了然。你也可以试试其他提示词：
 
-- 搜一下 itwanger/haocli 这个仓库的官方文档，看看 MCP 是怎么集成的？
+- 搜一下 itwanger/paicli 这个仓库的官方文档，看看 MCP 是怎么集成的？
 - 看看 itwanger/paicoding 仓库整体的目录结构
 
 接下来测试 Claude 官方的 filesystem MCP。

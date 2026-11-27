@@ -392,7 +392,7 @@ Plan 模式是用任务描述作查询，把检索结果追加在任务的 user 
 
 下一期接入 RAG 检索，让 Agent 能读懂整个代码库。
 
-项目代码已更新至：`github.com/itwanger/haocli`
+项目代码已更新至：`github.com/itwanger/paicli`
 
 ## Hao CLI 如何写到简历上？
 

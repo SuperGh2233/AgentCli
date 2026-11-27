@@ -19,7 +19,7 @@ Build. Execute. Evolve.
 
 Hao CLI 是一个由 GitHub 账号 **SuperGh2233** 独立开发和维护的 Java Agent CLI 项目，重点探索 Agent Harness、任务规划、工具执行、上下文管理、记忆机制和终端交互。
 
-项目设计过程中参考了开发者社区中关于 Agent CLI 的实践思路，包括[沉默王二的 Hao CLI 项目与教程](https://javabetter.cn/sidebar/itwanger/paicli/)。这里仅作为设计思路的参考与致谢；Hao CLI 的代码实现、功能取舍和后续演进由本项目独立维护。项目不以 Hao CLI 作为代码来源，也不将其功能清单直接视为 Hao CLI 的实现说明。
+项目设计过程中参考了开发者社区中关于 Agent CLI 的实践思路，包括[沉默王二的 PaiCLI 项目与教程](https://javabetter.cn/sidebar/itwanger/paicli/)。这里仅作为设计思路的参考与致谢；Hao CLI 的代码实现、功能取舍和后续演进由本项目独立维护。项目不以 Hao CLI 作为代码来源，也不将其功能清单直接视为 Hao CLI 的实现说明。
 
 ## 核心能力
 

@@ -247,7 +247,7 @@ Winner finalWinner = positionConsistent ? firstLogicalWinner : Winner.TIE;
 
 Hao CLI 的正式分数还是 null。等 168 次运行跑完，再来和大家对一对账。
 
-项目代码：`github.com/itwanger/haocli`
+项目代码：`github.com/itwanger/paicli`
 
 ## Hao CLI 如何写到简历上？
 

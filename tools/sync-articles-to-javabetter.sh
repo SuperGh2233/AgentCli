@@ -10,7 +10,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 source_dir="$repo_root/docs/articles"
-target_dir="${JAVABETTER_HAOCLI_DIR:-$HOME/Documents/GitHub/toBeBetterJavaer/docs/src/sidebar/itwanger/haocli}"
+target_dir="${JAVABETTER_HAOCLI_DIR:-$HOME/Documents/GitHub/toBeBetterJavaer/docs/src/sidebar/itwanger/paicli}"
 
 if [[ ! -d "$target_dir" ]]; then
   echo "目标目录不存在: $target_dir" >&2
