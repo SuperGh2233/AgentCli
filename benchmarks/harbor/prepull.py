@@ -30,7 +30,7 @@ def present(image: str) -> bool:
 
 
 def pull(image: str) -> bool:
-    for attempt in range(1, 4):
+    for attempt in range(1, 7):
         for extra in ([], ["--platform", "linux/amd64"]):
             result = subprocess.run(["docker", "pull", "-q", *extra, image], capture_output=True, text=True)
             if result.returncode == 0:
