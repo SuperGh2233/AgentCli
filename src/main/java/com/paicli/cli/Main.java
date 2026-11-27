@@ -113,7 +113,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 /**
- * PaiCLI v16.1.0 - Terminal-First Agent IDE
+ * Hao CLI v16.1.0 - Terminal-First Agent IDE
  * 支持 ReAct、Plan-and-Execute、Memory、RAG、Multi-Agent、HITL、并行工具调用、多模型切换、MCP、CDP 会话复用
  * 第 15 期新增：Skill 系统（三层加载 + load_skill 工具 + 同轮正文注入）、内置 web-access skill
  * 第 16 期新增：TUI 界面（Lanterna 3）、文件树浏览、代码高亮、对话历史可视化、配置管理面板
@@ -1267,7 +1267,7 @@ public class Main {
                 store.close();
             }, "paicli-runtime-api-shutdown"));
             server.start();
-            System.out.println("✅ PaiCLI Runtime API 已启动: http://127.0.0.1:" + server.port());
+            System.out.println("✅ Hao CLI Runtime API 已启动: http://127.0.0.1:" + server.port());
             System.out.println("   认证: Authorization: Bearer <PAICLI_RUNTIME_API_KEY>");
             System.out.println("   " + permissions.describe());
             new CountDownLatch(1).await();
@@ -2082,8 +2082,8 @@ public class Main {
                 new SlashCommandHint("/export", "/export", "导出当前会话对话记录为 Markdown"),
                 new SlashCommandHint("/resume", "/resume", "列出当前项目可以恢复的历史会话"),
                 new SlashCommandHint("/resume ", "/resume <序号>", "恢复一次历史会话，接着之前的对话继续"),
-                new SlashCommandHint("/exit", "/exit", "退出 PaiCLI"),
-                new SlashCommandHint("/quit", "/quit", "退出 PaiCLI")
+                new SlashCommandHint("/exit", "/exit", "退出 Hao CLI"),
+                new SlashCommandHint("/quit", "/quit", "退出 Hao CLI")
         );
     }
 
@@ -2594,7 +2594,7 @@ public class Main {
 
     static String renderConversationExport(List<LlmClient.Message> history, LocalDateTime exportedAt) {
         StringBuilder md = new StringBuilder();
-        md.append("# PaiCLI 会话导出\n\n");
+        md.append("# Hao CLI 会话导出\n\n");
         md.append("**导出时间**: ").append(exportedAt.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("\n\n");
         md.append("---\n\n");
 
