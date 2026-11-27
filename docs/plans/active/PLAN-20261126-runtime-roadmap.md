@@ -252,9 +252,9 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 
 ### 安全
 
-1. 统一策略入口：把散在 `ToolRegistry`、`HitlToolRegistry`、`HeadlessToolRegistry`、微信通道里的检查合成一条链（本轮工具策略 → 权限规则 → 人工确认 → 参数 / 路径 / 命令检查 → 沙箱 → 审计），每次决定输出决定编号和原因
+1. 统一策略入口：把散在 `ToolRegistry`、`HitlToolRegistry`、`HeadlessToolRegistry` 里的检查合成一条链（本轮工具策略 → 权限规则 → 人工确认 → 参数 / 路径 / 命令检查 → 沙箱 → 审计），每次决定输出决定编号和原因
 2. 沙箱（`docs/adr/ADR-0003-sandbox-escalation.md`）：交互默认 `auto`，只读访问 `~/.m2`、`~/.gradle` 等依赖缓存，网络关闭；命令看起来是被沙箱挡住时，弹确认框问“在沙箱外重跑这一次”，人批准才重跑并写审计；审查模型不能代批；判断不出是不是沙箱导致的就不提示升级。无人值守入口 `required`，沙箱不可用就拒绝，绝不升级
-3. 微信通道并进统一入口，保持默认拒绝
+3. （原“微信通道并进统一入口”：微信通道已于 2026-11-28 删除（代码在 Git 历史里，最后一个包含它的提交是 `8986a85`），不再需要）
 4. Linux（bubblewrap）和 macOS（Seatbelt）分别验证；Windows 不声称同等隔离
 5. 验收：安全专项全过；新增决定记录、沙箱升级、无人值守拒绝的测试；路径测试含真实路径和符号链接
 
@@ -278,7 +278,7 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 |---|---|---|
 | `hao-core` | 接口和数据类型（模型接口、`Tool`、工具结果、`AgentEvent`、运行结果）、`AgentLoop`、预算、取消、策略接口 | 其他三个模块、SQLite、MCP、终端 |
 | `hao-runtime` | 进程内入口、默认内置工具、模型客户端、策略和沙箱实现、会话存储、上下文装配；可选能力（Plan、Team、MCP、RAG、记忆、LSP）各占独立包，由依赖测试隔离 | `hao-cli`、`hao-eval` |
-| `hao-cli` | `Main`、inline / Lanterna 界面、`-p`、Runtime API 服务、微信 | `hao-eval` |
+| `hao-cli` | `Main`、inline / Lanterna 界面、`-p`、Runtime API 服务 | `hao-eval` |
 | `hao-eval` | 评测 | 不被任何模块依赖 |
 
 坐标用 `hao-*`，包名保持 `com.haocli`。验收：各模块单独 `clean build` 和测试；示例只依赖 `hao-runtime`；关掉所有可选能力仍能读、改、验证一个小 Java 项目。
@@ -294,7 +294,7 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 - 在 `feat/harness-runtime` 分支上做，`main` 只在阶段验收后合并。每次提交前先给用户看文件列表和提交说明，用户同意才提交；推送由用户做
 - 测试在用户 Mac（JDK 21）上跑；跑不了的标“未验证”，不说成“通过”
 - 上下文阶段的实验预登记批准之前，不调用真实模型、不跑 Docker、不写评测代码
-- 冻结：Lanterna 全屏界面、微信通道、浏览器只修崩溃和安全问题，不加新功能；README 标 Lanterna 为实验性
+- 冻结：Lanterna 全屏界面、浏览器只修崩溃和安全问题（微信通道已于 2026-11-28 删除（代码在 Git 历史里，最后一个包含它的提交是 `8986a85`）），不加新功能；README 标 Lanterna 为实验性
 - 对外文档和简历不引用基于 Claude Code 泄露 source map 的第三方分析；分层设计的依据只写 Anthropic 公开文章和官方文档
 - 名字一律用 haocli 系列（`com.haocli`、`~/.haocli`、`HAOCLI_*`、`HAO.md`），不加旧名字别名
 

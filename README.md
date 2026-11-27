@@ -34,7 +34,7 @@ Hao CLI 是一个用 Java 写的 Agent 框架和终端编程助手。它把大�
 | 上下文 | 分块装配 system prompt、外部内容单独标记为不可信、`HAO.md` 渐进加载、五层压缩、上下文超长时紧急压缩并重试 |
 | 安全 | 路径限定在项目根目录、命令黑名单、人工确认（HITL）、权限规则、操作审计、可选 Seatbelt / bubblewrap 命令沙箱 |
 | 无界面运行 | `-p` 一次执行，输出 text / JSON / JSONL 事件流；默认只读，有请求数、Token 和时间上限 |
-| 外部接入 | MCP（stdio / Streamable HTTP，含 OAuth）、Runtime API、浏览器（Chrome DevTools MCP）、微信文本通道 |
+| 外部接入 | MCP（stdio / Streamable HTTP，含 OAuth）、Runtime API、浏览器（Chrome DevTools MCP） |
 | 模型 | DeepSeek、GLM、混元、StepFun、Kimi、讯飞星辰、Agnes 及 OpenAI 兼容网关，运行时切换 |
 
 ## 快速开始
@@ -88,7 +88,6 @@ flowchart TB
     CLI[交互 CLI / TUI]
     HL["-p 无界面模式"]
     API[Runtime API]
-    WX[微信通道]
   end
   subgraph Modes[执行方式]
     R[ReAct]
@@ -118,7 +117,7 @@ flowchart TB
 
 - 文件工具只能访问项目根目录之内；被安全策略拒绝的操作，用户确认也放不行。
 - 写文件、执行命令、MCP 工具等危险操作按确认档位走人工确认，并写审计日志。
-- 无界面模式、Runtime API、微信通道没有人确认：默认只读，命令必须逐条加入白名单。
+- 无界面模式和 Runtime API 没有人确认：默认只读，命令必须逐条加入白名单。
 - 命令沙箱默认关闭（`HAOCLI_COMMAND_SANDBOX=auto|required` 开启）。这些都是应用层保护，**不能替代系统权限、隔离环境和备份**，建议先在可丢弃的项目里试用。
 
 ## 开发

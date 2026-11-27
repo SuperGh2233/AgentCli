@@ -22,7 +22,7 @@ AI 编码助手进入本仓库时先读这个文件。它是 Codex、Claude Code
 ## 项目概况
 
 - 名字统一是 Hao CLI：包名 `com.haocli`、配置目录 `~/.haocli`、环境变量 `HAOCLI_*`、系统属性 `haocli.*`、项目记忆 `HAO.md`、jar `haocli-*.jar`（2026-11-27 全量改名，不兼容旧名字）。`docs/reviews/` 和 `docs/UPSTREAM_ATTRIBUTION.md` 里的旧名是历史记录和对上游项目的致谢，不要改
-- 面向商业使用的 Java Agent 命令行工具，对标 Claude Code。迭代按 `ROADMAP.md` 分 21 期（从 ReAct 单 Agent 到微信接入，各期内容和完成状态看那里）
+- 面向商业使用的 Java Agent 命令行工具，对标 Claude Code。迭代按 `ROADMAP.md` 分 21 期（从 ReAct 单 Agent 到 Runtime API，各期内容和完成状态看那里；第 23 期微信通道已于 2026-11-28 删除）
 - 启动画面显示的版本是 `v16.1.0`，Maven 打出的 jar 是 `haocli-1.0-SNAPSHOT.jar`，两者不一致是正常的
 - 产品功能：用户项目里的 `HAO.md` 是项目级记忆，启动时放进 system prompt，写团队共享、长期不变的规则；个人的、会变化的事实用 `/save` 存成长期记忆（本仓库自己的 `HAO.md` 只是导入本文件）
 - MCP：双协议（默认 2025-03-26，显式写 `protocolVersion: 2026-07-28` 才走新版，不协商、不降级）、OAuth 登录、MRTR（server 中途向用户要补充输入）的约束见 `docs/specs/mcp-*.md` 和 `docs/agents-reference.md`；不要实现旧的 sampling。进度写在 `docs/plans/active/PLAN-20261103-mcp-*.md`
@@ -43,7 +43,6 @@ AI 编码助手进入本仓库时先读这个文件。它是 Codex、Claude Code
 cp .env.example .env
 mvn clean package                           # 默认跳过测试（pom 中 skipTests=true）
 java -jar target/haocli-1.0-SNAPSHOT.jar
-java -jar target/haocli-1.0-SNAPSHOT.jar wechat setup|start
 java -jar target/haocli-1.0-SNAPSHOT.jar --continue          # 恢复当前项目最近的会话；--session <id> 按 ID 恢复，两者不能同时用
 java -Dhaocli.steering.enabled=true -jar target/haocli-1.0-SNAPSHOT.jar   # 打开执行中动态指令（实验功能，默认关）
 java -jar target/haocli-1.0-SNAPSHOT.jar -p "任务" --output-format json  # 无界面模式（docs/specs/headless-mode.md）
@@ -55,7 +54,7 @@ mvn test -DskipTests=false                  # 全量
 tools/test-failures.sh > /tmp/before.txt    # 列出上次测试的失败名单；改完再输出到 after.txt，diff 多出来的就是新失败
 ```
 
-交互命令：`/plan`、`/team`、`/mode auto|plan|ask`（Shift+Tab 轮流切换）、`/hitl on|default`、`/permissions list|revoke <id>|clear --confirm`、`/save`、`/memory`、`/compact`、`/context`、`/init`、`/export`、`/resume`、`/better-harness`、`/wechat`。不认识的 `/xxx` 由命令行直接报“未知命令”，不交给模型处理。
+交互命令：`/plan`、`/team`、`/mode auto|plan|ask`（Shift+Tab 轮流切换）、`/hitl on|default`、`/permissions list|revoke <id>|clear --confirm`、`/save`、`/memory`、`/compact`、`/context`、`/init`、`/export`、`/resume`、`/better-harness`。不认识的 `/xxx` 由命令行直接报“未知命令”，不交给模型处理。
 
 `mvn test -Pquick` 现在没有已知失败（2026-11-24 全部修复），出现失败就是新问题。终端相关测试用 JLine 建测试终端时要显式 `.type("dumb")`，否则结果跟着 `TERM` 变。评测包测试在 `-Pbenchmark`（2026-11-28 在 `38bdb3b` 实测 185 个已知失败：176 个断言失败 + 9 个错误；回归要比对改动前后的失败名单，不能只比数字）；`CodeIndexTest` 连不上本机 Ollama 时跳过；`ToolRegistryTest.macSandboxAllowsDevelopmentRuntimesAndDevNull` 在较新的 macOS 上会因 JVM 在 Seatbelt 沙箱里以 139 退出而失败。
 
@@ -120,7 +119,6 @@ tools/test-failures.sh > /tmp/before.txt    # 列出上次测试的失败名单�
 - 默认的人工确认只由 `SwitchableHitlHandler` 打开；评测这类无人值守的处理器保持关闭，不能让没人看着的流程卡在等待确认上
 - PathGuard 强制所有路径都在项目根目录内；CommandGuard 只是辅助的命令黑名单，不是主要的安全措施。命令沙箱由 `HAOCLI_COMMAND_SANDBOX=off|auto|required` 控制，默认 off
 - 无界面模式（`-p`）、Runtime API、后台任务都没人确认，统一用 `headless/` 的白名单：默认只读，edit 才能写文件，命令只放行逐字列出的（后台任务不执行命令）；不要再给无人值守入口用裸 `ToolRegistry`。`-p` 的标准输出只放 Agent 事件和结果
-- 微信通道没有人工确认界面，默认拒绝：只读工具允许；`execute_command`、`mcp__*` 必须在白名单里；`revert_turn` 和切换浏览器会话一律拒绝
 
 ### Web 与浏览器
 

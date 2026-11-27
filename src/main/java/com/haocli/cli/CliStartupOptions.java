@@ -1,6 +1,6 @@
 package com.haocli.cli;
 
-/** 启动参数；未知旧参数保留忽略行为，不处理微信或 serve 的专用入口。 */
+/** 启动参数；未知旧参数保留忽略行为，不处理 serve 的专用入口。 */
 record CliStartupOptions(boolean continueSession, String sessionId) {
     static CliStartupOptions parse(String[] args) {
         boolean latest = false;

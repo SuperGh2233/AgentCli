@@ -3,7 +3,7 @@ package com.haocli.agent.event;
 import com.haocli.tool.ToolStatus;
 
 /**
- * Agent 一轮执行过程中对外发出的事件，所有前端（交互终端、无界面模式、Runtime API、微信）都可以只消费它。
+ * Agent 一轮执行过程中对外发出的事件，所有前端（交互终端、无界面模式、Runtime API）都可以只消费它。
  *
  * <p>顺序约定（一轮用户输入）：{@link TurnStarted} → 每次模型请求先一条 {@link ModelRequestStarted}，然后若干
  * {@link ReasoningDelta} / {@link TextDelta}，再一条 {@link Usage}；模型要调工具时，每个调用一条

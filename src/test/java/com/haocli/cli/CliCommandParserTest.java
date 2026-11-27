@@ -240,19 +240,10 @@ class CliCommandParserTest {
     }
 
     @Test
-    void parsesWechatSlashCommand() {
-        CliCommandParser.ParsedCommand command = CliCommandParser.parse("/wechat");
-
-        assertEquals(CliCommandParser.CommandType.WECHAT, command.type());
-        assertEquals("start", command.payload());
-    }
-
-    @Test
-    void parsesWechatSlashCommandWithPayload() {
-        CliCommandParser.ParsedCommand command = CliCommandParser.parse("/wechat status");
-
-        assertEquals(CliCommandParser.CommandType.WECHAT, command.type());
-        assertEquals("status", command.payload());
+    void removedWechatCommandIsUnknown() {
+        // 微信通道已于 2026-11-28 删除；/wechat 按未知命令处理，不交给模型。
+        assertEquals(CliCommandParser.CommandType.UNKNOWN_COMMAND, CliCommandParser.parse("/wechat").type());
+        assertEquals(CliCommandParser.CommandType.UNKNOWN_COMMAND, CliCommandParser.parse("/wechat status").type());
     }
 
     @Test

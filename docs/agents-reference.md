@@ -50,7 +50,7 @@ ReAct、Plan 单任务和 SubAgent 共用 `AgentBudget`。优先级：系统属�
 
 默认先由 `RunawayGuard` 提醒：同一动作（工具名 + 按键名排序后的参数）或同一类错误（超时、限流、网络、鉴权、权限、找不到、参数、退出码等；归不进这些类别时按错误文本区分）连续出现 3 步，就在工具结果后面注入一条 `[runaway guard]` user 消息。每个任务最多提醒一次，不拦截工具；被策略或 HITL 拒绝的调用不计数，还会打断连续计数。
 
-真正起保护作用的是：停滞（stagnation）检测（连续 5 轮相同的工具调用；默认窗口必须大于提醒阈值）、上下文压缩、取消和 LLM 超时。CI、Runtime API、微信无人值守或需要严格控制成本的场景，可以用 `-Dhaocli.react.hard.max.iterations=N` 显式设一个正整数轮数上限，也可以用 `-Dhaocli.react.token.budget=N` 设 Token 上限。
+真正起保护作用的是：停滞（stagnation）检测（连续 5 轮相同的工具调用；默认窗口必须大于提醒阈值）、上下文压缩、取消和 LLM 超时。CI、Runtime API、无人值守或需要严格控制成本的场景，可以用 `-Dhaocli.react.hard.max.iterations=N` 显式设一个正整数轮数上限，也可以用 `-Dhaocli.react.token.budget=N` 设 Token 上限。
 
 任何一项预算用完后，各执行路径都会关闭工具，再尽力做一次收尾，把已有结果以“部分完成”交出去；收尾这次调用不会重新进入 Agent 循环。Token 显示行 `📊 Token: 已用 X / Y` 里的 Y 只是软提示，不是强制限制。
 
@@ -154,7 +154,7 @@ OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 202
 - ReAct、Plan、SubAgent 都接入同一个协调器；`/compact` 总是走稳定的完整摘要路径，并保留最近 1 个 user 轮次。
 - `ConversationLedger` 和可变的 conversationHistory 是分开的：默认 CLI 的 ReAct、Plan、Team（含 planner / worker / reviewer）共用一个只追加的 JSONL 文件。每行带 schemaVersion、sessionId、sequence、timestamp、event、mode、actor、source，并保存完整的 `LlmClient.Message`；最终回复的 reasoning 也只在会话记录里完整保存，不影响发给 provider 的对话内容
 - `/clear`、裁剪历史图片数据、压缩 conversationHistory 时，只能往会话记录里追加一条说明记录，不能覆盖或删除里面的旧行。原始工具参数、工具结果和图片数据可能含敏感信息；POSIX 下 `history/raw` 目录权限为 0700，记录文件为 0600
-- `/resume`（`SessionResume` + `ResumeCommandHandler`）：CLI 启动时写一条 `session_start` 事件记下项目路径，列表只显示当前项目的 CLI 会话（无界面任务、微信、评测、Lanterna TUI 不写这个事件，所以不会出现在列表里）。还原只看 `mode=react`：按顺序重放 `actor=agent` 的非 system 消息，遇到 `history_clear` 就清空，遇到 `view_checkpoint` 就整体替换；最终回答去掉 reasoning、图片换成文字说明，最后一个完整回答之后的消息（没跑完的那一轮）丢弃。压缩、旧工具结果清理和恢复都会原地改写 conversationHistory，所以 `Agent` 在这些操作后写一条 `view_checkpoint`（metadata.messages 是不含 system 的完整对话，不存图片数据）；以后新增任何原地改写 conversationHistory 的地方，都要同样写检查点，否则恢复出来的对话和模型当时看到的不一致。恢复后会根据对话里的 web、浏览器、MCP、curl 调用重新标记外部内容，继续暂停自动写记忆
+- `/resume`（`SessionResume` + `ResumeCommandHandler`）：CLI 启动时写一条 `session_start` 事件记下项目路径，列表只显示当前项目的 CLI 会话（无界面任务、评测、Lanterna TUI 不写这个事件，所以不会出现在列表里）。还原只看 `mode=react`：按顺序重放 `actor=agent` 的非 system 消息，遇到 `history_clear` 就清空，遇到 `view_checkpoint` 就整体替换；最终回答去掉 reasoning、图片换成文字说明，最后一个完整回答之后的消息（没跑完的那一轮）丢弃。压缩、旧工具结果清理和恢复都会原地改写 conversationHistory，所以 `Agent` 在这些操作后写一条 `view_checkpoint`（metadata.messages 是不含 system 的完整对话，不存图片数据）；以后新增任何原地改写 conversationHistory 的地方，都要同样写检查点，否则恢复出来的对话和模型当时看到的不一致。恢复后会根据对话里的 web、浏览器、MCP、curl 调用重新标记外部内容，继续暂停自动写记忆
 - 交互式 CLI 默认在 ReAct / Plan / Team 任务完成后，从用户实际提交的原话里自动挑出项目级的稳定事实（`HAOCLI_MEMORY_AUTO_EXTRACT_ENABLED=false` 关闭；嵌入式 Agent 默认关闭）。候选必须逐字来自原话，最多 3 条；自动条目标注待核实，重复或冲突的不写，也不刷新旧条目的核实时间。显式保存仍走 `/save`，或用户要求后的 `save_memory`
 - 外部内容防护：`ExternalContextTracker` 挂在共享的 ToolRegistry 上（Agent、PlanExecuteAgent、AgentOrchestrator 通过 `MemoryManager.setExternalContextTracker` 绑定）。`TurnToolPolicy.execute()` 执行前先从会话的 tracker 同步状态，执行后把 `web_search`、`web_fetch`、`browser_*`、`mcp__*` 的结果和 curl/wget 命令记为外部来源；Agent 还会把用户输入里展开的 MCP resource 记为 `mcp_resource_mention`。开关是 `haocli.memory.disable.on.external.context` / `HAOCLI_MEMORY_DISABLE_ON_EXTERNAL_CONTEXT`（默认 true）。开关打开且出现过外部来源时：`ExplicitMemoryHints` 跳过登录态的自动写入；本轮用户原话里没有“记一下 / 记住 / 以后记得 / 保存到长期记忆”这类明确意图时，`save_memory` 会被策略层拒绝（`ReasonCode.MEMORY_EXTERNAL_CONTEXT`）。所有显式写入都会在 metadata 里记 `external_context=true` 和最多 8 个来源，开关关掉也照样记。`/clear` 会重置。Codex 的同名配置默认关闭，并按 MCP server 的 `pollutes_memory` 分别设置；Hao CLI 默认开启，所有 MCP 一律当作外部内容
 - 长期记忆只保存跨会话稳定的事实，不保存临时指令；默认是项目级作用域，跨项目通用的偏好才用 global
@@ -222,7 +222,7 @@ OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 202
   - `CommandSandbox` 定义一套统一策略：工作区可写，系统和运行时目录只读，HOME/TMPDIR 指到工作区的 `.haocli-command-sandbox/`，没有网络。
   - `SeatbeltProfile` 生成 macOS `sandbox-exec -p` 用的 profile。`BubblewrapArguments` 生成 Linux `bwrap` 的参数列表：`--die-with-parent --new-session --unshare-all`；`/usr` `/bin` `/sbin` `/lib*` `/etc` 以及 JAVA_HOME、PATH 里的 bin、sbin、shims 目录用 `--ro-bind-try` 只读挂载；merged-usr 的符号链接用 `--symlink` 照样建出来；再加上 `--dev /dev --proc /proc --tmpfs /tmp`，工作区用 `--bind` 挂载，`--chdir` 进入工作目录。
   - `CommandSandboxDetector` 先按 `os.name` 判断用哪个后端，再跑一次 `/usr/bin/true` 确认真的能用。
-  - 交互入口 `ToolRegistry.configureCommandSandbox(CommandSandboxMode, root)` 由 Main（含 TUI）、无界面任务和微信会话调用，模式取自 `haocli.command.sandbox` / `HAOCLI_COMMAND_SANDBOX`：off（默认）、auto（on、true 同义）、required；切换项目根时按同一模式重新配置。评测入口 `setCommandSandboxRoot` 仍固定用 Seatbelt。
+  - 交互入口 `ToolRegistry.configureCommandSandbox(CommandSandboxMode, root)` 由 Main（含 TUI）和无界面任务调用，模式取自 `haocli.command.sandbox` / `HAOCLI_COMMAND_SANDBOX`：off（默认）、auto（on、true 同义）、required；切换项目根时按同一模式重新配置。评测入口 `setCommandSandboxRoot` 仍固定用 Seatbelt。
 - 可恢复卸载：`TurnToolPolicy.execute()` 在 `observe(raw)` 之后调用 `ToolRegistry.offloadForContext()`。结果超过 `haocli.tool.offload.threshold.chars` / `HAOCLI_TOOL_OFFLOAD_THRESHOLD_CHARS`（默认 32000，最小 2000）时，`ToolResultOffloader` 把它写进 `<project>/.haocli/tool-outputs/<session-yyyyMMdd-HHmmss-xxxxxx>/NNN-<tool>.txt`，上下文里只保留开头 2000、结尾 800 字符的预览。`haocli.tool.offload.enabled` / `HAOCLI_TOOL_OFFLOAD_ENABLED=false` 关闭。写文件失败时退回按阈值截断。会话目录目前不会自动清理
 
 ### 联网能力
@@ -249,7 +249,7 @@ OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 202
 - 现代 HTTP 带版本、方法和适用的非空主名称头，无 session/DELETE；现代 stdio 无 ping。现代资源订阅明确拒绝，服务端主动消息丢弃，无变化通知监听。工具、资源读取和 prompts 列表正常。
 - OAuth 探测按固定版本选择请求，其他 OAuth 安全行为不变。详见 [双协议约定](specs/mcp-protocol-eras.md)。
 - MRTR-1 交互层：`McpElicitationHandler` 与 Renderer/HITL 分离接入；表单支持受限 flat schema，URL 必须明确选择 open 才调用默认浏览器；拒绝/取消均 fail-closed。补充输入不受 `/hitl` 开关或会话批量批准影响。
-- Plain/Inline renderer 提供 elicitation UI；Lanterna 全屏 renderer 也已接入表单/URL 模态框，但只在 GUI 主循环运行时声明 form/url，关闭或不可用时为空能力。WeChat 和无人值守路径仍默认 cancel。MRTR-2 已接通最多 4 轮、每轮 8 项的协议往返与 requestState 当轮原样回传。MRTR-3 只在这三种现代 MRTR 操作发送时查询当前 UI 的 form/url，保留其他元数据和自定义能力，清除陈旧 elicitation。Main 只在 System.console() 非空时传入 SwitchableHitlHandler 对象；manager 不用 lambda 包装，client 的 supplier 逐次查询当前 delegate，失败或 null 为空。普通请求、通知和无控制台 CLI 不声明 elicitation。本轮 43 类/387 项完整离线回归全部通过（覆盖 MRTR-1/2/3/4、OAuth、双协议及 Lanterna）；真实终端手工验收仍待执行。详见 [MRTR 约定](specs/mcp-mrtr.md)。
+- Plain/Inline renderer 提供 elicitation UI；Lanterna 全屏 renderer 也已接入表单/URL 模态框，但只在 GUI 主循环运行时声明 form/url，关闭或不可用时为空能力。无人值守路径仍默认 cancel。MRTR-2 已接通最多 4 轮、每轮 8 项的协议往返与 requestState 当轮原样回传。MRTR-3 只在这三种现代 MRTR 操作发送时查询当前 UI 的 form/url，保留其他元数据和自定义能力，清除陈旧 elicitation。Main 只在 System.console() 非空时传入 SwitchableHitlHandler 对象；manager 不用 lambda 包装，client 的 supplier 逐次查询当前 delegate，失败或 null 为空。普通请求、通知和无控制台 CLI 不声明 elicitation。本轮 43 类/387 项完整离线回归全部通过（覆盖 MRTR-1/2/3/4、OAuth、双协议及 Lanterna）；真实终端手工验收仍待执行。详见 [MRTR 约定](specs/mcp-mrtr.md)。
 
 - 支持 stdio 和 Streamable HTTP 两种传输方式
 - 工具注册为 `mcp__{server}__{tool}`
@@ -286,7 +286,7 @@ OAuth 与 MCP 协议版本独立，默认 2025-03-26，也支持显式固定 202
 - `load_skill(name, file)` 读取 Skill 目录里的附属文件（如果是目录就列出内容），用 realpath 校验，不能跑出该目录；PathGuard 不变，`read_file` 读不到 `~/.haocli` 下的 Skill。`references/` 下的路径还会经 `SkillReferences.resolveOverlay` 找到用户级补充目录 `~/.haocli/skills/<name>/references/`：列目录时分两段列出（Skill 自带的、用户级补充的）；读文件时先给自带版本（受 offset/limit 分页），再完整附上补充文件；只在补充目录里有的文件也能读。补充目录里没有 SKILL.md，`SkillRegistry` 不会把它当成 Skill
 - 项目级 Skill 没有 `/skill trust` 时，SKILL.md 正文由执行器放进工具结果（untrusted），不生成注入消息；信任记录按 SKILL.md 的绝对路径加正文的 SHA-256，存在 `skills.json` 的 `trustedProjectSkills` 里
 - 写回：`save_skill_reference(name, file, content, overwrite)` 只写已启用、名字为 kebab-case 的 Skill 的用户级补充目录 `references/**.md`。路径每一段都必须符合 `[A-Za-z0-9][A-Za-z0-9._-]*`（拒绝 `..`、隐藏段、绝对路径、`~`），最多 4 层，`references` 及其下各级都不能是符号链接；单次 ≤ 8000 字符，单个文件 ≤ 64KB。默认 `APPEND`，一次写入完成（不先读再改写，多个进程不会互相覆盖）；`overwrite=true` 时先写临时文件再原子替换。PathGuard 的规则不变，`read_file` / `write_file` 仍然拒绝 `~/.haocli/`
-- `save_skill_reference` 在 `ApprovalPolicy.DANGEROUS_TOOLS` 和 `AUDIT_TOOLS` 里（🟡 中危，和 `write_file` 一样：auto 下直接执行，`/hitl on` 时要确认），不在 `PARALLEL_SAFE_TOOLS` 里；微信通道和评测的工具集配置都没列入，默认用不了
+- `save_skill_reference` 在 `ApprovalPolicy.DANGEROUS_TOOLS` 和 `AUDIT_TOOLS` 里（🟡 中危，和 `write_file` 一样：auto 下直接执行，`/hitl on` 时要确认），不在 `PARALLEL_SAFE_TOOLS` 里；评测的工具集配置没列入，默认用不了
 - 改了内置 SKILL.md 或 references，要调高 `SkillBuiltinExtractor.CURRENT_VERSION`，否则已有缓存不会重建
 
 ### Better Harness
@@ -680,7 +680,7 @@ Seatbelt profile 额外放行了对根目录 "/" 本身的读取（literal，只
 
 ### 架构、代码搜索与 Planner 校验
 
-- 已交付 23 期（ReAct → Plan+DAG → Memory → RAG → Multi-Agent → HITL → 并行工具 → 多模型 → 联网 → MCP 核心 → MCP 高级 → 长上下文 → Chrome DevTools → CDP 会话复用 → Skill → TUI → LSP 诊断 → Side-Git 快照 → Prompt 分层 → Runtime API → 图片输入 → 微信 iLink 通道文本 MVP）
+- 已交付 23 期（ReAct → Plan+DAG → Memory → RAG → Multi-Agent → HITL → 并行工具 → 多模型 → 联网 → MCP 核心 → MCP 高级 → 长上下文 → Chrome DevTools → CDP 会话复用 → Skill → TUI → LSP 诊断 → Side-Git 快照 → Prompt 分层 → Runtime API → 图片输入 → 微信 iLink 通道文本 MVP；微信通道已于 2026-11-28 删除（代码在 Git 历史里，最后一个包含它的提交是 `8986a85`））
 
 核心内置工具见 AGENTS.md 里的 18 个清单。`edit_file` 默认只替换唯一匹配的 `old_text`，`replace_all=true` 时全部替换；匹配规则由 `TextEditMatcher` 实现（精确匹配 → 逐行统一写法后再匹配（NFKC、行尾空白、引号、横线、特殊空格）→ 片段每行都带 read_file 行号前缀时，剥掉前缀再试一次），CRLF 文件保留原来的换行符，有多处匹配时报告出现次数和起始行，局部修改时模型不用输出整个文件；它和 `write_file` 一样受路径限制、HITL 审批和审计约束。
 

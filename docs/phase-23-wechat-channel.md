@@ -1,5 +1,7 @@
 # 第 23 期：可选微信通道
 
+> **已删除（2026-11-28）**：它不服务于 Runtime、Harness 实验和 Coding CLI 三个定位，又是一块需要长期维护的远程执行安全面，所以从主线移除。代码在 Git 历史里（最后一个包含它的提交是 `8986a85`），本文只作历史记录。
+
 > 期号说明：第 22 期已分配给「JLine-first 交互升级」（见 `docs/phase-22-jline-interaction-upgrade.md`），微信通道顺延为第 23 期。
 
 ## Summary

@@ -1,6 +1,8 @@
 # Hao CLI 完整说明
 
 > 这是 2026-11-28 精简首页之前的完整 README，保留全部配置、命令、工具说明和各期演进记录。项目概览见 [README](../README.md)；规则以 [AGENTS.md](../AGENTS.md) 和代码为准，这里的阶段记录可能落后于代码。
+>
+> 微信通道已于 2026-11-28 删除（代码在 Git 历史里，最后一个包含它的提交是 `8986a85`），下文中的微信命令和说明只作历史记录。
 
 <p align="center">
   <strong>Java Agent CLI / Harness 实践项目</strong>
