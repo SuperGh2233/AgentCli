@@ -70,7 +70,7 @@ case "$mode" in
     includes=()
     while IFS= read -r task; do
       case "$task" in ''|'#'*) continue ;; esac
-      includes+=(-i "$task")
+      includes+=(-i "*/$task")
     done < "$SUBSET"
     echo "dev subset: $SUBSET ($(( ${#includes[@]} / 2 )) tasks)"
     harbor run -d "$DATASET" "${includes[@]}" -k 3 "${common[@]}" "$@" ;;
