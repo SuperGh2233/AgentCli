@@ -61,4 +61,39 @@ class ProjectMemoryLoaderTest {
 
         assertTrue(context.isEmpty());
     }
+
+    @Test
+    void overBudgetMemoryShowsAnOutlineInsteadOfCuttingBlindly() throws Exception {
+        Path projectRoot = tempDir.resolve("big");
+        Files.createDirectories(projectRoot);
+        StringBuilder text = new StringBuilder();
+        for (int section = 1; section <= 40; section++) {
+            text.append("## 第 ").append(section).append(" 节\n");
+            for (int line = 0; line < 20; line++) {
+                text.append("- 规则 ").append(section).append('.').append(line).append(" ").append("说明".repeat(10)).append('\n');
+            }
+        }
+        Files.writeString(projectRoot.resolve("HAO.md"), text.toString());
+
+        String context = new ProjectMemoryLoader(null, projectRoot).loadForPrompt();
+
+        assertTrue(context.length() <= 24_000 + 200, "仍在预算附近: " + context.length());
+        assertTrue(context.contains("## 第 1 节"), "开头部分原样放进来");
+        assertTrue(context.contains("### 未展开的部分"));
+        assertTrue(context.contains("read_file"));
+        assertTrue(context.matches("(?s).*HAO\\.md 第 \\d+ 行：## 第 40 节.*"), "最后一节出现在目录里，带行号");
+        assertFalse(context.contains("字符预算截断"), "不再生硬截断");
+    }
+
+    @Test
+    void memoryWithinBudgetHasNoOutline() throws Exception {
+        Path projectRoot = tempDir.resolve("small");
+        Files.createDirectories(projectRoot);
+        Files.writeString(projectRoot.resolve("HAO.md"), "## 规则\n- 用中文回答");
+
+        String context = new ProjectMemoryLoader(null, projectRoot).loadForPrompt();
+
+        assertTrue(context.contains("用中文回答"));
+        assertFalse(context.contains("未展开的部分"));
+    }
 }

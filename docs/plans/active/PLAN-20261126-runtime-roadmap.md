@@ -257,7 +257,7 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 ### 上下文
 
 1. 增强 `/context`：分类显示 system、项目规则、记忆、工具定义、历史、工具结果、输出预留各占多少；有真实用量时才显示缓存命中
-2. `ContextBlock`（来源、可信度、作用范围、Token 估算、优先级、是否固定）替换 `PromptAssembler` 里拼接的字符串；外部数据（网页、MCP、日志）不能进高优先级 system
+2. `ContextBlock`（来源、可信度、作用范围、Token 估算、优先级、是否固定）替换 `PromptAssembler` 里拼接的字符串；外部数据（网页、MCP、日志）不能进高优先级 system（2026-11-27 已实现：`PromptAssembler.assembleBlocks` 按块装配，外部数据单独成段并标明不可信，`/context` 按来源显示各块 Token；HAO.md 超预算时渐进加载：放得下的原样放，其余给“文件 + 行号 + 标题”目录，模型按需 read_file）
 3. 已有三层（大结果落盘、清理旧工具结果、摘要）收进统一压缩流程，不变量测试：工具调用和结果成对、每次改动写 `view_checkpoint`、失败保留旧视图、强制规则和待执行工具不交给摘要
 4. 模型报上下文超长：重新估算 → 紧急压缩一次 → 还不够返回 `partial`，保留原始历史（2026-11-27 已实现：`LlmErrors.isContextOverflow` 识别、`TurnHook.onContextOverflow` 紧急压缩，先做不调用模型的三层，减不动才做摘要）
 5. “历史裁剪”“局部折叠”两层只写设计，不实现，由下面的实验结果决定做不做（2026-11-27 用户改为先全部实现再评测：第 2 层历史裁剪 `HistoryTrimmer`、第 3 层局部折叠 `LocalFolder` 已实现，各自可关，见 `PLAN-20261127-terminal-bench-eval.md`）

@@ -216,4 +216,47 @@ class PromptAssemblerTest {
             System.setProperty(key, value);
         }
     }
+
+    @Test
+    void externalDataGetsItsOwnUntrustedSectionBeforeProjectContext() {
+        PromptAssembler assembler = PromptAssembler.createDefault();
+        PromptContext context = PromptContext.builder()
+                .projectMemoryContext("## HAO.md 项目记忆\n- 项目规则")
+                .memoryContext("## 相关记忆\n用户偏好中文。")
+                .externalContext("## MCP Resources\n- demo://resource")
+                .build();
+
+        java.util.List<ContextBlock> blocks = assembler.assembleBlocks(PromptMode.AGENT, context);
+        String prompt = PromptAssembler.render(blocks);
+
+        ContextBlock external = blocks.stream().filter(b -> b.source() == ContextBlock.Source.EXTERNAL)
+                .findFirst().orElseThrow();
+        assertFalse(external.trusted());
+        assertTrue(external.content().contains(PromptAssembler.EXTERNAL_NOTICE));
+        assertTrue(prompt.indexOf("## Runtime Context") < prompt.indexOf("## External Context"));
+        assertTrue(prompt.indexOf("## External Context") < prompt.indexOf("## Project Context"));
+        String projectContext = prompt.substring(prompt.indexOf("## Project Context"));
+        assertFalse(projectContext.contains("demo://resource"), "外部数据不再和项目规则混在一起");
+        assertTrue(prompt.equals(assembler.assemble(PromptMode.AGENT, context)));
+    }
+
+    @Test
+    void blocksAreOrderedAndLabelledBySource() {
+        PromptAssembler assembler = PromptAssembler.createDefault();
+
+        java.util.List<ContextBlock> blocks = assembler.assembleBlocks(PromptMode.AGENT, PromptContext.builder()
+                .memoryContext("## 相关记忆\n只有记忆")
+                .skillIndex("## 可用 Skills\n- web-access")
+                .build());
+
+        assertTrue(blocks.stream().filter(ContextBlock::pinned)
+                .allMatch(b -> b.source() == ContextBlock.Source.BUILTIN));
+        java.util.List<ContextBlock.Source> dynamic = blocks.stream().filter(b -> !b.pinned())
+                .map(ContextBlock::source).toList();
+        assertTrue(dynamic.equals(java.util.List.of(ContextBlock.Source.SKILL_INDEX, ContextBlock.Source.RUNTIME,
+                ContextBlock.Source.MEMORY)), dynamic.toString());
+        ContextBlock memory = blocks.get(blocks.size() - 1);
+        assertTrue(memory.content().startsWith("## Project Context"), "没有项目规则时标题跟着记忆走");
+        assertTrue(memory.estimatedTokens() > 0);
+    }
 }

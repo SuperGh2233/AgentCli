@@ -67,6 +67,7 @@ public class Agent {
     // installs one safe point per Turn and clears it only after the worker stops.
     private ReActSteeringSafePoint steeringSafePoint;
     private final PromptAssembler promptAssembler = PromptAssembler.createDefault();
+    private volatile List<com.haocli.prompt.ContextBlock> lastPromptBlocks = List.of();
 
     public Agent(LlmClient llmClient) {
         this(llmClient, new ToolRegistry());
@@ -359,13 +360,21 @@ public class Agent {
     }
 
     private String buildSystemPrompt(String memoryContext) {
-        return promptAssembler.assemble(PromptMode.AGENT, PromptContext.builder()
-                .projectMemoryContext(buildProjectMemoryContext())
-                .memoryContext(memoryContext)
-                .externalContext(buildExternalContext())
-                .skillIndex(buildSkillIndex())
-                .toolsEnabled(llmClient == null || llmClient.supportsTools())
-                .build());
+        List<com.haocli.prompt.ContextBlock> blocks = promptAssembler.assembleBlocks(PromptMode.AGENT,
+                PromptContext.builder()
+                        .projectMemoryContext(buildProjectMemoryContext())
+                        .memoryContext(memoryContext)
+                        .externalContext(buildExternalContext())
+                        .skillIndex(buildSkillIndex())
+                        .toolsEnabled(llmClient == null || llmClient.supportsTools())
+                        .build());
+        lastPromptBlocks = blocks;
+        return PromptAssembler.render(blocks);
+    }
+
+    /** 最近一次装配的系统提示词块（/context 按块显示占用）。 */
+    public List<com.haocli.prompt.ContextBlock> lastPromptBlocks() {
+        return lastPromptBlocks;
     }
 
     private void reportAutomaticallySavedFacts(String submittedUserInput) {
@@ -476,6 +485,16 @@ public class Agent {
         }
     }
 
+    static java.util.Map<com.haocli.prompt.ContextBlock.Source, Integer> promptBlockTokens(
+            List<com.haocli.prompt.ContextBlock> blocks) {
+        java.util.Map<com.haocli.prompt.ContextBlock.Source, Integer> bySource =
+                new java.util.EnumMap<>(com.haocli.prompt.ContextBlock.Source.class);
+        for (com.haocli.prompt.ContextBlock block : blocks) {
+            bySource.merge(block.source(), block.estimatedTokens(), Integer::sum);
+        }
+        return bySource;
+    }
+
     public String getContextStatus() {
         com.haocli.context.ContextProfile profile = memoryManager.getContextProfile();
         int window = profile.maxContextWindow();
@@ -507,6 +526,10 @@ public class Agent {
                         (int) Math.round(ratio * 100), formatTokens(total), formatTokens(window)));
         sb.append("\n  当前占用细分:\n");
         sb.append(formatLine("System prompt",      systemTokens,    window, systemCount));
+        for (java.util.Map.Entry<com.haocli.prompt.ContextBlock.Source, Integer> entry
+                : promptBlockTokens(lastPromptBlocks).entrySet()) {
+            sb.append(String.format("      · %-20s %8s%n", entry.getKey().label(), formatTokens(entry.getValue())));
+        }
         sb.append(formatLine("Tools schema",       toolsSchemaTokens, window, -1));
         sb.append(formatLine("Conversation",       messagesTokens, window,
                 userCount + assistantCount + toolCount));

@@ -19,6 +19,10 @@ import java.util.Set;
 public class ProjectMemoryLoader {
     private static final Logger log = LoggerFactory.getLogger(ProjectMemoryLoader.class);
     private static final int MAX_TOTAL_CHARS = 24_000;
+    /** 给“未展开的部分”目录留的空间。 */
+    private static final int OUTLINE_RESERVE_CHARS = 3_000;
+    private static final int MIN_PARTIAL_CHARS = 400;
+    private static final int MAX_OUTLINE_ENTRIES = 40;
     private static final int MAX_IMPORT_DEPTH = 3;
 
     private final Path userConfigDir;
@@ -35,10 +39,16 @@ public class ProjectMemoryLoader {
         return new ProjectMemoryLoader(Path.of(System.getProperty("user.home"), ".haocli"), projectRoot);
     }
 
+    /**
+     * 渐进式加载：预算内的内容原样放进来；放不下的部分不硬截断，而是列出目录（文件、行号、标题），
+     * 模型需要时用 read_file 按行号去读。
+     */
     public String loadForPrompt() {
         List<MemorySource> sources = sources();
         StringBuilder body = new StringBuilder();
         Set<Path> importStack = new HashSet<>();
+        List<String> outline = new ArrayList<>();
+        int budget = MAX_TOTAL_CHARS - OUTLINE_RESERVE_CHARS;
 
         for (MemorySource source : sources) {
             if (!Files.isRegularFile(source.path())) {
@@ -48,19 +58,71 @@ public class ProjectMemoryLoader {
             if (content.isBlank()) {
                 continue;
             }
-            if (!body.isEmpty()) {
-                body.append("\n\n");
+            String header = (body.isEmpty() ? "" : "\n\n") + "### " + label(source.path()) + "\n\n";
+            if (outline.isEmpty() && body.length() + header.length() + content.length() <= MAX_TOTAL_CHARS) {
+                body.append(header).append(content);
+                continue;
             }
-            body.append("### ").append(label(source.path())).append("\n\n").append(content);
-            if (body.length() >= MAX_TOTAL_CHARS) {
-                return truncateSection(body);
+            // 放不下：在行边界放进能放的部分，其余（以及后面所有文件）只给目录。
+            int shownLines = 0;
+            int room = budget - body.length() - header.length();
+            if (outline.isEmpty() && room >= MIN_PARTIAL_CHARS) {
+                String part = cutAtLine(content, room);
+                body.append(header).append(part);
+                shownLines = (int) part.chars().filter(c -> c == '\n').count() + 1;
             }
+            outline.addAll(outlineOf(source.path(), shownLines));
         }
 
-        if (body.isEmpty()) {
+        if (body.isEmpty() && outline.isEmpty()) {
             return "";
         }
-        return "## HAO.md 项目记忆\n\n" + body;
+        StringBuilder section = new StringBuilder("## HAO.md 项目记忆\n\n").append(body);
+        if (!outline.isEmpty()) {
+            if (!body.isEmpty()) section.append("\n\n");
+            section.append("### 未展开的部分\n\n以下内容因上下文预算（")
+                    .append(MAX_TOTAL_CHARS).append(" 字符）没有放进来；需要时用 read_file 按路径和行号读取：\n");
+            int shown = Math.min(outline.size(), MAX_OUTLINE_ENTRIES);
+            for (int i = 0; i < shown; i++) {
+                section.append(outline.get(i)).append('\n');
+            }
+            if (outline.size() > shown) {
+                section.append("- …另有 ").append(outline.size() - shown).append(" 个标题未列出\n");
+            }
+        }
+        return section.toString().trim();
+    }
+
+    /** 文件里第 shownLines 行之后的标题；没有标题时给一行“从第几行起未展开”。行号按原文件计。 */
+    private List<String> outlineOf(Path file, int shownLines) {
+        List<String> entries = new ArrayList<>();
+        String path = label(file);
+        try {
+            List<String> lines = Files.readAllLines(file, StandardCharsets.UTF_8);
+            boolean hasImports = false;
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i).trim();
+                if (parseImport(line) != null) hasImports = true;
+                if (i + 1 > shownLines && line.startsWith("#")) {
+                    entries.add("- " + path + " 第 " + (i + 1) + " 行：" + line);
+                }
+            }
+            if (entries.isEmpty()) {
+                entries.add("- " + path + "（共 " + lines.size() + " 行，从第 " + (shownLines + 1) + " 行起未展开）");
+            }
+            if (hasImports) {
+                entries.add("- " + path + " 含 @import，导入的文件也可以单独读取");
+            }
+        } catch (IOException e) {
+            entries.add("- " + path + "（读取目录失败，可直接用 read_file 打开）");
+        }
+        return entries;
+    }
+
+    private static String cutAtLine(String content, int maxChars) {
+        if (content.length() <= maxChars) return content;
+        int cut = content.lastIndexOf('\n', Math.max(0, maxChars));
+        return (cut > 0 ? content.substring(0, cut) : content.substring(0, Math.max(0, maxChars))).stripTrailing();
     }
 
     private List<MemorySource> sources() {
@@ -123,12 +185,6 @@ public class ProjectMemoryLoader {
             return null;
         }
         return path;
-    }
-
-    private static String truncateSection(StringBuilder body) {
-        int keep = Math.max(0, MAX_TOTAL_CHARS - 80);
-        String truncated = body.substring(0, Math.min(body.length(), keep)).stripTrailing();
-        return "## HAO.md 项目记忆\n\n" + truncated + "\n\n[HAO.md 内容已按 " + MAX_TOTAL_CHARS + " 字符预算截断]";
     }
 
     private static String label(Path path) {
