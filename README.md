@@ -15,7 +15,7 @@ Hao CLI 是一个以 Java 构建的终端 Agent 项目，用于实践 Coding Age
 项目从 ReAct 单 Agent 循环逐步扩展到 Plan-and-Execute、Multi-Agent、MCP、代码检索、记忆管理、终端交互和外部接入。**项目目标是学习和验证 Agent 工程方法，不宣称复刻或替代 Claude Code。**
 
 
-Build. Execute. Evolve.
+Hao · 好用的 Java Agent
 
 Hao CLI 是一个由 GitHub 账号 **SuperGh2233** 独立开发和维护的 Java Agent CLI 项目，重点探索 Agent Harness、任务规划、工具执行、上下文管理、记忆机制和终端交互。
 
@@ -485,14 +485,19 @@ v16.1 抽出 `Renderer` 接口 + 三个实现：
 
 ### 当前启动界面
 
-当前启动输出以命令行实际产物为准：
+当前启动输出以命令行实际产物为准（大字 HAO 按行从深蓝渐变到青色；终端窄于 40 列时只显示一行 `◆ Hao CLI`，设置 `NO_COLOR` 时不带颜色）：
 
 ```text
-   ████████    Hao CLI π  v16.1.0
-     ██  ██    Model step-3.5-flash-2603 (step)
-     ██  ██    MCP 4/4 · 61 tools · 2/2 skills · ReAct
-     ██  ██    ReAct · Plan · MCP · Browser · Image
-     ██  ██
+██   ██  █████   ██████ 
+██   ██ ██   ██ ██    ██
+███████ ███████ ██    ██
+██   ██ ██   ██ ██    ██
+██   ██ ██   ██  ██████   CLI  v16.1.0
+
+Hao · 好用的 Java Agent
+Model step-3.5-flash-2603 (step)
+MCP 4/4 · 61 tools · 2/2 skills · ReAct
+ReAct · Plan · MCP · Browser · Image
 
 Tips for getting started:
 1. Type / for commands and Tab completion
@@ -1039,11 +1044,16 @@ I
 ### 第三期：当前运行效果
 
 ```text
-   ████████    Hao CLI π  v16.1.0
-     ██  ██    Model glm-5.1 (glm)
-     ██  ██    MCP 4/4 · 61 tools · 2/2 skills · ReAct
-     ██  ██    ReAct · Plan · MCP · Browser · Image
-     ██  ██
+██   ██  █████   ██████ 
+██   ██ ██   ██ ██    ██
+███████ ███████ ██    ██
+██   ██ ██   ██ ██    ██
+██   ██ ██   ██  ██████   CLI  v16.1.0
+
+Hao · 好用的 Java Agent
+Model glm-5.1 (glm)
+MCP 4/4 · 61 tools · 2/2 skills · ReAct
+ReAct · Plan · MCP · Browser · Image
 
 Tips for getting started:
 1. Type / for commands and Tab completion

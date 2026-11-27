@@ -82,6 +82,21 @@ public final class AnsiStyle {
         return wrap(BOLD, text);
     }
 
+    /** 品牌渐变：深蓝 → 青（256 色），按行或按段取色。 */
+    private static final int[] BRAND_GRADIENT = {27, 33, 39, 45, 51};
+
+    /** 第 step 段（共 steps 段）的品牌色；关闭颜色时原样返回。 */
+    public static String brandGradient(String text, int step, int steps) {
+        int last = BRAND_GRADIENT.length - 1;
+        int index = steps <= 1 ? 0 : Math.round((float) Math.max(0, Math.min(step, steps - 1)) * last / (steps - 1));
+        return wrap(BOLD + "\u001B[38;5;" + BRAND_GRADIENT[index] + "m", text);
+    }
+
+    /** 品牌主色（中蓝），用于标语和小标识。 */
+    public static String brand(String text) {
+        return wrap("\u001B[38;5;39m", text);
+    }
+
     public static boolean isEnabled() {
         return ENABLED;
     }

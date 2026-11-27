@@ -66,8 +66,9 @@ class MainInputNormalizationTest {
             version.setAccessible(true);
             String expectedVersion = "v" + version.get(null);
 
-            assertTrue(lines.stream().anyMatch(line -> line.contains("Hao CLI")));
-            assertTrue(lines.stream().anyMatch(line -> line.contains("Build. Execute. Evolve.")));
+            assertTrue(lines.stream().anyMatch(line -> line.contains("███████ ███████")), "wide terminals show the HAO logo");
+            assertTrue(lines.stream().anyMatch(line -> line.contains("CLI") && line.contains(expectedVersion)));
+            assertTrue(lines.stream().anyMatch(line -> line.contains(Main.BRAND_SLOGAN)));
             assertTrue(lines.stream().anyMatch(line -> line.contains(expectedVersion)));
             assertTrue(lines.stream().anyMatch(line -> line.contains("Model auto (model)")));
             for (String capability : List.of("ReAct", "Plan", "MCP")) {
@@ -82,14 +83,29 @@ class MainInputNormalizationTest {
 
             System.setProperty("haocli.render.columns", "24");
             List<String> narrowLines = Main.startupBannerLines();
-            assertTrue(narrowLines.size() > lines.size(), "narrow terminals should wrap banner lines");
             assertTrue(narrowLines.stream().allMatch(line -> TerminalTable.width(line) <= 24));
             assertTrue(narrowLines.stream().noneMatch(line -> line.endsWith("║")));
-            // 换行不能丢掉原来的文字；忽略颜色，只移除换行后比较。
-            assertEquals(org.jline.utils.AttributedString.fromAnsi(String.join("", lines)).toString(),
-                    org.jline.utils.AttributedString.fromAnsi(String.join("", narrowLines)).toString());
+            assertTrue(narrowLines.stream().noneMatch(line -> line.contains("██")), "narrow terminals drop the logo");
+            assertTrue(narrowLines.get(0).contains("Hao CLI"), "narrow terminals use the one-line header");
+            // 标题以下的内容换行不能丢字；忽略颜色，只移除换行后比较。
+            assertEquals(plainFrom(lines, "Model "), plainFrom(narrowLines, "Model "));
         } finally {
             restoreProperty("haocli.render.columns", oldColumns);
+        }
+    }
+
+    private static String plainFrom(List<String> lines, String marker) {
+        String plain = org.jline.utils.AttributedString.fromAnsi(String.join("", lines)).toString();
+        return plain.substring(plain.indexOf(marker));
+    }
+
+    @Test
+    void brandHeaderFallsBackToOneLineAndHasNoEscapesWithoutColor() {
+        assertEquals(Main.BRAND_LOGO.size() + 2, Main.brandHeaderLines(80).size(), "logo rows + blank + slogan");
+        assertTrue(Main.BRAND_LOGO.stream().allMatch(row -> TerminalTable.width(row) == 24));
+        assertEquals(2, Main.brandHeaderLines(Main.BRAND_LOGO_MIN_COLUMNS - 1).size(), "one-line header + slogan");
+        if (!com.haocli.util.AnsiStyle.isEnabled()) {
+            assertTrue(Main.brandHeaderLines(80).stream().noneMatch(line -> line.contains("\u001B")));
         }
     }
 

@@ -3411,9 +3411,8 @@ public class Main {
         String ready = "Model " + model + " (" + provider + ")";
         String capabilities = "ReAct · Plan · MCP · Browser · Image · Tools · Memory · RAG";
         String state = mcp + " · " + skills + " · ReAct";
-        List<String> lines = new ArrayList<>(List.of(
-                AnsiStyle.emphasis("Hao CLI") + "  " + AnsiStyle.subtle("v" + VERSION),
-                AnsiStyle.subtle("Build. Execute. Evolve."),
+        List<String> lines = new ArrayList<>(brandHeaderLines(terminalColumns()));
+        lines.addAll(List.of(
                 AnsiStyle.subtle(ready),
                 AnsiStyle.subtle(state),
                 AnsiStyle.subtle(capabilities),
@@ -3432,6 +3431,36 @@ public class Main {
         return lines.stream()
                 .flatMap(line -> Arrays.stream(TerminalTable.wrap(line, terminalColumns()).split("\n", -1)))
                 .toList();
+    }
+
+    static final String BRAND_SLOGAN = "Hao · 好用的 Java Agent";
+
+    /** 大字 HAO，24 列宽；终端窄于 {@link #BRAND_LOGO_MIN_COLUMNS} 时退回单行标题。 */
+    static final List<String> BRAND_LOGO = List.of(
+            "██   ██  █████   ██████ ",
+            "██   ██ ██   ██ ██    ██",
+            "███████ ███████ ██    ██",
+            "██   ██ ██   ██ ██    ██",
+            "██   ██ ██   ██  ██████ ");
+    static final int BRAND_LOGO_MIN_COLUMNS = 40;
+
+    static List<String> brandHeaderLines(int columns) {
+        List<String> lines = new ArrayList<>();
+        if (columns < BRAND_LOGO_MIN_COLUMNS) {
+            lines.add(AnsiStyle.brandGradient("◆ Hao CLI", 0, 1) + "  " + AnsiStyle.subtle("v" + VERSION));
+        } else {
+            for (int i = 0; i < BRAND_LOGO.size(); i++) {
+                String row = AnsiStyle.brandGradient(BRAND_LOGO.get(i), i, BRAND_LOGO.size());
+                if (i == BRAND_LOGO.size() - 1) {
+                    row += "  " + AnsiStyle.brandGradient("CLI", i, BRAND_LOGO.size())
+                            + "  " + AnsiStyle.subtle("v" + VERSION);
+                }
+                lines.add(row);
+            }
+            lines.add("");
+        }
+        lines.add(AnsiStyle.brand(BRAND_SLOGAN));
+        return lines;
     }
 
     static McpConfigBootstrapResult ensureDefaultMcpConfig(Path userHome) throws IOException {
