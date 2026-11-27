@@ -52,12 +52,14 @@ class HarnessFeaturesTest {
     @Test
     void loopOnlyCreatesHooksForEnabledModules() {
         AgentLoop all = new AgentLoop(new com.haocli.tool.ToolRegistry(), conversation(), HarnessFeatures.ALL_ON);
-        assertEquals(List.of(LspDiagnosticsHook.class, ContextCompactionHook.class, RunawayReminderHook.class),
+        assertEquals(List.of(LspDiagnosticsHook.class, ContextCompactionHook.class, ResourceFailureHook.class,
+                        SkillInjectionHook.class, RunawayReminderHook.class),
                 all.createHooks().stream().map(Object::getClass).toList());
 
         AgentLoop none = new AgentLoop(new com.haocli.tool.ToolRegistry(), conversation(),
                 HarnessFeatures.parse("context,lsp"));
-        assertEquals(List.of(), none.createHooks());
+        assertEquals(List.of(ResourceFailureHook.class, SkillInjectionHook.class),
+                none.createHooks().stream().map(Object::getClass).toList(), "能力类模块不参与消融");
     }
 
     private static ConversationContext conversation() {

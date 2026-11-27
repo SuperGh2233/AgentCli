@@ -8,7 +8,6 @@ import com.haocli.llm.core.LegacyModelClient;
 import com.haocli.llm.core.StopReason;
 import com.haocli.llm.core.StreamEvent;
 import com.haocli.runtime.CancellationContext;
-import com.haocli.tool.LoadedSkillMessages;
 import com.haocli.tool.ToolRegistry;
 import com.haocli.tool.ToolRegistry.ToolExecutionResult;
 import com.haocli.tool.ToolRegistry.ToolInvocation;
@@ -149,6 +148,9 @@ final class AgentLoop {
         if (layers.any()) {
             hooks.add(new ContextCompactionHook(layers));
         }
+        // 能力类模块，不参与消融：去掉会改变工具语义（load_skill）或只是观察。
+        hooks.add(new ResourceFailureHook(Path.of(toolRegistry.getProjectPath())));
+        hooks.add(new SkillInjectionHook(toolRegistry));
         if (features.runawayReminder()) {
             hooks.add(new RunawayReminderHook());
         }
@@ -202,8 +204,6 @@ final class AgentLoop {
         List<TurnHook> hooks = createHooks();
         TurnHook.Context hookContext = hookContext(turn);
         boolean emergencyCompactionTried = false;
-        ResourceFailureObserver resourceFailureObserver =
-                new ResourceFailureObserver(Path.of(toolRegistry.getProjectPath()));
 
         // 主退出条件 = 模型自己决定（不再调用工具就返回）；
         // 预算只在显式 Token / 硬轮数上限命中或检测到停滞时兜底，默认不限制轮数。
@@ -289,23 +289,16 @@ final class AgentLoop {
                         emit(turn, new AgentEvent.ToolCallFinished(executed.id(), executed.name(),
                                 executed.successful(), executed.result(), executed.status()));
                     }
-                    resourceFailureObserver.observe(executedResults).ifPresent(notice ->
-                            log.info("Resource failure observation: {}", notice));
-                    LoadedSkillMessages.Injection skills = LoadedSkillMessages.prepare(
-                            executedResults,
-                            toolRegistry.getSkillRegistry(),
-                            conversation.messages());
-                    List<ToolExecutionResult> toolResults = skills.results();
+                    List<ToolExecutionResult> toolResults = executedResults;
+                    for (TurnHook hook : hooks) {
+                        toolResults = hook.beforeAppendToolResults(toolResults, hookContext);
+                    }
                     for (ToolExecutionResult toolResult : toolResults) {
                         conversation.append(
                                 LlmClient.Message.tool(toolResult.id(), ToolResultBoundary.wrap(toolResult)),
                                 "tool_execution");
                     }
                     appendImageToolMessages(toolResults);
-                    if (!skills.message().isEmpty()) {
-                        // load_skill 成功后，同一轮下一次请求前就把 Skill 正文加进对话。
-                        conversation.append(LlmClient.Message.user(skills.message()), "skill_injection");
-                    }
                     for (TurnHook hook : hooks) {
                         hook.afterToolResults(toolResults, hookContext);
                     }
