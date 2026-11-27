@@ -128,6 +128,7 @@ public class ToolRegistry {
     private SnapshotService snapshotService = SnapshotService.forProject(Path.of(projectPath));
     private boolean customSnapshotService;
     private ToolResultOffloader toolResultOffloader = ToolResultOffloader.fromConfiguration(Path.of(projectPath));
+    private volatile boolean contextOffloadEnabled = true;
     private boolean sanitizeCommandEnvironment;
     private volatile CommandSandbox commandSandbox;
     /** 交互式沙箱模式；null 表示未经 {@link #configureCommandSandbox} 配置（例如基准评测入口）。 */
@@ -324,6 +325,11 @@ public class ToolRegistry {
             toolResultOffloader.setProjectRoot(Path.of(projectPath));
             this.toolResultOffloader = toolResultOffloader;
         }
+    }
+
+    /** 消融实验用：关掉后大结果不落盘，原样进对话。 */
+    public void setContextOffloadEnabled(boolean enabled) {
+        this.contextOffloadEnabled = enabled;
     }
 
     public ToolResultOffloader getToolResultOffloader() {
@@ -1857,7 +1863,7 @@ public class ToolRegistry {
      * 基于原始文本的策略判断不受卸载影响；图片、成功标记和结构化 URL 凭据原样保留。</p>
      */
     public ToolExecutionResult offloadForContext(ToolExecutionResult result) {
-        if (result == null || result.result() == null) {
+        if (!contextOffloadEnabled || result == null || result.result() == null) {
             return result;
         }
         String text = toolResultOffloader.offloadIfOversized(result.name(), result.argumentsJson(), result.result());

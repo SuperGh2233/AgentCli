@@ -112,6 +112,7 @@ class HaoCliAgent(BaseInstalledAgent):
         context.metadata = {
             "haocli_exit_code": exit_code,
             "haocli_status": result.get("status"),
+            "harness_disabled": result.get("harness_disabled"),
             "model_requests": result.get("model_requests"),
             "provider": result.get("provider"),
             "model": result.get("model"),

@@ -89,6 +89,39 @@ class AutoCompactionManagerTest {
     }
 
     @Test
+    void summaryOffOnlyClearsAndNeverSummarizes() {
+        StubFullCompactor full = new StubFullCompactor(true);
+        StubSessionCompactor session = new StubSessionCompactor(true);
+        AutoCompactionManager manager = new AutoCompactionManager(full, session,
+                new ToolResultClearer(new ToolResultClearer.Config(true, 0, 3, java.util.Set.of())));
+        List<LlmClient.Message> history = ToolResultClearerTest.historyWithToolRounds(10, "read_file");
+
+        AutoCompactionManager.Result result = manager.compactIfNeeded(history, 1_000, true, false);
+
+        assertFalse(result.compacted());
+        assertEquals(7, result.clearedToolResults());
+        assertEquals(0, full.calls.get());
+        assertEquals(0, session.compactCalls.get());
+    }
+
+    @Test
+    void bothLayersOffLeaveHistoryUntouched() {
+        StubFullCompactor full = new StubFullCompactor(true);
+        StubSessionCompactor session = new StubSessionCompactor(true);
+        AutoCompactionManager manager = new AutoCompactionManager(full, session,
+                new ToolResultClearer(new ToolResultClearer.Config(true, 0, 3, java.util.Set.of())));
+        List<LlmClient.Message> history = ToolResultClearerTest.historyWithToolRounds(10, "read_file");
+        List<LlmClient.Message> before = new ArrayList<>(history);
+
+        AutoCompactionManager.Result result = manager.compactIfNeeded(history, 1, false, false);
+
+        assertFalse(result.compacted());
+        assertEquals(0, result.clearedToolResults());
+        assertEquals(before, history);
+        assertEquals(0, full.calls.get());
+    }
+
+    @Test
     void systemPropertyEnablesExperimentalPath() {
         String old = System.getProperty(AutoCompactionManager.SESSION_MEMORY_PROPERTY);
         try {

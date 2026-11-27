@@ -9,8 +9,9 @@
 #
 # Env: DEEPSEEK_API_KEY (read from .env if not set), HAOCLI_EVAL_MODEL
 # (default deepseek/deepseek-flash), HAOCLI_EVAL_CONCURRENCY (per-mode default),
-# HAOCLI_EXTRA_ARGS (extra Hao CLI flags, counts as an experiment), HTTPS_PROXY
-# for host downloads.
+# HAOCLI_EXTRA_ARGS (extra Hao CLI flags, counts as an experiment), HAOCLI_EVAL_LABEL
+# (added to the job name), HTTPS_PROXY for host downloads.
+# Ablation example: HAOCLI_EXTRA_ARGS="--harness-disable context" HAOCLI_EVAL_LABEL=no-context run.sh dev
 # Never pass timeout/resource overrides to dev, dev41 or full runs: results would
 # no longer be comparable with earlier rounds or the leaderboard.
 set -euo pipefail
@@ -67,7 +68,8 @@ export HAOCLI_JRE_AARCH64="$CACHE/temurin-21-jre-linux-aarch64.tar.gz"
 export HAOCLI_JAR="$ROOT/target/haocli-1.0-SNAPSHOT.jar"
 commit="$(git -C "$ROOT" rev-parse --short HEAD)"
 dirty="$(git -C "$ROOT" status --porcelain --untracked-files=no | grep -q . && echo "-dirty" || true)"
-job="haocli-${commit}${dirty}-$mode-$(date +%Y%m%d-%H%M%S)"
+label="${HAOCLI_EVAL_LABEL:+-$HAOCLI_EVAL_LABEL}"
+job="haocli-${commit}${dirty}-$mode$label-$(date +%Y%m%d-%H%M%S)"
 echo "commit=$commit$dirty model=$MODEL mode=$mode concurrency=$CONCURRENCY extra_args='${HAOCLI_EXTRA_ARGS:-}' job=$job"
 
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"

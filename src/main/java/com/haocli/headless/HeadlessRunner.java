@@ -117,6 +117,9 @@ public final class HeadlessRunner {
         usage.put("cached_input_tokens", result.cachedInputTokens());
         // 工具统计和提示数（新增字段，旧字段不变）。
         metrics.writeToolStats(node);
+        // 本次关掉的 harness 模块（消融实验记录）；全开时是空数组。
+        com.fasterxml.jackson.databind.node.ArrayNode disabled = node.putArray("harness_disabled");
+        com.haocli.agent.HarnessFeatures.fromSystem().disabledNames().forEach(disabled::add);
         return node;
     }
 

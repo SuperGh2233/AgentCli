@@ -52,6 +52,15 @@
 3. `benchmarks/harbor/run.sh smoke|dev|dev41|full|custom`：构建当前提交的 jar、缓存 JRE、读 `.env` 里的 Key、调 `harbor run`；任务名里带提交号，工作区有改动时带 `-dirty`。`dev` = 2.0 的 30 题 × 3，`dev41` = 4.1.0 的 15 题 × 3，`full` = 4.1.0 全部题 × 5
 4. 适配器对退出码的处理：Hao CLI 退出码 0（完成）和 3（撞上限，部分完成）都算 Agent 正常结束，由判分决定对错；其他退出码才报错。事件流写文件不写 stdout，因为 Harbor 会在 stdout 里扫关键字分类错误，模型执行命令输出的“Connection refused”会被误判成网络错误（2.0 试跑时发现）
 
+## 消融实验（2026-11-27 用户决定）
+
+- 内核 `AgentLoop` 只认 `TurnHook`（发请求前 / 工具结果之后两个挂载点）；模块：`LspDiagnosticsHook`、`ContextCompactionHook`、`RunawayReminderHook`，大结果落盘在 `ToolRegistry` 里单独开关
+- 开关 `HarnessFeatures`：`context`（上下文处理策略 = 大结果落盘 + 清理旧工具结果 + 摘要压缩 + 重复调用提醒）、四个细分名、`lsp`。`-p --harness-disable <名字>` 或环境变量 `HAOCLI_HARNESS_DISABLE`；写错名字直接报错
+- 每次运行的结果 JSON 带 `harness_disabled`，适配器写进每次尝试的元数据；`run.sh` 用 `HAOCLI_EVAL_LABEL` 给任务名加标签
+- 第一批只消融一项：上下文处理策略整体关掉。跑法：`HAOCLI_EXTRA_ARGS="--harness-disable context" HAOCLI_EVAL_LABEL=no-context benchmarks/harbor/run.sh dev`，和同一提交的全开基线比
+- Terminal-Bench 每题是全新容器，长期记忆、项目记忆、LSP 在这里基本是空的，消融它们测不出差别；记忆要另设跨会话的测试
+- ReAct 是内核本身，不做消融；“先规划再执行”这类属于策略变体对比
+
 ## 评测纪律
 
 - 每次对比只改一件事；提交号、模型、数据集版本、并发、超时、Hao CLI 的上限参数都要和基线一致，有变化写进台账

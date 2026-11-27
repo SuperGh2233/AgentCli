@@ -15,7 +15,7 @@ AI 编码助手进入本仓库时先读这个文件。它是 Codex、Claude Code
 - 直接改 `conversationHistory`（压缩、清理工具结果、恢复会话）之后必须写 `view_checkpoint`，否则 `/resume` 还原出的对话和模型当时看到的不一样
 - 三种执行方式的工具一律走 `executeTools()`，不要自己写循环挨个调用；被安全策略拒绝的操作用户也批准不了，不要为了跑通去放宽 PathGuard、CommandGuard
 - 改 Plan 失败处理、重规划或 `parsePlan` 前先看 `src/main/resources/benchmark/e1_replay.py`；`parsePlan` 提取代码块的正则必须和它完全一致，改之前先改它
-- 交互输出走 `Renderer.stream()`，主流程不加直接的 `System.out.println`；ReAct 内核 `AgentLoop` 只发事件，终端显示改 `TerminalEventRenderer`
+- 交互输出走 `Renderer.stream()`，主流程不加直接的 `System.out.println`；ReAct 内核 `AgentLoop` 只发事件，终端显示改 `TerminalEventRenderer`；上下文压缩、诊断注入、提醒这类机制实现 `TurnHook` 挂上去，并在 `HarnessFeatures` 加开关，不写进循环
 - 不提交 `.env`、真实 API Key 和 `target/`
 - 计划文档里写的“已验证 / 未接线”以代码为准
 

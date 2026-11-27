@@ -165,6 +165,8 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
                   --max-turns <次数>          最多发多少次模型请求，默认 50（环境变量 HAOCLI_UNATTENDED_MAX_TURNS）
                   --max-tokens <数量>         输入加输出 Token 总上限，默认 2000000（HAOCLI_UNATTENDED_MAX_TOKENS）
                   --timeout <时长>            运行时间上限，默认 30m；纯数字按秒，可带 s/m/h（HAOCLI_UNATTENDED_TIMEOUT）
+                  --harness-disable <模块>    关掉的 harness 模块（消融实验用，逗号分隔）：context（上下文处理策略）、
+                                              context.offload / context.clearing / context.summary / context.runaway、lsp
                   到达任一上限时停止调用工具、整理已完成的部分，退出码 3
                 退出码: 0 完成，1 调用模型失败，2 参数或配置错误，3 只完成了一部分，130 已取消""";
     }

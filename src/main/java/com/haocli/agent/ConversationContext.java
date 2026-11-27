@@ -113,9 +113,14 @@ final class ConversationContext {
      * 达到触发线才压缩；有改动就写压缩记录和检查点。异常交给调用方（压缩失败不能打断任务）。
      */
     AutoCompactionManager.Result compactIfNeeded(int triggerTokens) {
+        return compactIfNeeded(triggerTokens, true, true);
+    }
+
+    /** clearing / summary 分别控制“清理旧工具结果”和“摘要压缩”两层（消融实验用）。 */
+    AutoCompactionManager.Result compactIfNeeded(int triggerTokens, boolean clearing, boolean summary) {
         int beforeMessages = messages.size();
         long beforeTokens = estimateRequestTokens();
-        AutoCompactionManager.Result result = compaction.compactIfNeeded(messages, triggerTokens);
+        AutoCompactionManager.Result result = compaction.compactIfNeeded(messages, triggerTokens, clearing, summary);
         if (result.clearedToolResults() > 0) {
             recordCompaction("automatic:tool_result_clearing", beforeMessages, beforeTokens);
         }

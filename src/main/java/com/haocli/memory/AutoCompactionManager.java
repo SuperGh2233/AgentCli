@@ -62,8 +62,20 @@ public class AutoCompactionManager {
      *                      从它派生，始终更低，所以清理先于摘要发生
      */
     public Result compactIfNeeded(List<LlmClient.Message> history, int triggerTokens) {
+        return compactIfNeeded(history, triggerTokens, true, true);
+    }
+
+    /**
+     * @param clearing 是否执行“清理旧工具结果”这一层
+     * @param summary  是否执行摘要压缩（会话记忆摘要和完整摘要）；关掉时历史超过阈值也不压缩
+     */
+    public Result compactIfNeeded(List<LlmClient.Message> history, int triggerTokens,
+                                  boolean clearing, boolean summary) {
         if (triggerTokens <= 0) return Result.none();
-        int cleared = toolResultClearer.clearIfNeeded(history, triggerTokens).clearedCount();
+        int cleared = clearing ? toolResultClearer.clearIfNeeded(history, triggerTokens).clearedCount() : 0;
+        if (!summary) {
+            return cleared > 0 ? new Result(false, Strategy.TOOL_RESULT_CLEARING, cleared) : Result.none();
+        }
         sessionMemoryCompactor.prepareIfNeeded(history, triggerTokens);
         if (TokenBudget.estimateMessagesTokens(history) < triggerTokens) {
             return cleared > 0 ? new Result(false, Strategy.TOOL_RESULT_CLEARING, cleared) : Result.none();

@@ -80,7 +80,9 @@ public class Agent {
         this.conversation = new ConversationContext("react", "agent", autoCompactionManager,
                 this::estimateToolsSchemaTokens);
         this.conversationHistory = conversation.messages();
-        this.loop = new AgentLoop(toolRegistry, conversation);
+        HarnessFeatures harness = HarnessFeatures.fromSystem();
+        this.toolRegistry.setContextOffloadEnabled(harness.contextOffload());
+        this.loop = new AgentLoop(toolRegistry, conversation, harness);
         this.toolRegistry.setContextProfile(memoryManager.getContextProfile());
         this.toolRegistry.setCurrentModel(llmClient.getProviderName(), llmClient.getModelName());
         this.memoryManager.setProjectPath(this.toolRegistry.getProjectPath());

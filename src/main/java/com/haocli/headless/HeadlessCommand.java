@@ -20,6 +20,33 @@ public final class HeadlessCommand {
     private HeadlessCommand() {
     }
 
+    /**
+     * 取出 {@code --harness-disable <模块,...>}（消融实验用），校验后写进系统属性，交给 Agent 读取；
+     * 返回去掉这个参数后的其余参数。只能出现一次。
+     */
+    static String[] applyHarnessDisable(String[] args) {
+        java.util.List<String> rest = new java.util.ArrayList<>();
+        String value = null;
+        for (int i = 0; i < args.length; i++) {
+            if ("--harness-disable".equals(args[i])) {
+                if (value != null) {
+                    throw new IllegalArgumentException("--harness-disable 只能出现一次");
+                }
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException("--harness-disable 缺少取值");
+                }
+                value = args[++i];
+                com.haocli.agent.HarnessFeatures.parse(value);
+            } else {
+                rest.add(args[i]);
+            }
+        }
+        if (value != null) {
+            System.setProperty(com.haocli.agent.HarnessFeatures.PROPERTY, value);
+        }
+        return rest.toArray(new String[0]);
+    }
+
     public static boolean isHeadless(String[] args) {
         return HeadlessOptions.isHeadless(args);
     }
@@ -27,6 +54,7 @@ public final class HeadlessCommand {
     public static int run(String[] args, InputStream stdin, PrintStream out, PrintStream err) {
         HeadlessOptions options;
         try {
+            args = applyHarnessDisable(args);
             options = HeadlessOptions.parse(args);
         } catch (IllegalArgumentException e) {
             err.println("❌ " + e.getMessage());
