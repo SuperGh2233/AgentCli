@@ -30,7 +30,7 @@ shift || true
 
 case "$mode" in
   smoke)  concurrency=1 ;;
-  dev)    concurrency=3 ;;
+  dev)    concurrency=2 ;;
   dev41)  concurrency=2 ;;
   full)   concurrency=2 ;;
   custom) concurrency=2 ;;
@@ -73,6 +73,17 @@ echo "commit=$commit$dirty model=$MODEL mode=$mode concurrency=$CONCURRENCY extr
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
 common=(-a haocli_agent:HaoCliAgent -m "$MODEL" -n "$CONCURRENCY" -o "$JOBS_DIR" --job-name "$job")
 
+# Pull the subset's images first so Harbor's 10-minute environment start never
+# includes a large image pull (timeouts there leak containers and cascade).
+prepull() {
+  local dataset="$1" dir="$2" subset="$3" py
+  py="$(ls "$HOME"/.local/share/uv/tools/harbor/bin/python)"
+  if [ ! -d "$dir" ]; then
+    harbor datasets download "$dataset" -o "$(dirname "$dir")"
+  fi
+  "$py" "$HERE/prepull.py" "$dir" "$subset"
+}
+
 # Task names are plain in 2.0 and org-prefixed in 4.x; match both.
 subset_args() {
   local file="$1" task
@@ -86,9 +97,11 @@ subset_args() {
 
 case "$mode" in
   smoke)  harbor run -t hello-world/hello-world -k 1 "${common[@]}" "$@" ;;
-  dev)    subset_args "$HERE/subsets/tb20-dev30.txt"
+  dev)    prepull "$TB20" "$CACHE/datasets-tb20/terminal-bench" "$HERE/subsets/tb20-dev30.txt"
+          subset_args "$HERE/subsets/tb20-dev30.txt"
           harbor run -d "$TB20" "${includes[@]}" -k 3 "${common[@]}" "$@" ;;
-  dev41)  subset_args "$HERE/subsets/tb41-dev15.txt"
+  dev41)  prepull "$TB41" "$CACHE/datasets/terminal-bench" "$HERE/subsets/tb41-dev15.txt"
+          subset_args "$HERE/subsets/tb41-dev15.txt"
           harbor run -d "$TB41" "${includes[@]}" -k 3 "${common[@]}" "$@" ;;
   full)   harbor run -d "$TB41" -k 5 "${common[@]}" "$@" ;;
   custom) harbor run "${common[@]}" "$@" ;;
