@@ -2,6 +2,7 @@
 
 | 文件 | 状态 | 用途 |
 |---|---|---|
+| [完整说明（原 README）](guide.md) | active | 配置、全部命令和工具、各期功能与演进历程；首页 README 只放概览 |
 | [后续路线：可嵌入的 Agent 运行时](plans/active/PLAN-20261126-runtime-roadmap.md) | active | 当前主线：P0 → 契约 → 统一执行 → 目标循环 → 安全 → 拆 Main → 上下文 → 拆模块 → 收尾 |
 | [ADR-0001 架构边界](adr/ADR-0001-architecture-boundaries.md) | accepted | 4 个模块、只做显式注册、包名不改 |
 | [ADR-0002 结果语义](adr/ADR-0002-result-semantics.md) | accepted | 工具状态自己报告；执行状态和目标状态分开；Runtime API 失败改发 `turn.failed` |
