@@ -2,7 +2,7 @@
 
 每跑一轮加一行；条件和基线不同的地方写在“改动”里。做法和纪律见 `docs/plans/active/PLAN-20261127-terminal-bench-eval.md`。
 
-固定条件：Harbor 0.27.0 · `deepseek/deepseek-flash` · 本机 OrbStack（8 GB / 10 核）· 不重试
+固定条件：Harbor 0.27.0 · 本机 OrbStack（8 GB / 10 核）· 不重试 · 模型 DeepSeek V4.1 Flash：2026-11-27 各轮走 DeepSeek 官方 API（`deepseek/deepseek-flash`），2026-11-28 起走 magpie → WorkBuddy（`magpie/workbuddy/deepseek-v4.1-flash`），两条路线分开比较
 - `dev`：`terminal-bench@2.0`，`subsets/tb20-dev30.txt`（30 题）× 3 次，并发 3
 - `dev41`：`terminal-bench/terminal-bench@4.1.0`，`subsets/tb41-dev15.txt`（15 题）× 3 次，并发 2
 - `full`：4.1.0 全部 66 题 × 5 次，排行榜规则
@@ -14,6 +14,8 @@
 | 日期 | 提交 | 规模 | 改动（相对上一轮） | 通过率 | 平均 Token / 尝试 | 平均耗时 / 尝试 | 备注 |
 |---|---|---|---|---|---|---|---|
 | 2026-11-27 | `a1175b6` | smoke（hello-world × 1） | 基线，链路验证 | 1/1 | 输入 15.4k（缓存 10.0k）/ 输出 143 | 2.2 秒（含装环境共 2 分 42 秒） | 3 次模型请求，read_file ×2、write_file ×2 |
+| 2026-11-27 | `38bdb3b` | dev ctx-on（30 题 × 3） | 上下文预算 128k、上限 150 次 / 1000 万 | **作废** | — | — | 80/90 时发现 22:10 起 41 次尝试都是 DeepSeek 网络中断和 402 余额不足；不计入对比，产物保留 |
+| 2026-11-28 | `f82e0e5-dirty`（magpie 路由改动未提交时） | smoke（hello-world × 1） | 改走 magpie → WorkBuddy `deepseek-v4.1-flash` | 1/1 | 输入 15.3k（缓存 12.8k）/ 输出 126 | 整轮 59 秒 | 链路验证，`provider=magpie`；dirty，只算探索 |
 
 ## 子集题目清单
 

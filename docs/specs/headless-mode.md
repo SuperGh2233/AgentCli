@@ -16,6 +16,10 @@ java -jar haocli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 - 模型选择沿用交互模式的配置（环境变量 → 项目 `.env` → 用户 `.env` → 上次保存的模型 → 默认值）
 - 会话照常写进 `~/.haocli/history/raw/`，结果里的 `session_id` 就是那条记录的 ID；记录目录不可用时为 `null`
 
+## 指定服务商（2026-11-28 起）
+
+环境变量 `HAOCLI_PROVIDER=<服务商>`（比如 `magpie`）：只用这个服务商，模型和地址照常取 `<服务商>_MODEL`、`<服务商>_BASE_URL`。找不到它的 Key 时以退出码 2 报错，**不会**改用别的服务商（避免悄悄扣别的账户）。不设时照旧按 `~/.haocli/config.json` 的默认服务商和自动回退顺序选；magpie 不在自动回退里。评测适配器用它把容器固定到 magpie。
+
 ## 上限（2026-11-26 起）
 
 无人值守没有“无限执行”。`-p`、Runtime API、后台任务每个任务默认最多 50 次模型请求、输入加输出 200 万 Token、30 分钟：

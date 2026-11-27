@@ -12,7 +12,7 @@
 |---|---|
 | 评测框架 / 数据集 | Harbor（`uv tool install harbor`，当前 0.27.0）。改进阶段：`terminal-bench@2.0`（89 题）；最终对比：`terminal-bench/terminal-bench@4.1.0`（66 题，公开排行榜当前排的版本；固定写完整版本号，不用会移动的 `@4` / `@latest`） |
 | 运行环境 | 本机 OrbStack（Docker），并发 2 |
-| 模型 | DeepSeek V4.1 Flash（`deepseek/deepseek-flash`），所有轮次固定不变 |
+| 模型 | DeepSeek V4.1 Flash，所有轮次固定不变。2026-11-28 起（用户决定）经本机 magpie 网关走 WorkBuddy 订阅里的 `workbuddy/deepseek-v4.1-flash`（`run.sh` 默认 `magpie/workbuddy/deepseek-v4.1-flash`），不再扣 DeepSeek 余额；此前的轮次是 DeepSeek 官方 API（`deepseek/deepseek-flash`），两条路线的结果不混在一起比较 |
 | 规模 | 日常迭代：2.0 固定 30 题 × 3 次，本机并发 3（`run.sh dev`）；阶段抽查：4.1.0 固定 15 题 × 3 次（`run.sh dev41`）；最终对比：4.1.0 全部题 × 5 次，按排行榜规则，云端沙箱（`run.sh full`），基线版本也在同样条件下补跑 |
 
 这次是用户明确同意的评测，`AGENTS.md` 里“评测暂停”对这条线不适用；其余评测纪律照旧。
@@ -94,6 +94,15 @@
 - 结果 JSON 新增 `reason`（失败分类 `llm_transient` / `llm_billing` / …，部分完成原因）和 `context`（五层各自的触发次数、处理条数、紧急压缩次数、估算节省的 Token），stream-json 新增 `context_compacted` 事件，见 `docs/specs/headless-mode.md`
 - TLS 握手被对端断开现在会重试（以前所有 SSL 异常都不重试）；`-p` 输出固定 UTF-8
 - 重跑基线和消融要用包含这些改动的提交，并先确认 DeepSeek 余额；摘要压缩本身的 Token 消耗还没统计
+
+## 2026-11-28 改走 magpie（WorkBuddy）
+
+- 起因：之前各轮共用掉 DeepSeek 官方 API 约 1.2 亿输入 Token（约 97% 命中缓存）和约 270 万输出 Token，余额耗尽；用户要求评测改走 magpie 转发的 WorkBuddy `deepseek-v4.1-flash`
+- 做法：无界面模式新增 `HAOCLI_PROVIDER`（只用指定的服务商，不可用直接报错、不回退）；适配器只把 `-m` 指定服务商的 Key 传进容器；`run.sh` 默认模型改为 `magpie/workbuddy/deepseek-v4.1-flash`，开跑前检查网关在线并列出该模型，容器经 `host.docker.internal:3425` 访问本机网关
+- 验证：smoke（hello-world × 1）通过，结果记录里 `provider=magpie`、`model=workbuddy/deepseek-v4.1-flash`，3 次请求、输入 15,338（缓存 12,800）/ 输出 126
+- 可比性：同一个模型名，但经第三方网关和订阅通道，快照、限流、缓存和用量统计可能和官方 API 不同；magpie 路线的结果只和 magpie 路线比，和排行榜比时要写明
+- 注意：`.env.example` 提醒过“经第三方网关使用订阅额度是否符合服务条款请自行确认”，这一点仍由用户自己确认
+- 整轮还没有总 Token 上限（每次尝试 1000 万 × 90 次），大规模跑之前先定总预算
 
 ## 已知风险
 

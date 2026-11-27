@@ -2,7 +2,7 @@
 
 Runs the Hao CLI jar in headless mode inside each task container:
 
-    harbor run -d terminal-bench@2.0 -a haocli_agent:HaoCliAgent -m deepseek/deepseek-flash
+    harbor run -d terminal-bench@2.0 -a haocli_agent:HaoCliAgent -m magpie/workbuddy/deepseek-v4.1-flash
 
 Use ``benchmarks/harbor/run.sh`` instead of calling this directly: it builds the
 jar, downloads the JREs once and sets PYTHONPATH / env.
@@ -35,9 +35,17 @@ EXIT_FILE = "haocli.exit_code"
 # cancelled, ...) are reported to Harbor as agent errors.
 FINISHED_EXIT_CODES = (0, 3)
 
-# Forwarded from the host into the agent process when set.
-FORWARDED_ENV = ("DEEPSEEK_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY", "HAOCLI_LOG_LEVEL",
-                 "HAOCLI_CONTEXT_BUDGET_TOKENS", "HAOCLI_HARNESS_DISABLE")
+# Forwarded from the host into the agent process when set. Provider keys are
+# only forwarded for the provider named in -m, so a run can never fall back to
+# (and bill) another provider.
+FORWARDED_ENV = ("HAOCLI_LOG_LEVEL", "HAOCLI_CONTEXT_BUDGET_TOKENS", "HAOCLI_HARNESS_DISABLE")
+PROVIDER_ENV = {
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "glm": ("GLM_API_KEY", "ZHIPU_API_KEY"),
+    # Local magpie gateway (forwards WorkBuddy models); run.sh points the base
+    # URL at host.docker.internal so the container reaches the Mac's localhost.
+    "magpie": ("MAGPIE_API_KEY", "MAGPIE_BASE_URL"),
+}
 
 
 def _host_path(env_name: str) -> Path:
@@ -126,9 +134,14 @@ class HaoCliAgent(BaseInstalledAgent):
     async def run(self, instruction: str, environment: BaseEnvironment, context: AgentContext) -> None:
         env = {name: os.environ[name] for name in FORWARDED_ENV if os.environ.get(name)}
         if self.model_name:
+            # "magpie/workbuddy/deepseek-v4.1-flash" -> provider magpie, model workbuddy/deepseek-v4.1-flash
             provider, _, model = self.model_name.partition("/")
             if provider and model:
                 env[f"{provider.upper()}_MODEL"] = model
+                env["HAOCLI_PROVIDER"] = provider
+                for name in PROVIDER_ENV.get(provider, (f"{provider.upper()}_API_KEY",)):
+                    if os.environ.get(name):
+                        env[name] = os.environ[name]
 
         extra = os.environ.get("HAOCLI_EXTRA_ARGS", "").strip()
         # The event stream goes to a file, not stdout: Harbor scans stdout for
@@ -146,5 +159,5 @@ class HaoCliAgent(BaseInstalledAgent):
             f"if [ $code {finished}; then exit 0; fi; "
             f"tail -c 2000 /logs/agent/{STDERR_FILE} >&2; exit $code"
         )
-        # Hao CLI picks the provider from whichever API key is present (DeepSeek first).
+        # HAOCLI_PROVIDER pins the provider; Hao CLI fails instead of falling back.
         await self.exec_as_agent(environment, command=command, env=env)

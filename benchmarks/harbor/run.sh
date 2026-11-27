@@ -7,8 +7,10 @@
 #   benchmarks/harbor/run.sh full                  # final comparison: 4.1.0, all tasks x 5 attempts (leaderboard rules)
 #   benchmarks/harbor/run.sh custom <harbor args>  # anything else, e.g. -d terminal-bench@2.0 -t <task> -k 1
 #
-# Env: DEEPSEEK_API_KEY (read from .env if not set), HAOCLI_EVAL_MODEL
-# (default deepseek/deepseek-flash), HAOCLI_EVAL_CONCURRENCY (per-mode default),
+# Env: HAOCLI_EVAL_MODEL (default magpie/workbuddy/deepseek-v4.1-flash: the local
+# magpie gateway routing to WorkBuddy's DeepSeek V4.1 Flash; deepseek/deepseek-flash
+# bills the DeepSeek API key from .env instead), MAGPIE_BASE_URL (default
+# http://host.docker.internal:3425/v1), HAOCLI_EVAL_CONCURRENCY (per-mode default),
 # HAOCLI_EXTRA_ARGS (extra Hao CLI flags, counts as an experiment), HAOCLI_EVAL_LABEL
 # (added to the job name), HTTPS_PROXY for host downloads.
 # Ablation example: HAOCLI_EXTRA_ARGS="--harness-disable context" HAOCLI_EVAL_LABEL=no-context run.sh dev
@@ -19,7 +21,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$ROOT/benchmarks/harbor"
 CACHE="${HAOCLI_EVAL_CACHE:-$HOME/.cache/haocli-harbor}"
-MODEL="${HAOCLI_EVAL_MODEL:-deepseek/deepseek-flash}"
+MODEL="${HAOCLI_EVAL_MODEL:-magpie/workbuddy/deepseek-v4.1-flash}"
 JOBS_DIR="${HAOCLI_EVAL_JOBS_DIR:-$ROOT/benchmarks/harbor/jobs}"
 TB20="terminal-bench@2.0"
 TB41="terminal-bench/terminal-bench@4.1.0"
@@ -43,11 +45,26 @@ command -v harbor >/dev/null || { echo "harbor not found: uv tool install --pyth
 command -v docker >/dev/null || { echo "docker not found: install and start OrbStack" >&2; exit 2; }
 docker info >/dev/null 2>&1 || { echo "docker is not running: start OrbStack" >&2; exit 2; }
 
-if [ -z "${DEEPSEEK_API_KEY:-}" ] && [ -f "$ROOT/.env" ]; then
-  DEEPSEEK_API_KEY="$(grep -E '^DEEPSEEK_API_KEY=' "$ROOT/.env" | tail -1 | cut -d= -f2- | tr -d '"'"'"'')"
-fi
-[ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "DEEPSEEK_API_KEY is not set (add it to .env)" >&2; exit 2; }
-export DEEPSEEK_API_KEY
+provider="${MODEL%%/*}"
+case "$provider" in
+  magpie)
+    # magpie does not check the key; the container reaches the Mac's 127.0.0.1:3425
+    # through host.docker.internal (OrbStack forwards it to the host's localhost).
+    export MAGPIE_API_KEY="${MAGPIE_API_KEY:-local}"
+    export MAGPIE_BASE_URL="${MAGPIE_BASE_URL:-http://host.docker.internal:3425/v1}"
+    curl -fsS -m 5 "http://127.0.0.1:3425/v1/models" | grep -q "\"${MODEL#magpie/}\"" \
+      || { echo "magpie gateway on 127.0.0.1:3425 is not up or does not list ${MODEL#magpie/}" >&2; exit 2; }
+    unset DEEPSEEK_API_KEY
+    ;;
+  deepseek)
+    if [ -z "${DEEPSEEK_API_KEY:-}" ] && [ -f "$ROOT/.env" ]; then
+      DEEPSEEK_API_KEY="$(grep -E '^DEEPSEEK_API_KEY=' "$ROOT/.env" | tail -1 | cut -d= -f2- | tr -d '"'"'"'')"
+    fi
+    [ -n "${DEEPSEEK_API_KEY:-}" ] || { echo "DEEPSEEK_API_KEY is not set (add it to .env)" >&2; exit 2; }
+    export DEEPSEEK_API_KEY
+    ;;
+  *) echo "unsupported provider in HAOCLI_EVAL_MODEL: $MODEL" >&2; exit 2 ;;
+esac
 
 # Linux JREs for the task containers (downloaded once on the host).
 mkdir -p "$CACHE"

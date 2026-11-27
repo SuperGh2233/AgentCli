@@ -6,8 +6,14 @@
 brew install --cask orbstack        # 装好后打开一次 OrbStack
 brew install uv
 uv tool install --python 3.12 harbor
-echo 'DEEPSEEK_API_KEY=...' >> .env  # 不要提交 .env
 ```
+
+模型默认走本机 magpie 网关转发的 WorkBuddy `deepseek-v4.1-flash`（`HAOCLI_EVAL_MODEL=magpie/workbuddy/deepseek-v4.1-flash`），用的是 WorkBuddy 订阅额度，不扣 DeepSeek 余额：
+
+- 先启动 magpie，确认 `curl http://127.0.0.1:3425/v1/models` 里有 `workbuddy/deepseek-v4.1-flash`（`run.sh` 开跑前会检查）
+- 容器通过 `host.docker.internal:3425` 访问 Mac 本机的网关（OrbStack 会转到本机 localhost），可用 `MAGPIE_BASE_URL` 改
+- 适配器只把 `-m` 指定的那个服务商的 Key 传进容器，并设 `HAOCLI_PROVIDER`；指定的服务商不可用时 Hao CLI 直接报错，不会改走别的服务商
+- 想改用 DeepSeek 官方 API：`HAOCLI_EVAL_MODEL=deepseek/deepseek-flash`，并在 `.env` 里写 `DEEPSEEK_API_KEY`（不要提交 `.env`）。两条路线的结果不要混在一起比较
 
 运行（下载 JRE 时如果需要代理，先 `export HTTPS_PROXY=http://127.0.0.1:7897`）：
 

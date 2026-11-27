@@ -17,7 +17,21 @@ import java.nio.file.Path;
  */
 public final class HeadlessCommand {
 
+    /** 显式指定服务商（比如评测容器里用 magpie）。设了就只用它，不可用时直接报错，不自动换别的服务商。 */
+    static final String PROVIDER_ENV = "HAOCLI_PROVIDER";
+
     private HeadlessCommand() {
+    }
+
+    /**
+     * 选模型客户端：forcedProvider 非空时只用这个服务商（找不到 Key 返回 null，由调用方报错）；
+     * 否则按配置的默认服务商和自动回退顺序选。
+     */
+    static LlmClient selectClient(String forcedProvider, HaoCliConfig config) {
+        if (forcedProvider != null && !forcedProvider.isBlank()) {
+            return LlmClientFactory.create(forcedProvider.trim(), null, config);
+        }
+        return LlmClientFactory.createFromConfig(config);
     }
 
     /**
@@ -74,9 +88,15 @@ public final class HeadlessCommand {
             return HeadlessRunner.EXIT_USAGE;
         }
 
-        LlmClient llm = LlmClientFactory.createFromConfig(HaoCliConfig.load());
+        String forcedProvider = System.getenv(PROVIDER_ENV);
+        LlmClient llm = selectClient(forcedProvider, HaoCliConfig.load());
         if (llm == null) {
-            err.println("❌ 未找到可用的 API Key（见 .env.example）");
+            if (forcedProvider != null && !forcedProvider.isBlank()) {
+                err.println("❌ " + PROVIDER_ENV + "=" + forcedProvider.trim()
+                        + " 不可用：服务商名不对，或缺少它的 API Key（magpie 填任意 MAGPIE_API_KEY 即可）");
+            } else {
+                err.println("❌ 未找到可用的 API Key（见 .env.example）");
+            }
             return HeadlessRunner.EXIT_USAGE;
         }
         ConversationLedger ledger;
