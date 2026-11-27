@@ -18,7 +18,7 @@ MODEL="${HAOCLI_EVAL_MODEL:-deepseek/deepseek-flash}"
 DATASET="${HAOCLI_EVAL_DATASET:-terminal-bench@2.0}"
 CONCURRENCY="${HAOCLI_EVAL_CONCURRENCY:-2}"
 JOBS_DIR="${HAOCLI_EVAL_JOBS_DIR:-$ROOT/benchmarks/harbor/jobs}"
-export PATH="$HOME/.local/bin:/opt/homebrew/bin:$PATH"
+export PATH="$HOME/.local/bin:$HOME/.orbstack/bin:/opt/homebrew/bin:$PATH"
 
 mode="${1:-}"
 [ -n "$mode" ] || { sed -n '2,11p' "$0"; exit 2; }
