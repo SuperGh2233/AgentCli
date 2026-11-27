@@ -1,4 +1,4 @@
-# feasible=29 excluded={'memory': 28, 'cpus': 6, 'gpu': 3} seed=20261127 n=15
+# feasible=29 excluded={'memory': 28, 'cpus': 6, 'gpu': 3} seed=20261127 n=15 strata=category alloc={'Hardware': 2, 'ML': 2, 'Media': 1, 'Operations': 2, 'Science': 3, 'Software': 5}
 batched-eval-parity
 cargo-flight-dispatch
 embedding-drift-monitor

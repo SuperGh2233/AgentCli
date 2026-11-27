@@ -1,33 +1,42 @@
 #!/usr/bin/env bash
-# Run Hao CLI on a Harbor dataset (Terminal-Bench by default).
+# Run Hao CLI on Terminal-Bench through Harbor.
 #
 #   benchmarks/harbor/run.sh smoke                 # hello-world task, checks the pipeline
-#   benchmarks/harbor/run.sh dev                   # fixed dev subset (subsets/tb41-dev15.txt) x 3 attempts
-#   benchmarks/harbor/run.sh full                  # whole dataset x 5 attempts, leaderboard rules
-#   benchmarks/harbor/run.sh custom <harbor args>  # anything else, e.g. -t org/task -k 1
+#   benchmarks/harbor/run.sh dev                   # daily loop: Terminal-Bench 2.0, fixed 30 tasks x 3 attempts
+#   benchmarks/harbor/run.sh dev41                 # spot check: Terminal-Bench 4.1.0, fixed 15 tasks x 3 attempts
+#   benchmarks/harbor/run.sh full                  # final comparison: 4.1.0, all tasks x 5 attempts (leaderboard rules)
+#   benchmarks/harbor/run.sh custom <harbor args>  # anything else, e.g. -d terminal-bench@2.0 -t <task> -k 1
 #
 # Env: DEEPSEEK_API_KEY (read from .env if not set), HAOCLI_EVAL_MODEL
-# (default deepseek/deepseek-flash), HAOCLI_EVAL_DATASET (default
-# terminal-bench/terminal-bench@4.1.0, the version on the public leaderboard),
-# HAOCLI_EVAL_SUBSET (default subsets/tb41-dev15.txt), HAOCLI_EVAL_CONCURRENCY
-# (default 2), HTTPS_PROXY for downloads on the host.
-# Never pass timeout/resource overrides to dev or full runs: results would no
-# longer be comparable with the baseline or the leaderboard.
+# (default deepseek/deepseek-flash), HAOCLI_EVAL_CONCURRENCY (per-mode default),
+# HAOCLI_EXTRA_ARGS (extra Hao CLI flags, counts as an experiment), HTTPS_PROXY
+# for host downloads.
+# Never pass timeout/resource overrides to dev, dev41 or full runs: results would
+# no longer be comparable with earlier rounds or the leaderboard.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HERE="$ROOT/benchmarks/harbor"
 CACHE="${HAOCLI_EVAL_CACHE:-$HOME/.cache/haocli-harbor}"
 MODEL="${HAOCLI_EVAL_MODEL:-deepseek/deepseek-flash}"
-DATASET="${HAOCLI_EVAL_DATASET:-terminal-bench/terminal-bench@4.1.0}"
-SUBSET="${HAOCLI_EVAL_SUBSET:-$HERE/subsets/tb41-dev15.txt}"
-CONCURRENCY="${HAOCLI_EVAL_CONCURRENCY:-2}"
 JOBS_DIR="${HAOCLI_EVAL_JOBS_DIR:-$ROOT/benchmarks/harbor/jobs}"
+TB20="terminal-bench@2.0"
+TB41="terminal-bench/terminal-bench@4.1.0"
 export PATH="$HOME/.local/bin:$HOME/.orbstack/bin:/opt/homebrew/bin:$PATH"
 
 mode="${1:-}"
-[ -n "$mode" ] || { sed -n '2,15p' "$0"; exit 2; }
+[ -n "$mode" ] || { sed -n '2,16p' "$0"; exit 2; }
 shift || true
+
+case "$mode" in
+  smoke)  concurrency=1 ;;
+  dev)    concurrency=3 ;;
+  dev41)  concurrency=2 ;;
+  full)   concurrency=2 ;;
+  custom) concurrency=2 ;;
+  *) echo "unknown mode: $mode" >&2; exit 2 ;;
+esac
+CONCURRENCY="${HAOCLI_EVAL_CONCURRENCY:-$concurrency}"
 
 command -v harbor >/dev/null || { echo "harbor not found: uv tool install --python 3.12 harbor" >&2; exit 2; }
 command -v docker >/dev/null || { echo "docker not found: install and start OrbStack" >&2; exit 2; }
@@ -59,22 +68,28 @@ export HAOCLI_JAR="$ROOT/target/haocli-1.0-SNAPSHOT.jar"
 commit="$(git -C "$ROOT" rev-parse --short HEAD)"
 dirty="$(git -C "$ROOT" status --porcelain --untracked-files=no | grep -q . && echo "-dirty" || true)"
 job="haocli-${commit}${dirty}-$mode-$(date +%Y%m%d-%H%M%S)"
-echo "commit=$commit$dirty model=$MODEL dataset=$DATASET job=$job"
+echo "commit=$commit$dirty model=$MODEL mode=$mode concurrency=$CONCURRENCY extra_args='${HAOCLI_EXTRA_ARGS:-}' job=$job"
 
 export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
 common=(-a haocli_agent:HaoCliAgent -m "$MODEL" -n "$CONCURRENCY" -o "$JOBS_DIR" --job-name "$job")
 
+# Task names are plain in 2.0 and org-prefixed in 4.x; match both.
+subset_args() {
+  local file="$1" task
+  includes=()
+  while IFS= read -r task; do
+    case "$task" in ''|'#'*) continue ;; esac
+    includes+=(-i "$task" -i "*/$task")
+  done < "$file"
+  echo "subset: $file ($(( ${#includes[@]} / 4 )) tasks)"
+}
+
 case "$mode" in
   smoke)  harbor run -t hello-world/hello-world -k 1 "${common[@]}" "$@" ;;
-  dev)
-    includes=()
-    while IFS= read -r task; do
-      case "$task" in ''|'#'*) continue ;; esac
-      includes+=(-i "*/$task")
-    done < "$SUBSET"
-    echo "dev subset: $SUBSET ($(( ${#includes[@]} / 2 )) tasks)"
-    harbor run -d "$DATASET" "${includes[@]}" -k 3 "${common[@]}" "$@" ;;
-  full)   harbor run -d "$DATASET" -k 5 "${common[@]}" "$@" ;;
+  dev)    subset_args "$HERE/subsets/tb20-dev30.txt"
+          harbor run -d "$TB20" "${includes[@]}" -k 3 "${common[@]}" "$@" ;;
+  dev41)  subset_args "$HERE/subsets/tb41-dev15.txt"
+          harbor run -d "$TB41" "${includes[@]}" -k 3 "${common[@]}" "$@" ;;
+  full)   harbor run -d "$TB41" -k 5 "${common[@]}" "$@" ;;
   custom) harbor run "${common[@]}" "$@" ;;
-  *) echo "unknown mode: $mode" >&2; exit 2 ;;
 esac

@@ -2,7 +2,10 @@
 
 每跑一轮加一行；条件和基线不同的地方写在“改动”里。做法和纪律见 `docs/plans/active/PLAN-20261127-terminal-bench-eval.md`。
 
-固定条件：Harbor 0.27.0 · `terminal-bench/terminal-bench@4.1.0` · `deepseek/deepseek-flash` · 本机 OrbStack（8 GB / 10 核）· 并发 2 · dev 子集每题 3 次 · 不重试
+固定条件：Harbor 0.27.0 · `deepseek/deepseek-flash` · 本机 OrbStack（8 GB / 10 核）· 不重试
+- `dev`：`terminal-bench@2.0`，`subsets/tb20-dev30.txt`（30 题）× 3 次，并发 3
+- `dev41`：`terminal-bench/terminal-bench@4.1.0`，`subsets/tb41-dev15.txt`（15 题）× 3 次，并发 2
+- `full`：4.1.0 全部 66 题 × 5 次，排行榜规则
 
 公开对照（tbench.ai，Terminal-Bench 4.1，全部题 × 5 次）：Claude Code + DeepSeek V4.1 Flash **38.5% ± 3.8%**；Claude Code + GLM-5.3-Flash 37.0% ± 3.6%。dev 子集的数不能直接和它比，只有 full 才能比
 
@@ -12,7 +15,9 @@
 |---|---|---|---|---|---|---|---|
 | 2026-11-27 | `a1175b6` | smoke（hello-world × 1） | 基线，链路验证 | 1/1 | 输入 15.4k（缓存 10.0k）/ 输出 143 | 2.2 秒（含装环境共 2 分 42 秒） | 3 次模型请求，read_file ×2、write_file ×2 |
 
-## dev 子集题目清单
+## 子集题目清单
+
+`benchmarks/harbor/subsets/tb20-dev30.txt`（30 题，种子 20261127，按难度分层：简单 1、中等 19、困难 10）：build-pmars、build-pov-ray、code-from-image、crack-7z-hash、custom-memory-heap-crash、db-wal-recovery、distribution-search、feal-differential-cryptanalysis、git-leak-recovery、headless-terminal、hf-model-inference、large-scale-text-editing、log-summary-date-ranges、make-doom-for-mips、model-extraction-relu-logits、mteb-leaderboard、openssl-selfsigned-cert、password-recovery、polyglot-c-py、polyglot-rust-c、protein-assembly、prove-plus-comm、qemu-startup、raman-fitting、regex-chess、regex-log、sam-cell-seg、torch-tensor-parallelism、tune-mjcf、write-compressor
 
 `benchmarks/harbor/subsets/tb41-dev15.txt`（15 题，种子 20261127，按分类分层，只含本机能跑的题）：batched-eval-parity、cargo-flight-dispatch、embedding-drift-monitor、freecad-platform-drawing、glycan-ms2-elucidation、heat-pump-warranty、kv-live-surgery、music-harmony、photonic-waveguide-routing、react-lead-form、retro-console-soc、roy-polymorph-cn、session-window-debug、sound-change-cascade、wal-recovery-ordering
 

@@ -13,9 +13,10 @@ echo 'DEEPSEEK_API_KEY=...' >> .env  # 不要提交 .env
 
 ```bash
 benchmarks/harbor/run.sh smoke     # hello-world，验证整条链路
-benchmarks/harbor/run.sh dev       # 固定的 15 题子集 × 3 次（日常迭代）
-benchmarks/harbor/run.sh full      # 全部题 × 5 次（排行榜规则）
-benchmarks/harbor/run.sh custom -t terminal-bench/<task> -k 1   # 单题调试
+benchmarks/harbor/run.sh dev       # 日常迭代：Terminal-Bench 2.0 固定 30 题 × 3 次
+benchmarks/harbor/run.sh dev41     # 阶段抽查：Terminal-Bench 4.1.0 固定 15 题 × 3 次
+benchmarks/harbor/run.sh full      # 最终对比：4.1.0 全部题 × 5 次（排行榜规则，建议云端沙箱）
+benchmarks/harbor/run.sh custom -d terminal-bench@2.0 -i <task> -k 1   # 单题调试
 harbor view benchmarks/harbor/jobs # 浏览结果：每次尝试的得分、Token、日志
 ```
 

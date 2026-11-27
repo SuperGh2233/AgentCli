@@ -1,11 +1,11 @@
 """Pick a fixed, reproducible dev subset of a downloaded Harbor dataset.
 
 Only tasks that fit a local OrbStack VM are eligible (no GPU, <= 4 GB memory,
-<= 2 CPUs). Tasks are stratified by metadata.category with largest-remainder
-allocation and drawn with a fixed seed, so the list never depends on which
-tasks look easy.
+<= 2 CPUs by default). Tasks are stratified (by metadata.difficulty or
+metadata.category) with largest-remainder allocation and drawn with a fixed
+seed, so the list never depends on which tasks look easy.
 
-    uv run --python 3.12 benchmarks/harbor/select_subset.py <dataset_dir> [--n 15] [--seed 20261127]
+    <harbor python> benchmarks/harbor/select_subset.py <dataset_dir> [--n 15] [--seed 20261127] [--strata category]
 """
 
 import argparse
@@ -16,11 +16,24 @@ import random
 import tomllib
 
 
+def memory_mb(env: dict) -> int:
+    if env.get("memory_mb"):
+        return int(env["memory_mb"])
+    raw = str(env.get("memory") or "").strip().upper()
+    if not raw:
+        return 0
+    for suffix, factor in (("GB", 1024), ("G", 1024), ("MB", 1), ("M", 1)):
+        if raw.endswith(suffix):
+            return int(float(raw[: -len(suffix)]) * factor)
+    return int(float(raw))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("dataset_dir")
     parser.add_argument("--n", type=int, default=15)
     parser.add_argument("--seed", type=int, default=20261127)
+    parser.add_argument("--strata", choices=("category", "difficulty"), default="category")
     parser.add_argument("--max-memory-mb", type=int, default=4096)
     parser.add_argument("--max-cpus", type=int, default=2)
     args = parser.parse_args()
@@ -32,33 +45,34 @@ def main() -> None:
         name = os.path.basename(os.path.dirname(path))
         if (env.get("gpus") or 0) > 0:
             excluded["gpu"] += 1
-        elif (env.get("memory_mb") or 0) > args.max_memory_mb:
+        elif memory_mb(env) > args.max_memory_mb:
             excluded["memory"] += 1
         elif (env.get("cpus") or 0) > args.max_cpus:
             excluded["cpus"] += 1
         else:
-            feasible.append((meta.get("category") or "?", name))
+            feasible.append((meta.get(args.strata) or "?", name))
 
-    by_category = collections.defaultdict(list)
-    for category, name in feasible:
-        by_category[category].append(name)
-    share = {c: args.n * len(v) / len(feasible) for c, v in by_category.items()}
-    alloc = {c: max(1, int(s)) for c, s in share.items()}
+    by_stratum = collections.defaultdict(list)
+    for stratum, name in feasible:
+        by_stratum[stratum].append(name)
+    share = {s: args.n * len(v) / len(feasible) for s, v in by_stratum.items()}
+    alloc = {s: max(1, int(x)) for s, x in share.items()}
     while sum(alloc.values()) > args.n:
-        c = min((c for c in alloc if alloc[c] > 1), key=lambda c: share[c] - alloc[c])
-        alloc[c] -= 1
+        s = min((s for s in alloc if alloc[s] > 1), key=lambda s: share[s] - alloc[s])
+        alloc[s] -= 1
     while sum(alloc.values()) < args.n:
-        c = max(share, key=lambda c: share[c] - alloc[c])
-        alloc[c] += 1
+        s = max(share, key=lambda s: share[s] - alloc[s])
+        alloc[s] += 1
 
     rng = random.Random(args.seed)
     picked = []
-    for category in sorted(by_category):
-        names = sorted(by_category[category])
+    for stratum in sorted(by_stratum):
+        names = sorted(by_stratum[stratum])
         rng.shuffle(names)
-        picked += names[: alloc[category]]
+        picked += names[: alloc[stratum]]
 
-    print(f"# feasible={len(feasible)} excluded={dict(excluded)} seed={args.seed} n={args.n}")
+    print(f"# feasible={len(feasible)} excluded={dict(excluded)} seed={args.seed} n={args.n} "
+          f"strata={args.strata} alloc={dict(sorted(alloc.items()))}")
     for name in sorted(picked):
         print(name)
 
