@@ -687,3 +687,53 @@ Seatbelt profile 额外放行了对根目录 "/" 本身的读取（literal，只
 代码库理解默认走 Claude Code 那种实时探索：`glob_files` 找候选文件，`grep_code` 精确定位符号或字符串，`read_file` 按需读取具体行段。`grep_code` 优先用本机的 `ripgrep`，没有时退回 Java 扫描；结果受 `max_results` / `head_limit` / `max_chars` 上限约束，返回 `partial: true` 或 `suggested_reads` 时，应继续缩小搜索范围，或按建议读取行段。`search_code` 是 RAG 语义辅助，适合自然语言描述模糊、关键词不明确、常规搜索没结果、代码量巨大或需要跨知识检索的场景，不作为精确定位代码的首选。
 
 - Planner 的 JSON 计划必须有非空的 tasks、唯一的非空字符串 id，依赖必须精确引用已声明的原始 id；缺少 dependencies 等同于空数组，其他形状错误、未知依赖和环直接失败，不会悄悄删边，也不会猜测重新编号后的别名。description 可以省略，此时为空字符串，保持兼容；出现时必须是字符串，不把数值、null 或对象强转成文本。id 是否为空白按 Java `String.isBlank()` 判断，NBSP 不算空白。
+
+## 从 AGENTS.md 迁入的细节（2026-11-27）
+
+以下是压缩 `AGENTS.md` 时挪出来的原文，规则本身仍以 `AGENTS.md` 为准。
+
+### MCP 概况
+
+- MCP：HTTP server 支持预注册公共客户端的 OAuth 登录（授权码 + PKCE S256，`/mcp login|logout`，对授权服务器的要求见 `docs/specs/mcp-oauth.md`）。双协议默认 2025-03-26，server 显式写 `protocolVersion: 2026-07-28` 才走新版协议，不协商、不降级（`docs/specs/mcp-protocol-eras.md`）。只有新版的 tools/call、resources/read、prompts/get 支持 MRTR（server 中途向用户要补充输入），其他请求一律拒绝；只在当前界面真能显示表单或网址时才声明对应能力（`docs/specs/mcp-mrtr.md`）。不要实现旧的 sampling。各项进度和验收记录在 `docs/plans/active/PLAN-20261103-mcp-*.md`，不写进本文件
+- MCP 配置合并 `~/.paicli/mcp.json` 和项目里的 `.paicli/mcp.json`；检测到 `STEP_API_KEY` 时自动加上 `step_search`。项目级 server（包括覆盖用户级的同名 server）要 `/mcp trust` 确认后才启动，确认绑定配置内容指纹；stdio 子进程只继承 `McpChildEnvironment` 白名单里的环境变量，不要改回继承全部
+- stdio server 退出或卡死时自动重启，HTTP server 不重连（重启策略见 `docs/agents-reference.md` 的 MCP 协议一节）；提示攒在 `McpServerManager.drainNotices()`，等下一个输入框前打印，不在后台线程直接输出
+
+### 评测规则
+
+- 正式评测只评 DeepSeek V4 Flash 和 GLM-5.3-Flash。缺少证据算评测无效，不算 PaiCLI 得 0 分；模型一次都没被调用，算 PaiCLI 失败。禁止多跑几次挑最好的、禁止只挑部分题、禁止自动重试
+- 已知问题：E2 校验器（`validators/final/E2`）的输出格式不统一，`FinalSourceGeneratorTest.referencePrototypes…` 因此失败（详情见 ARCHIVE）；修它需要用户同意
+
+### 模型与启动
+
+- 思考模型（DeepSeek Flash / V4 Pro、GLM-5.3、混元 Hy4、Kimi thinking）返回的思考内容 `reasoning_content` 必须在下一轮请求里带回去；各家接口差异和重试策略见 `docs/agents-reference.md`
+- 手动管理模型（`/model list|refresh|add`）：刷新只新增不删除，添加后不自动切换，不靠实际调用模型探测能力；细节见 `docs/agents-reference.md` 的“手动模型目录与能力覆盖”
+- DeepSeek 是默认供应商（`PaiCliConfig.defaultProvider`，多个 Key 都有时优先用它），默认模型 `deepseek-flash`（V4.1 Flash，支持图片）。旧名 `deepseek-v4-flash`、`deepseek-v4-flash-vision-exp` 只作兼容映射，不加成单独的内置模型、刷新时也不新增；以前评测记录里的模型标识不跟着改（细节见 `docs/agents-reference.md` 的 LLM 客户端）
+- 启动时用哪个模型：环境变量 → 项目 `.env` → 用户 `.env` → 上次保存的模型 → 默认值（`getStartupModel`）；会话里用 `/model` 主动选的优先。显示名只用在启动画面和状态栏，不能影响 API 请求、工具策略和评测记录里的模型 ID
+
+### 执行中动态指令（Steering）
+
+- 执行中动态指令（Steering，Agent 运行时用户接着输入，用来引导当前任务或排到下一轮）：实验功能，默认关。只有 JVM 参数 `-Dpaicli.steering.enabled=true`（不是环境变量）并且走交互式 inline ReAct 时启用；Plain、Lanterna、非交互、Plan、Team 仍走原输入路径，排队的消息目前只保存并显示数量，不会自动开始下一轮。入口 `cli/SteeringRunLoop`、`InputCoordinator`、`WakeableLineReader`、`TerminalInputGateway`、`runtime/input/TurnInputManager`。只有 UI 线程读终端，Agent 工作线程要输入（比如审批）时通过 `TerminalInputGateway` 请求；输入线程不能直接改 `conversationHistory`。设计和进度见 `docs/mid-turn-steering-implementation-plan.md`，里面的状态以代码为准
+
+### 截断回复与参数校验
+
+- 模型回复因输出长度上限被截断（停止原因 MAX_TOKENS）时，ReAct 内核不执行其中的工具调用（参数可能是半截 JSON），每个调用回一条“未执行、请缩短参数重试”的结果；截断的最终回复末尾加提示。Plan / Team 迁移到内核前还没有这层保护
+- 工具执行前按 JSON Schema 校验参数（`ToolArgumentValidator`），不合格就把字段级错误还给模型。内置工具只拦结构问题（缺参数、传了对象 / 数组、不在 enum 里），单值参数的类型和 null 仍由工具自己解析，评测复算依赖这套语义；MCP 工具按 server 的原始 Schema 严格校验，不能用清洗后给模型看的那份
+
+### 项目权限规则与会话模式
+
+- 项目权限规则（`hitl/PermissionRule*`，存在 `~/.paicli/security/permissions.json`，每条绑定项目真实根路径）：优先级 DENY > ASK > ALLOW，都在会话模式之前生效。DENY 直接返回 `[PERMISSION]` 失败；ASK 强制弹确认框，没有确认通道就拒绝；ALLOW 只省掉确认和 auto 模式的拦截，PathGuard、CommandGuard、沙箱照常检查，敏感页面仍逐次确认。运行中读规则失败就拒绝执行；启动时规则文件安全检查不过，就整体不启用规则并提示
+- 永久允许只能在确认框里选“始终允许”（`p`）并二次确认后保存，只存精确命令、单个项目内文件或精确 MCP 工具（MCP 还要绑定当前配置指纹、已信任、已就绪，配置一变就失效）；不存整个工具的放行，`a` 仍只管本会话
+- 会话模式（`SessionMode`、`SessionModeController`）：Shift+Tab 按 auto → plan → ask 轮流切换，`/mode` 效果相同。交互式命令行没有“全部放行”，最宽松的就是 auto。模式只是“确认严格程度 + 是否走 plan”的组合，不另外保存权限状态。plan 模式下普通输入走 Plan-and-Execute，用户明确输入的 `/team` 优先；启动时默认 auto。目前只在 inline 命令行界面生效，Lanterna 全屏界面还没接
+
+### auto 模式审查
+
+- auto 模式（`/hitl default`，启动默认）：
+  - 读写文件直接执行
+  - `execute_command` 先交给 `LlmApprovalClassifier` 审查：用当前供应商发一个关闭思考的小请求，可用 `PAICLI_AUTO_CLASSIFIER_MODEL` 换模型。通过就执行，并写一条 `auto-classifier` 审计记录
+  - 没通过、审查出错（超时、异常、返回的不是约定格式的 JSON、参数超过 32000 字符、没有可用的审查模型），以及 `revert_turn`、所有 `mcp__*` 工具、改动敏感页面，都直接以 `[AUTO]` 开头的失败结果还给模型，不弹确认框
+  - 同一轮里连续被拦 3 次（`AUTO_ESCALATE_AFTER`）才转成人工确认；有一次通过或用户输入新一轮（`startAutoReviewTurn`）就重新计数
+  - 审查只看用户本轮原话、工具名和参数，不看工具结果；审查出错时绝不放行；“通过”的结论只在同一个请求里复用；审查之后 PathGuard、CommandGuard 照常检查
+
+### 搜索服务选择
+
+- 搜索服务：设置了 `SEARCH_PROVIDER` 就用它，否则按已配置的 Key 自动选，已有配置的优先级不变（顺序见 `docs/agents-reference.md`）。DeepSeek 搜索单独发一个 Anthropic Messages 格式的请求，链接只从返回的结构化搜索结果里取，缺少搜索结果或工具报错就直接失败，不从模型写的正文里找链接
