@@ -8,6 +8,7 @@
 | [ADR-0002 结果语义](adr/ADR-0002-result-semantics.md) | accepted | 工具状态自己报告；执行状态和目标状态分开；Runtime API 失败改发 `turn.failed` |
 | [ADR-0003 命令沙箱](adr/ADR-0003-sandbox-escalation.md) | accepted | 交互默认 auto，沙箱外重跑只能由人批准，无人值守永不升级 |
 | [Harness 升级计划（第 0–3 阶段）](plans/active/PLAN-20261124-harness-upgrade.md) | completed | 内核 `AgentLoop`、事件协议、无界面模式的实施和验收历史；后续顺序已被新路线取代 |
+| [阶段基线：`38bdb3b` ctx-on](evals/baselines/2026-11-27-38bdb3b-ctx-on.md) | active | 2026-11-27 Terminal-Bench 那一轮的代码版本、架构快照、37 次有效结果和 53 次补跑计划 |
 | [无界面模式约定](specs/headless-mode.md) | active | `-p` 参数、事件 JSON 格式、退出码 |
 | [HITL 显示修复](plans/active/PLAN-20261103-hitl-display.md) | completed | 审批显示编码、完整命令与七类 / 97 项离线回归记录 |
 | [Side-Git 恢复安全](plans/active/PLAN-20261103-sidegit-restore-safety.md) | completed | 最终修复后 18 项隔离离线定向回归通过；含已记录的 TOCTOU 边界 |
