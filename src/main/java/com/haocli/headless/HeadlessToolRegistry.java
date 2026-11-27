@@ -57,9 +57,10 @@ final class HeadlessToolRegistry extends ToolRegistry {
             return true;
         }
         if (EDIT_TOOLS.contains(name)) {
-            return mode == HeadlessOptions.PermissionMode.EDIT;
+            return mode != HeadlessOptions.PermissionMode.READ_ONLY;
         }
-        return "execute_command".equals(name) && !allowedCommands.isEmpty();
+        return "execute_command".equals(name)
+                && (mode == HeadlessOptions.PermissionMode.SANDBOX || !allowedCommands.isEmpty());
     }
 
     /** 允许时返回 null，否则返回给模型看的拒绝原因。 */
@@ -69,11 +70,14 @@ final class HeadlessToolRegistry extends ToolRegistry {
             return null;
         }
         if (EDIT_TOOLS.contains(tool)) {
-            return mode == HeadlessOptions.PermissionMode.EDIT
+            return mode != HeadlessOptions.PermissionMode.READ_ONLY
                     ? null
                     : "当前是 read-only 模式，不允许 " + tool + "；需要改文件请用 --permission-mode edit";
         }
         if ("execute_command".equals(tool)) {
+            if (mode == HeadlessOptions.PermissionMode.SANDBOX) {
+                return null;
+            }
             String command = commandOf(argumentsJson);
             for (String allowed : allowedCommands) {
                 if (!command.isEmpty() && command.equals(allowed)) {

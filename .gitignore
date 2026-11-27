@@ -129,3 +129,6 @@ failsafe-reports/
 .DS_Store
 ._*
 Thumbs.db
+
+# Harbor 评测结果
+benchmarks/harbor/jobs/

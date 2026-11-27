@@ -31,7 +31,24 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
         /** 只允许读文件、搜索代码、联网读取等只读工具（默认）。 */
         READ_ONLY,
         /** 另外允许写文件、改文件、创建项目。 */
-        EDIT
+        EDIT,
+        /**
+         * 只给一次性的隔离容器用（比如 Terminal-Bench 的任务容器）：读写文件之外，允许执行任意命令。
+         * PathGuard、CommandGuard、审计照常生效。只在容器里才能启用，见 {@link #parseMode}。
+         */
+        SANDBOX
+    }
+
+    /** 在宿主机上强行启用 sandbox 模式的开关（只用于自己负责隔离的场景）。 */
+    static final String ALLOW_SANDBOX_ENV = "HAOCLI_ALLOW_SANDBOX_MODE";
+
+    /** 是否在容器里；测试可替换。 */
+    static java.util.function.BooleanSupplier containerCheck = HeadlessOptions::detectContainer;
+
+    static boolean detectContainer() {
+        return java.nio.file.Files.exists(java.nio.file.Path.of("/.dockerenv"))
+                || java.nio.file.Files.exists(java.nio.file.Path.of("/run/.containerenv"))
+                || "1".equals(System.getenv(ALLOW_SANDBOX_ENV));
     }
 
     public HeadlessOptions {
@@ -143,6 +160,7 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
                   -p, --print <任务>          执行一次任务后退出；不写任务或写 - 时从标准输入读取
                   --output-format <格式>      text（默认，只输出最终回答）| json | stream-json（每个事件一行）
                   --permission-mode <模式>    read-only（默认，只读工具）| edit（另外允许写文件和改文件）
+                                              | sandbox（另外允许任意命令，只能在隔离容器里用）
                   --allow-command <命令>      允许执行的精确命令，可重复；默认不允许执行任何命令
                   --max-turns <次数>          最多发多少次模型请求，默认 50（环境变量 HAOCLI_UNATTENDED_MAX_TURNS）
                   --max-tokens <数量>         输入加输出 Token 总上限，默认 2000000（HAOCLI_UNATTENDED_MAX_TOKENS）
@@ -171,7 +189,15 @@ public record HeadlessOptions(String prompt, OutputFormat outputFormat, Permissi
         return switch (value.toLowerCase(Locale.ROOT)) {
             case "read-only" -> PermissionMode.READ_ONLY;
             case "edit" -> PermissionMode.EDIT;
-            default -> throw new IllegalArgumentException("--permission-mode 只能是 read-only 或 edit: " + value);
+            case "sandbox" -> {
+                if (!containerCheck.getAsBoolean()) {
+                    throw new IllegalArgumentException("--permission-mode sandbox 允许执行任意命令，只能在隔离容器里使用"
+                            + "（没有检测到 /.dockerenv 或 /run/.containerenv）；确实由你自己负责隔离时设置 "
+                            + ALLOW_SANDBOX_ENV + "=1");
+                }
+                yield PermissionMode.SANDBOX;
+            }
+            default -> throw new IllegalArgumentException("--permission-mode 只能是 read-only、edit 或 sandbox: " + value);
         };
     }
 }

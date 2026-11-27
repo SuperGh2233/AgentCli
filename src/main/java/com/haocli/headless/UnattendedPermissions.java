@@ -55,8 +55,13 @@ public record UnattendedPermissions(HeadlessOptions.PermissionMode mode, List<St
 
     /** 启动时给用户看的一行说明。 */
     public String describe() {
-        String modeText = mode == HeadlessOptions.PermissionMode.EDIT ? "edit（可读写文件）" : "read-only（只读）";
-        String commandText = allowedCommands.isEmpty() ? "不执行任何命令" : "允许 " + allowedCommands.size() + " 条精确命令";
+        String modeText = switch (mode) {
+            case EDIT -> "edit（可读写文件）";
+            case SANDBOX -> "sandbox（可读写文件、执行任意命令，仅限隔离容器）";
+            default -> "read-only（只读）";
+        };
+        String commandText = mode == HeadlessOptions.PermissionMode.SANDBOX ? "允许任意命令"
+                : allowedCommands.isEmpty() ? "不执行任何命令" : "允许 " + allowedCommands.size() + " 条精确命令";
         return "权限: " + modeText + "，" + commandText;
     }
 }
