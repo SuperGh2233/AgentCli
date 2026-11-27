@@ -9,7 +9,7 @@ import java.util.Locale;
 /**
  * 把 {@link AgentEvent} 转成一行 JSON。字段名用下划线风格，{@code type} 字段区分事件种类：
  * turn_started、model_request_started、reasoning_delta、text_delta、tool_call_started、tool_call_finished、
- * tool_call_skipped、notice、usage、turn_finished。这是对外格式，改字段名要同步更新文档。
+ * tool_call_skipped、notice、usage、context_compacted、turn_finished。这是对外格式，改字段名要同步更新文档。
  * 给进程内终端用的字段（Notice 的带样式原文和 attachedToAnswer、ToolCallStarted 的分批标记）不写进 JSON。
  * 无界面模式的 stream-json 和 Runtime API 的 {@code agent.*} 事件都用这一份格式。
  */
@@ -46,6 +46,15 @@ public final class AgentEventJson {
                     .put("output_tokens", e.outputTokens())
                     .put("cached_input_tokens", e.cachedInputTokens())
                     .put("reported", e.reported());
+        } else if (event instanceof AgentEvent.ContextCompacted e) {
+            node.put("type", "context_compacted")
+                    .put("trigger", e.trigger())
+                    .put("trimmed", e.trimmed())
+                    .put("folded", e.folded())
+                    .put("cleared_tool_results", e.clearedToolResults())
+                    .put("summarized", e.summarized())
+                    .put("before_tokens", e.beforeTokens())
+                    .put("after_tokens", e.afterTokens());
         } else if (event instanceof AgentEvent.TurnFinished e) {
             node.put("type", "turn_finished")
                     .put("turn_id", e.turnId())
@@ -56,6 +65,9 @@ public final class AgentEventJson {
                     .put("input_tokens", e.inputTokens())
                     .put("output_tokens", e.outputTokens())
                     .put("cached_input_tokens", e.cachedInputTokens());
+            if (e.reason() != null) {
+                node.put("reason", e.reason());
+            }
         } else {
             node.put("type", "unknown");
         }

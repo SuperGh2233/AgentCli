@@ -1,5 +1,6 @@
 package com.haocli.agent;
 
+import com.haocli.agent.event.AgentEvent;
 import com.haocli.memory.AutoCompactionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,7 +20,11 @@ final class ContextCompactionHook implements TurnHook {
     @Override
     public void beforeModelRequest(Context context) {
         try {
-            report(context, context.conversation().compactIfNeeded(context.compressionTriggerTokens(), layers));
+            long before = context.conversation().estimateRequestTokens();
+            AutoCompactionManager.Result result =
+                    context.conversation().compactIfNeeded(context.compressionTriggerTokens(), layers);
+            report(context, result);
+            emitStats(context, "automatic", result, before);
         } catch (Exception e) {
             log.warn("conversationHistory compaction failed", e);
         }
@@ -28,13 +33,25 @@ final class ContextCompactionHook implements TurnHook {
     @Override
     public boolean onContextOverflow(Context context) {
         try {
+            long before = context.conversation().estimateRequestTokens();
             AutoCompactionManager.Result result = context.conversation().compactEmergency(layers);
             report(context, result);
+            emitStats(context, "emergency", result, before);
             return result.changed();
         } catch (Exception e) {
             log.warn("emergency compaction failed", e);
             return false;
         }
+    }
+
+    /** 对话有改动时发一条统计事件（压缩前后的 Token 都按同一套估算）。 */
+    private static void emitStats(Context context, String trigger, AutoCompactionManager.Result result, long before) {
+        if (!result.changed()) {
+            return;
+        }
+        long after = context.conversation().estimateRequestTokens();
+        context.emit(new AgentEvent.ContextCompacted(trigger, result.trimmed(), result.folded(),
+                result.clearedToolResults(), result.compacted(), before, after));
     }
 
     private static void report(Context context, AutoCompactionManager.Result result) {

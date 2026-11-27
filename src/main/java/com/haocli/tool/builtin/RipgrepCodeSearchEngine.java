@@ -1,4 +1,4 @@
-package com.haocli.tool;
+package com.haocli.tool.builtin;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

@@ -295,7 +295,12 @@ public class Main {
         if (com.haocli.headless.HeadlessCommand.isHeadless(args)) {
             // 无界面模式：日志只写文件，标准输出只放约定格式的结果。
             configureLogging();
-            System.exit(com.haocli.headless.HeadlessCommand.run(args, System.in, System.out, System.err));
+            // 标准输出是给程序读的 JSON / 文字，固定 UTF-8，不跟随容器的 POSIX 区域设置（否则中文变成 ?）。
+            System.exit(com.haocli.headless.HeadlessCommand.run(args, System.in,
+                    new PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out), true,
+                            java.nio.charset.StandardCharsets.UTF_8),
+                    new PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.err), true,
+                            java.nio.charset.StandardCharsets.UTF_8)));
         }
 
         configureLogging();

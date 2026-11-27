@@ -1,6 +1,6 @@
 # Hao CLI 后续路线：可嵌入的 Agent 运行时
 
-状态：已和用户逐条确认（2026-11-26）；P0 已完成（品牌 R0 合并为 `56cbd43`，2026-11-27 又按用户要求全量改名为 haocli，取代 R1–R4）；甲-1、甲-2 已通过（2026-11-27），下一步甲-3（其余只读工具） · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
+状态：已和用户逐条确认（2026-11-26）；P0 已完成（品牌 R0 合并为 `56cbd43`，2026-11-27 又按用户要求全量改名为 haocli，取代 R1–R4）；甲-1、甲-2 已通过（2026-11-27），甲-3 第一批（list_dir / glob_files / grep_code）已通过（2026-11-28），下一步甲-3 第二批（search_code 等其余只读工具） · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
 
 依据：用户提供的《Hao CLI 产品与架构演进实施计划》（docx，2026-11-26，未放进仓库）。本计划采纳它的定位、原则、非目标和评测纪律，按仓库实际情况调整了阶段顺序和范围，差异见文末“和原文档的差异”。
 
@@ -220,6 +220,15 @@ mvn test -Pbenchmark; bash tools/test-failures.sh > /tmp/after.txt              
 - 行为变化：`read_file` 的 `offset` 超出行数，`successful()` 从 true 变成 false。harness 11 个场景不受影响；评测包是否受影响没跑（评测暂停）
 - 已知例外：重写旧版 `executeTool(String)` 的子类（`isLegacyExecuteToolOverride`）仍按文字推断，看不到 `offset` 越界的 `FAILED`
 - 测试：新增 `ReadFileToolTest`（7 个：全文 / 分页文字不变、`offset` 越界、不存在 / 目录、批量路径保留状态、`readOnly` 和上下文、自定义工具注册、参数解析）
+
+#### 甲-3 第一批进展（2026-11-28，`list_dir` / `glob_files` / `grep_code`，已通过：macOS JDK 21，针对性 13 类 137 个、quick 1862 / 0 失败 / 4 跳过、安全 + HITL 254 个全过；`-Pbenchmark` 185 个失败，和 `38bdb3b` 干净检出的失败名单逐条一致）
+
+- 新增 `tool/builtin/ListDirTool`、`GlobFilesTool`、`GrepCodeTool`，以及包内共用的 `ProjectFiles`（忽略目录、glob 规范化、遍历）；`ToolRegistry` 里对应的 3 条 `LegacyTool`、`globFiles` / `grepCode` / `appendSuggestedReads` / `SearchFileVisitor` 等删除（2277 → 2062 行）
+- `CodeSearchEngine`、`RipgrepCodeSearchEngine`、`JavaCodeSearchEngine` 从 `com.haocli.tool` 移到 `com.haocli.tool.builtin`（只有 `grep_code` 用，保持包内可见，不扩大公开 API）
+- 给模型看的文字一个字都没改；参数解析沿用 `ToolArguments`（坏值回落默认值）
+- 行为变化（如实报告，和决定 3 同一原则）：`list_dir` 路径不存在 → `FAILED` + `NOT_FOUND`、不是目录 → `FAILED` + `INVALID_ARGUMENT`；`glob_files` / `grep_code` 的 pattern 为空 → `FAILED` + `INVALID_ARGUMENT`；遍历出错、搜索出错且没有任何命中（比如正则写错）→ `FAILED`。这些以前都被算成成功。没找到匹配仍然是成功
+- 测试：新增 `SearchToolsStatusTest`（5 个：list_dir 成功 / 不存在 / 不是目录、越界 → `DENIED`、glob 命中 / 没找到 / 空 pattern、grep 命中 / 没找到 / 空 pattern / 坏正则、三个工具都是只读）
+- 另：`AGENTS.md` 里“评测包 91 个已知失败”已过时，`38bdb3b` 实测 185 个（失败名单存在 Mac 的 `/tmp/haocli-bench-base-failures.txt`，重启会丢）
 
 ### 丙 统一执行
 

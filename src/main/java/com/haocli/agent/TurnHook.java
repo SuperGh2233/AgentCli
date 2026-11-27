@@ -1,5 +1,6 @@
 package com.haocli.agent;
 
+import com.haocli.agent.event.AgentEvent;
 import com.haocli.tool.ToolRegistry.ToolExecutionResult;
 
 import java.util.List;
@@ -41,5 +42,9 @@ interface TurnHook {
 
         /** 发一条提示事件；终端按带颜色的原文打印。 */
         void notice(String styledLine);
+
+        /** 发一条结构化事件（比如压缩统计）；监听器出错不影响任务。 */
+        default void emit(AgentEvent event) {
+        }
     }
 }

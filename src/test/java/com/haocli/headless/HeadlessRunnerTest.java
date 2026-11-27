@@ -76,6 +76,7 @@ class HeadlessRunnerTest {
         JsonNode result = run.jsonLines().get(0);
         assertEquals("partial", result.path("status").asText());
         assertEquals(2, result.path("model_requests").asInt(), "1 次正常请求 + 1 次不带工具的收尾请求");
+        assertEquals("hard_iteration_limit", result.path("reason").asText(), "部分完成要写明是哪个上限");
         assertTrue(llm.toolRequests().get(1).isEmpty(), "收尾请求不能再给工具");
     }
 
@@ -100,6 +101,13 @@ class HeadlessRunnerTest {
         assertEquals(0, result.path("tools").path("calls").asInt());
         assertTrue(result.path("tools").path("success_rate").isNull(), "没执行过工具时成功率是 null，不是 0");
         assertEquals(0, result.path("notices").asInt());
+        assertTrue(result.path("reason").isNull(), "正常完成没有结束原因");
+        JsonNode context = result.path("context");
+        assertTrue(context.isObject(), "结果里要有上下文处理统计: " + result);
+        for (String field : List.of("offloads", "trim_runs", "trimmed", "fold_runs", "folded", "clearing_runs",
+                "cleared", "summaries", "emergency_runs", "tokens_saved")) {
+            assertEquals(0, context.path(field).asInt(-1), field);
+        }
     }
 
     @Test
@@ -168,6 +176,7 @@ class HeadlessRunnerTest {
         assertEquals("failed", result.path("status").asText());
         assertTrue(result.path("is_error").asBoolean());
         assertTrue(result.path("result").asText().contains("调用 LLM 失败"));
+        assertEquals("llm_unknown", result.path("reason").asText());
     }
 
     @Test

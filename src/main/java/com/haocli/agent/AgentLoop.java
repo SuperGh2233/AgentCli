@@ -85,7 +85,10 @@ final class AgentLoop {
      * @param text   交给调用方显示或返回的文字（可能带思考过程和提示，流式显示过时可能为空）
      * @param answer 模型的原始回答 / 部分结果 / 取消或失败说明，不含格式和提示，供无界面模式等使用
      */
-    record Result(Status status, String text, String answer) {
+    record Result(Status status, String text, String answer, String reason) {
+        Result(Status status, String text, String answer) {
+            this(status, text, answer, null);
+        }
     }
 
     /** 一次模型调用的结果：旧格式回复（原样）+ 停止原因。 */
@@ -173,6 +176,11 @@ final class AgentLoop {
             public void notice(String styledLine) {
                 AgentLoop.notice(turn, styledLine);
             }
+
+            @Override
+            public void emit(AgentEvent event) {
+                AgentLoop.emit(turn, event);
+            }
         };
     }
 
@@ -192,7 +200,8 @@ final class AgentLoop {
                 (System.nanoTime() - startNanos) / 1_000_000L,
                 budget.totalInputTokens(),
                 budget.totalOutputTokens(),
-                budget.totalCachedInputTokens()));
+                budget.totalCachedInputTokens(),
+                result.reason()));
         return result;
     }
 
@@ -385,11 +394,11 @@ final class AgentLoop {
                 if (overflow) {
                     log.warn("Context overflow persists after emergency compaction", e);
                     String partial = formatPartialResult("上下文超出模型上限，紧急压缩后仍然放不下", null);
-                    return new Result(Status.PARTIAL, partial, partial);
+                    return new Result(Status.PARTIAL, partial, partial, "context_overflow");
                 }
                 log.error("LLM call failed in ReAct loop", e);
                 String failure = "❌ 调用 LLM 失败: " + e.getMessage();
-                return new Result(Status.FAILED, failure, failure);
+                return new Result(Status.FAILED, failure, failure, llmFailureReason(e));
             }
         }
     }
@@ -448,6 +457,7 @@ final class AgentLoop {
                                          StringBuilder reasoningTranscript) {
         Host host = turn.host();
         String description = budget.describeExit(exitReason);
+        String reason = exitReason.name().toLowerCase(java.util.Locale.ROOT);
         log.warn("ReAct run exhausted budget: reason={}, iteration={}, tokens={}/{}",
                 exitReason, budget.iteration(),
                 budget.totalInputTokens() + budget.totalOutputTokens(), budget.tokenBudget());
@@ -495,15 +505,15 @@ final class AgentLoop {
 
                 if (host.answerStreamed()) {
                     return new Result(Status.PARTIAL, host.returnFinalResponseWhenStreamed() ? partialResult : "",
-                            partialResult);
+                            partialResult, reason);
                 }
                 return new Result(Status.PARTIAL, host.formatAnswer(reasoningTranscript.toString(), partialResult),
-                        partialResult);
+                        partialResult, reason);
             }
         } catch (IOException e) {
             log.error("LLM finalization call failed after ReAct budget exhaustion", e);
             String partial = formatPartialResult(description, "收尾调用失败：" + e.getMessage());
-            return new Result(Status.PARTIAL, partial, partial);
+            return new Result(Status.PARTIAL, partial, partial, reason);
         }
     }
 
@@ -546,6 +556,11 @@ final class AgentLoop {
             parts.addAll(result.imageParts());
             conversation.append(LlmClient.Message.user(parts), "image_tool_result");
         }
+    }
+
+    /** 失败原因的对外写法：llm_ + 分类（transient / billing / authentication …），评测据此区分基础设施故障。 */
+    static String llmFailureReason(IOException failure) {
+        return "llm_" + com.haocli.llm.LlmFailureClassifier.classify(failure).name().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static Result cancelled() {

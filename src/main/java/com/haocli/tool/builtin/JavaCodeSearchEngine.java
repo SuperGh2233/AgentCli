@@ -1,4 +1,4 @@
-package com.haocli.tool;
+package com.haocli.tool.builtin;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

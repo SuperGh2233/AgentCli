@@ -33,6 +33,8 @@ public final class ToolResultOffloader {
     static final int DEFAULT_THRESHOLD_CHARS = 32_000;
     static final int MIN_THRESHOLD_CHARS = 2_000;
     static final String OUTPUT_DIR = ".haocli/tool-outputs";
+    /** 落盘摘要的第一行；评测按它统计第 1 层落盘次数。 */
+    public static final String OFFLOAD_MARKER = "[工具输出过大，完整内容已卸载到会话文件]";
 
     private static final int HEAD_PREVIEW_CHARS = 2_000;
     private static final int TAIL_PREVIEW_CHARS = 800;
@@ -132,7 +134,7 @@ public final class ToolResultOffloader {
         String relative = projectRoot.relativize(file).toString().replace('\\', '/');
         long lines = content.lines().count();
         StringBuilder sb = new StringBuilder();
-        sb.append("[工具输出过大，完整内容已卸载到会话文件]\n")
+        sb.append(OFFLOAD_MARKER).append("\n")
                 .append("tool: ").append(toolName).append("\n")
                 .append("原始大小: ").append(content.length()).append(" 字符 / ").append(lines).append(" 行\n")
                 .append("文件: ").append(relative).append("\n")

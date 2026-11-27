@@ -2,6 +2,8 @@ package com.haocli.llm;
 
 import org.junit.jupiter.api.Test;
 
+import javax.net.ssl.SSLHandshakeException;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
@@ -53,6 +55,20 @@ class LlmRetryPolicyTest {
                 new LlmHttpException(401, null, "unauthorized")));
         assertFalse(policy.isRetryableFailure(new IOException("invalid request")));
         assertFalse(policy.isRetryableFailure(new IOException("Canceled")));
+    }
+
+    @Test
+    void retriesRemoteHandshakeTerminationButNotCertificateFailures() {
+        LlmRetryPolicy policy = policy(3, 0L, 0L, 0.5d);
+
+        SSLHandshakeException terminated = new SSLHandshakeException("Remote host terminated the handshake");
+        terminated.initCause(new EOFException("SSL peer shut down incorrectly"));
+        assertTrue(policy.isRetryableFailure(terminated));
+
+        SSLHandshakeException badCertificate = new SSLHandshakeException("PKIX path building failed");
+        assertFalse(policy.isRetryableFailure(badCertificate), "证书错误重试也没用");
+        assertFalse(policy.isRetryableFailure(new LlmHttpException(402, null, "Insufficient Balance")),
+                "余额不足不重试");
     }
 
     @Test

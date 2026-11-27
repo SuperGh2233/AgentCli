@@ -23,6 +23,9 @@ import com.haocli.policy.PolicyException;
 import com.haocli.runtime.CancellationContext;
 import com.haocli.snapshot.RestoreResult;
 import com.haocli.snapshot.SnapshotService;
+import com.haocli.tool.builtin.GlobFilesTool;
+import com.haocli.tool.builtin.GrepCodeTool;
+import com.haocli.tool.builtin.ListDirTool;
 import com.haocli.tool.builtin.ReadFileTool;
 import com.haocli.skill.Skill;
 import com.haocli.skill.SkillReferences;
@@ -40,12 +43,8 @@ import java.io.InputStreamReader;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.PathMatcher;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.BiConsumer;
@@ -67,17 +66,9 @@ public class ToolRegistry {
     private static final int MAX_COMMAND_OUTPUT_CHARS = 8_000;
     // 开启工具输出卸载时，命令输出先完整捕获到这个上限，超过 MAX_COMMAND_OUTPUT_CHARS 的部分写入会话文件而不是丢弃。
     private static final int MAX_COMMAND_CAPTURE_CHARS = 2_000_000;
-    private static final int MAX_GREP_RESULTS = 200;
-    private static final int MAX_GREP_CONTEXT_LINES = 5;
-    private static final int DEFAULT_GREP_MAX_CHARS = 24_000;
-    private static final int MAX_GREP_MAX_CHARS = 60_000;
-    private static final int DEFAULT_GREP_HEAD_LIMIT = 20;
     private static final String STEP_SEARCH_SERVER = "step_search";
     private static final String STEP_SEARCH_TOOL = "mcp__" + STEP_SEARCH_SERVER + "__web_search";
     private static final String STEP_FETCH_TOOL = "mcp__" + STEP_SEARCH_SERVER + "__web_fetch";
-    private static final Set<String> SEARCH_EXCLUDED_DIRS = Set.of(
-            ".git", ".haocli", "target", "node_modules", "dist", "build", "coverage", ".idea", ".gradle"
-    );
     // write_file / edit_file 单次写入字节数上限。LLM 想塞超大内容时通常是误生成（重复粘贴 / hallucinate 大段日志），
     // 5MB 对常规代码生成 / 文档撰写完全够用，超过即拒，避免磁盘灌满与误覆盖。
     private static final int MAX_WRITE_FILE_BYTES = 5 * 1024 * 1024;
@@ -424,44 +415,17 @@ public class ToolRegistry {
         ));
 
         // list_dir 工具
-        tools.put("list_dir", new LegacyTool(
-                "list_dir",
-                "列出目录内容（仅限项目根目录之内）",
-                createParameters(new Param("path", "string", "目录路径", true)),
-                args -> {
-                    Path safe = pathGuard.resolveSafe(args.get("path"));
-                    try {
-                        File[] files = safe.toFile().listFiles();
-                        if (files == null) {
-                            return "目录为空或不存在";
-                        }
-                        StringBuilder sb = new StringBuilder("目录内容:\n");
-                        for (File f : files) {
-                            sb.append(f.isDirectory() ? "[D] " : "[F] ")
-                              .append(f.getName())
-                              .append("\n");
-                        }
-                        return sb.toString();
-                    } catch (Exception e) {
-                        return "列出目录失败: " + e.getMessage();
-                    }
-                }
-        ));
+        tools.put("list_dir", new ListDirTool(
+                createParameters(new Param("path", "string", "目录路径", true))));
 
-        tools.put("glob_files", new LegacyTool(
-                "glob_files",
-                "按文件名 glob 查找项目内文件（只读、实时、尊重常见忽略目录）；适合先定位候选文件，例如 **/*Service.java",
+        tools.put("glob_files", new GlobFilesTool(
                 createParameters(
                         new Param("pattern", "string", "glob 模式，例如 **/*.java、**/*Controller*、README.md", true),
                         new Param("path", "string", "搜索起始目录，默认 .", false),
                         new Param("max_results", "integer", "最多返回结果数，默认 50，上限 200", false)
-                ),
-                args -> globFiles(args)
-        ));
+                )));
 
-        tools.put("grep_code", new LegacyTool(
-                "grep_code",
-                "在项目内按关键字或正则实时搜索代码（只读、优先 ripgrep、返回文件和行号）；适合精确符号/字符串定位，找到后再 read_file 读取上下文",
+        tools.put("grep_code", new GrepCodeTool(
                 createParameters(
                         new Param("pattern", "string", "要搜索的关键字或正则", true),
                         new Param("path", "string", "搜索起始目录，默认 .", false),
@@ -472,9 +436,7 @@ public class ToolRegistry {
                         new Param("max_results", "integer", "最多返回命中数，默认 50，上限 200", false),
                         new Param("head_limit", "integer", "单个文件最多返回多少条命中，默认 20，上限 50", false),
                         new Param("max_chars", "integer", "单次工具结果字符预算，默认 24000，上限 60000", false)
-                ),
-                args -> grepCode(args)
-        ));
+                )));
     }
 
     private String editFile(Map<String, String> args) {
@@ -516,137 +478,6 @@ public class ToolRegistry {
 
     private static String readFileForTool(Path file, Map<String, String> args) throws IOException {
         return ReadFileTool.read(file, new ToolArguments(args)).text();
-    }
-
-    private String globFiles(Map<String, String> args) {
-        String pattern = args.get("pattern");
-        if (pattern == null || pattern.isBlank()) {
-            return "文件匹配失败: pattern 不能为空";
-        }
-        Path root = pathGuard.resolveSafe(args.getOrDefault("path", "."));
-        int maxResults = clamp(parseInt(args.get("max_results"), 50), 1, MAX_GREP_RESULTS);
-        Path projectRoot = pathGuard.getRootPath();
-        PathMatcher matcher = projectRoot.getFileSystem().getPathMatcher("glob:" + normalizeGlob(pattern));
-        PathMatcher fileNameMatcher = projectRoot.getFileSystem().getPathMatcher("glob:" + normalizeFileNameGlob(pattern));
-        List<String> matches = new ArrayList<>();
-
-        try {
-            Files.walkFileTree(root, new SearchFileVisitor(projectRoot, path -> {
-                if (matches.size() >= maxResults) {
-                    return;
-                }
-                Path relative = projectRoot.relativize(path);
-                if (matcher.matches(relative) || fileNameMatcher.matches(path.getFileName())) {
-                    matches.add(relative.toString());
-                }
-            }));
-        } catch (Exception e) {
-            return "文件匹配失败: " + e.getMessage();
-        }
-
-        if (matches.isEmpty()) {
-            return "未找到匹配文件: " + pattern;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("匹配文件 ").append(matches.size()).append(" 个");
-        if (matches.size() >= maxResults) {
-            sb.append("（已达到上限 ").append(maxResults).append("）");
-        }
-        sb.append(":\n");
-        for (int i = 0; i < matches.size(); i++) {
-            sb.append(i + 1).append(". ").append(matches.get(i)).append("\n");
-        }
-        return sb.toString().trim();
-    }
-
-    private String grepCode(Map<String, String> args) {
-        String query = args.get("pattern");
-        if (query == null || query.isBlank()) {
-            return "代码搜索失败: pattern 不能为空";
-        }
-        Path root = pathGuard.resolveSafe(args.getOrDefault("path", "."));
-        Path projectRoot = pathGuard.getRootPath();
-        int maxResults = clamp(parseInt(args.get("max_results"), 50), 1, MAX_GREP_RESULTS);
-        int contextLines = clamp(parseInt(args.get("context_lines"), 0), 0, MAX_GREP_CONTEXT_LINES);
-        boolean regex = parseBoolean(args.get("regex"), false);
-        boolean caseSensitive = parseBoolean(args.get("case_sensitive"), true);
-        int headLimit = clamp(parseInt(args.get("head_limit"), DEFAULT_GREP_HEAD_LIMIT), 1, 50);
-        int maxChars = clamp(parseInt(args.get("max_chars"), DEFAULT_GREP_MAX_CHARS), 1_000, MAX_GREP_MAX_CHARS);
-        CodeSearchRequest request = new CodeSearchRequest(
-                query,
-                root,
-                projectRoot,
-                args.get("glob"),
-                regex,
-                caseSensitive,
-                contextLines,
-                maxResults,
-                headLimit
-        );
-        CodeSearchResult result = new RipgrepCodeSearchEngine(SEARCH_EXCLUDED_DIRS).search(request);
-
-        if (!result.partialReason().isBlank() && result.matches().isEmpty()) {
-            return "代码搜索失败: " + result.partialReason();
-        }
-        if (result.matches().isEmpty()) {
-            return "未找到匹配内容: " + query;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append("匹配结果 ").append(result.matches().size()).append(" 条")
-                .append(" (engine=").append(result.engine()).append(")");
-        if (result.partial()) {
-            sb.append("（partial: ").append(result.partialReason()).append("）");
-        }
-        sb.append(":\n");
-        boolean truncatedByChars = false;
-        int rendered = 0;
-        for (int i = 0; i < result.matches().size(); i++) {
-            GrepMatch match = result.matches().get(i);
-            String matchHeader = (i + 1) + ". " + match.file() + ":" + match.lineNumber() + "\n";
-            if (sb.length() + matchHeader.length() > maxChars) {
-                truncatedByChars = true;
-                break;
-            }
-            sb.append(i + 1).append(". ").append(match.file()).append(":").append(match.lineNumber()).append("\n");
-            for (ContextLine line : match.context()) {
-                String marker = line.lineNumber() == match.lineNumber() ? ">" : " ";
-                String contextLine = String.format("   %s%5d | %s%n", marker, line.lineNumber(), line.text());
-                if (sb.length() + contextLine.length() > maxChars) {
-                    truncatedByChars = true;
-                    break;
-                }
-                sb.append(contextLine);
-            }
-            rendered++;
-            if (truncatedByChars) {
-                break;
-            }
-        }
-        if (truncatedByChars) {
-            sb.append("\npartial: true（已达到 max_chars=").append(maxChars).append("，请缩小 path/glob/pattern 或提高 offset 后 read_file）");
-        } else if (result.partial()) {
-            sb.append("\npartial: true（").append(result.partialReason()).append("，请缩小 path/glob/pattern 继续搜索）");
-        }
-        appendSuggestedReads(sb, result.matches().subList(0, Math.min(rendered, result.matches().size())));
-        return sb.toString().trim();
-    }
-
-    private void appendSuggestedReads(StringBuilder sb, List<GrepMatch> matches) {
-        if (matches.isEmpty()) {
-            return;
-        }
-        sb.append("\nsuggested_reads:");
-        Set<String> seen = new LinkedHashSet<>();
-        for (GrepMatch match : matches) {
-            if (seen.size() >= 3 || !seen.add(match.file())) {
-                continue;
-            }
-            int offset = Math.max(1, match.lineNumber() - 20);
-            sb.append("\n- read_file {\"path\":\"")
-                    .append(match.file().replace("\\", "\\\\").replace("\"", "\\\""))
-                    .append("\",\"offset\":").append(offset)
-                    .append(",\"limit\":80}");
-        }
     }
 
     /**
@@ -1009,56 +840,6 @@ public class ToolRegistry {
         }
         return "true".equalsIgnoreCase(value.trim()) || "1".equals(value.trim())
                 || "yes".equalsIgnoreCase(value.trim());
-    }
-
-    private static String normalizeGlob(String pattern) {
-        String normalized = pattern == null ? "**/*" : pattern.replace('\\', '/').trim();
-        if (normalized.isEmpty()) {
-            return "**/*";
-        }
-        if (!normalized.contains("/") && !normalized.startsWith("**")) {
-            return "**/" + normalized;
-        }
-        return normalized;
-    }
-
-    private static String normalizeFileNameGlob(String pattern) {
-        String normalized = pattern == null ? "*" : pattern.replace('\\', '/').trim();
-        if (normalized.isEmpty()) {
-            return "*";
-        }
-        int slash = normalized.lastIndexOf('/');
-        return slash >= 0 ? normalized.substring(slash + 1) : normalized;
-    }
-
-    private static final class SearchFileVisitor extends SimpleFileVisitor<Path> {
-        private final Path projectRoot;
-        private final java.util.function.Consumer<Path> fileConsumer;
-
-        private SearchFileVisitor(Path projectRoot, java.util.function.Consumer<Path> fileConsumer) {
-            this.projectRoot = projectRoot;
-            this.fileConsumer = fileConsumer;
-        }
-
-        @Override
-        public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-            String name = dir.getFileName() == null ? "" : dir.getFileName().toString();
-            if (!dir.equals(projectRoot) && SEARCH_EXCLUDED_DIRS.contains(name)) {
-                return FileVisitResult.SKIP_SUBTREE;
-            }
-            return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-            fileConsumer.accept(file);
-            return FileVisitResult.CONTINUE;
-        }
-
-        @Override
-        public FileVisitResult visitFileFailed(Path file, IOException exc) {
-            return FileVisitResult.CONTINUE;
-        }
     }
 
     private synchronized SearchProvider searchProvider() {

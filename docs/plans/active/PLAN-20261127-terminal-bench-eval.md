@@ -88,6 +88,13 @@
 - Hao CLI 无人值守默认上限：50 次模型请求、200 万 Token、30 分钟（`--max-turns` / `--max-tokens` / `--timeout` 可改，改了算一次实验）
 - 不开 MCP（无界面模式本来就不启动 MCP）
 
+## 2026-11-28 补的可观测性（`bb423ae`）
+
+- `ctx-on`（`38bdb3b`）跑到 80/90 时发现：11-27 22:10 起 41 次尝试全部是 DeepSeek 网络中断（TLS 握手被对端断开）和 `402 Insufficient Balance`，这一轮作废，不计入对比；产物保留在 `benchmarks/harbor/jobs/haocli-38bdb3b-dev-ctx-on-20261127-184323`
+- 结果 JSON 新增 `reason`（失败分类 `llm_transient` / `llm_billing` / …，部分完成原因）和 `context`（五层各自的触发次数、处理条数、紧急压缩次数、估算节省的 Token），stream-json 新增 `context_compacted` 事件，见 `docs/specs/headless-mode.md`
+- TLS 握手被对端断开现在会重试（以前所有 SSL 异常都不重试）；`-p` 输出固定 UTF-8
+- 重跑基线和消融要用包含这些改动的提交，并先确认 DeepSeek 余额；摘要压缩本身的 Token 消耗还没统计
+
 ## 已知风险
 
 - Apple Silicon 上 x86 镜像走模拟，慢；有的题可能因此超时，要和“模型做不出来”分开看（看 Harbor 的异常类型和耗时）

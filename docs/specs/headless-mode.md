@@ -69,12 +69,18 @@ java -jar haocli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 {"type":"result","status":"completed","is_error":false,"result":"最终回答","turn_id":"…","session_id":"…",
  "provider":"deepseek","model":"deepseek-flash","model_requests":3,"duration_ms":5120,
  "usage":{"input_tokens":12000,"output_tokens":800,"cached_input_tokens":9000},
- "tools":{"calls":4,"succeeded":3,"failed":1,"skipped":0,"success_rate":0.75},"notices":1}
+ "tools":{"calls":4,"succeeded":3,"failed":1,"skipped":0,"success_rate":0.75},"notices":1,"reason":null,
+ "context":{"offloads":1,"trim_runs":0,"trimmed":0,"fold_runs":0,"folded":0,"clearing_runs":0,"cleared":0,
+            "summaries":0,"emergency_runs":0,"tokens_saved":0},
+ "harness_disabled":[],"context_budget_tokens":0}
 ```
 
 - `status`：`completed` / `partial` / `cancelled` / `failed`；`is_error` 在 `failed`、`cancelled` 时为 true
 - `result`：完成时是模型的原始回答（不含思考过程和终端提示）；部分完成时是整理结果；失败和取消时是说明
 - `tools`：本轮工具统计（2026-11-26 新增）。`calls` 是真正交给执行的调用数（含被策略拒绝的），`skipped` 是没执行的（参数被截断），`success_rate` = succeeded /（succeeded + failed），一次都没执行时为 `null`；`notices` 是提示条数。口径和场景回归 `HarnessScenarioSuiteTest` 相同
+- `reason`（2026-11-28 新增）：机器可读的结束原因，`completed`、`cancelled` 时为 `null`。失败时是 `llm_<分类>`：`llm_transient`（网络抖动、超时、429、5xx、TLS 握手被对端断开）、`llm_billing`（402 余额或额度不足）、`llm_authentication`（401/403）、`llm_invalid_request`、`llm_invalid_response`、`llm_cancelled_or_timeout`、`llm_unknown`；部分完成时是 `token_budget_exceeded` / `hard_iteration_limit` / `time_limit_exceeded` / `stagnation_detected` / `context_overflow`。评测据此区分基础设施故障、预算耗尽和 Agent 自身问题
+- `context`（2026-11-28 新增）：上下文处理策略各层本轮的触发情况。`offloads` 是第 1 层大结果落盘次数（按落盘摘要第一行计）；`*_runs` 是第 2–4 层（裁剪、折叠、清理）各自触发的次数，`trimmed` / `folded` / `cleared` 是处理的条数；`summaries` 是第 5 层摘要次数；`emergency_runs` 是模型报上下文超长后紧急压缩的次数；`tokens_saved` 是各次压缩前后估算 Token 之差的累计（按 `TokenBudget` 估算，不是供应商计数）。摘要调用本身消耗的 Token 暂不统计
+- 2026-11-28 起 `-p` 的标准输出和标准错误固定用 UTF-8，不跟随系统区域设置（容器里 POSIX 区域会把中文变成 `?`）
 - 2026-11-26 起 `read_file` 读不到文件（“读取文件失败: …”）算失败，以前被误算成成功
 - 执行中途出现意外错误时只有 `type`、`status`、`is_error`、`result`、`session_id`、`provider`、`model` 这几个字段
 
@@ -93,7 +99,8 @@ java -jar haocli.jar -p "任务" [--output-format text|json|stream-json] [--perm
 | `tool_call_finished` | `id`、`name`、`success`、`status`、`output` | 工具执行结束；`output` 是还给模型之前的原始结果。`status`（2026-11-27 起）是细分状态：`success` / `failed` / `denied`（被策略、权限、确认或白名单拒绝）/ `timeout`（只读工具超时）/ `cancelled` / `skipped`（没执行）/ `unknown`（执行了但结果不确定，比如命令超时被强制终止，先核实再重试）；`success` 等于 `status == "success"`，见 `docs/adr/ADR-0002-result-semantics.md` |
 | `tool_call_skipped` | `id`、`name`、`reason` | 没有执行；目前只有 `output_truncated`（模型输出被长度截断，参数不完整） |
 | `notice` | `text` | 提示，比如上下文压缩、重复调用提醒、预算触发 |
-| `turn_finished` | `turn_id`、`status`、`answer`、`model_requests`、`duration_ms`、`input_tokens`、`output_tokens`、`cached_input_tokens` | 一轮结束，Token 是本轮累计 |
+| `context_compacted` | `trigger`、`trimmed`、`folded`、`cleared_tool_results`、`summarized`、`before_tokens`、`after_tokens` | 上下文处理第 2–5 层改动了对话（2026-11-28 新增）；`trigger` 是 `automatic`（请求前按阈值）或 `emergency`（模型报上下文超长）；前后 Token 是估算值 |
+| `turn_finished` | `turn_id`、`status`、`answer`、`model_requests`、`duration_ms`、`input_tokens`、`output_tokens`、`cached_input_tokens`，可选 `reason` | 一轮结束，Token 是本轮累计；`reason` 只在失败和部分完成时出现，取值同 `result.reason` |
 
 顺序：`turn_started` → 每次模型请求（一条 `model_request_started`，若干 `reasoning_delta` / `text_delta`，然后一条 `usage`）→ 模型要调工具时每个调用一条 `tool_call_started`，整批执行完后每个调用一条 `tool_call_finished`（截断时改为 `tool_call_skipped`）→ 过程中可能穿插 `notice` → `turn_finished` → `result`。
 

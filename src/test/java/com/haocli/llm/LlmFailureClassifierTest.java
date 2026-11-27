@@ -2,6 +2,7 @@ package com.haocli.llm;
 
 import org.junit.jupiter.api.Test;
 
+import javax.net.ssl.SSLHandshakeException;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
@@ -33,5 +34,24 @@ class LlmFailureClassifierTest {
                 LlmFailureClassifier.classify(new LlmStreamingApiException("bad stream", false)));
         assertEquals(LlmFailureClassifier.Category.UNKNOWN,
                 LlmFailureClassifier.classify(new IOException("adapter failed")));
+    }
+
+    @Test
+    void insufficientBalanceIsBillingNotInvalidRequest() {
+        assertEquals(LlmFailureClassifier.Category.BILLING,
+                LlmFailureClassifier.classify(new LlmHttpException(402, null, "Insufficient Balance")));
+    }
+
+    @Test
+    void remoteHandshakeTerminationIsTransientButCertificateFailureIsNot() {
+        SSLHandshakeException terminated = new SSLHandshakeException("Remote host terminated the handshake");
+        terminated.initCause(new EOFException("SSL peer shut down incorrectly"));
+        assertEquals(LlmFailureClassifier.Category.TRANSIENT, LlmFailureClassifier.classify(terminated));
+        assertEquals(LlmFailureClassifier.Category.TRANSIENT,
+                LlmFailureClassifier.classify(new SSLHandshakeException("Remote host terminated the handshake")));
+
+        SSLHandshakeException badCertificate = new SSLHandshakeException("PKIX path building failed");
+        badCertificate.initCause(new java.security.cert.CertificateException("unable to find valid certification path"));
+        assertEquals(LlmFailureClassifier.Category.UNKNOWN, LlmFailureClassifier.classify(badCertificate));
     }
 }
