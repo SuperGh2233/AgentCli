@@ -136,7 +136,8 @@ final class HaoCliCompleter implements Completer {
                 option("kimi", "Kimi/Moonshot，读取配置模型"),
                 option("freellmapi", "本地 FreeLLMAPI，读取配置模型"),
                 option("xfyun", "讯飞星辰 MaaS，读取配置模型"),
-                option("agnes", "Agnes 2.0 Flash，读取配置模型"));
+                option("agnes", "Agnes 2.0 Flash，读取配置模型"),
+                option("magpie", "本机 magpie 网关（WorkBuddy 等订阅模型），读取配置模型"));
         return true;
     }
 

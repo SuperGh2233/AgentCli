@@ -20,6 +20,7 @@ public final class ModelCatalog {
         models.put("freellmapi", List.of("auto"));
         models.put("xfyun", List.of("Qwen3.6-35B-A3B"));
         models.put("agnes", List.of("agnes-2.0-flash"));
+        models.put("magpie", List.of("workbuddy/deepseek-v4.1-flash"));
         BUILTINS = Collections.unmodifiableMap(models);
     }
     private ModelCatalog() {}

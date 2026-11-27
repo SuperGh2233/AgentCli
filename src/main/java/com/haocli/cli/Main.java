@@ -2457,7 +2457,7 @@ public class Main {
     }
 
     private static boolean isSupportedProvider(String provider) {
-        return List.of("glm", "deepseek", "hunyuan", "step", "kimi", "freellmapi", "xfyun", "agnes").contains(provider);
+        return List.of("glm", "deepseek", "hunyuan", "step", "kimi", "freellmapi", "xfyun", "agnes", "magpie").contains(provider);
     }
 
     private static String maskSecret(String value) {
@@ -3344,7 +3344,11 @@ public class Main {
                     new ModelSelection("xfyun", null, false);
             case "agnes", "agnes-ai", "agnes_ai", "sapiens", "sapiens-ai", "sapiens_ai" ->
                     new ModelSelection("agnes", null, false);
+            case "magpie" -> new ModelSelection("magpie", null, false);
             default -> {
+                if (normalized.startsWith("workbuddy/")) {
+                    yield new ModelSelection("magpie", value, true);
+                }
                 if (normalized.startsWith("glm-")) {
                     yield new ModelSelection("glm", value, true);
                 }

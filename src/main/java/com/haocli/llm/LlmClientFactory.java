@@ -67,6 +67,7 @@ public class LlmClientFactory {
             case "freellmapi" -> new FreeLlmApiClient(apiKey, model, baseUrl);
             case "xfyun" -> new XfyunMaaSClient(apiKey, model, baseUrl, loraId);
             case "agnes" -> new AgnesClient(apiKey, model, baseUrl);
+            case "magpie" -> new MagpieClient(apiKey, model, baseUrl);
             default -> null;
         };
     }
