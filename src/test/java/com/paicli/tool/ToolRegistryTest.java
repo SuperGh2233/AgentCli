@@ -151,6 +151,27 @@ class ToolRegistryTest {
     }
 
     @Test
+    void seatbeltProfileGrantsOnlyLiteralMetadataOnReadRootAncestors(@TempDir Path tempDir) throws Exception {
+        Path workspace = Files.createDirectories(tempDir.resolve("ws"));
+        Path runtime = Files.createDirectories(tempDir.resolve("home/Library/Java/jdk/Contents/Home"));
+
+        String profile = SeatbeltProfile.build(workspace, List.of(workspace, runtime));
+
+        int start = profile.indexOf("(allow file-read-metadata");
+        assertTrue(start >= 0, profile);
+        String metadataSection = profile.substring(start, profile.indexOf("(allow file-write*"));
+        assertTrue(metadataSection.contains("(literal \"" + runtime.getParent() + "\")"));
+        assertTrue(metadataSection.contains("(literal \"" + tempDir.resolve("home") + "\")"));
+        assertTrue(metadataSection.contains("(literal \"" + tempDir + "\")"));
+        assertTrue(metadataSection.contains("(literal \"/\")"));
+        assertFalse(metadataSection.contains("subpath"), "ancestors must not grant whole subtrees");
+        assertFalse(metadataSection.contains("(literal \"" + runtime + "\")"),
+                "the root itself is already covered by file-read*");
+        String writeSection = profile.substring(profile.indexOf("(allow file-write*"));
+        assertFalse(writeSection.contains(tempDir.resolve("home").toString()));
+    }
+
+    @Test
     void commandSandboxFailsClosedWhenExecutableIsUnavailable(@TempDir Path tempDir) {
         CommandSandbox sandbox = new CommandSandbox(
                 tempDir,

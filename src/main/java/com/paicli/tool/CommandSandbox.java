@@ -61,11 +61,14 @@ final class CommandSandbox {
             Path.of("/opt/homebrew/bin"),
             Path.of("/opt/homebrew/sbin"),
             Path.of("/opt/homebrew/Cellar"),
+            // 只有指向 Cellar 的符号链接；Homebrew 程序按这里的路径加载动态库（如 node 的 libllhttp）
+            Path.of("/opt/homebrew/opt"),
             Path.of("/opt/homebrew/lib"),
             Path.of("/opt/homebrew/share"),
             Path.of("/usr/local/bin"),
             Path.of("/usr/local/sbin"),
             Path.of("/usr/local/Cellar"),
+            Path.of("/usr/local/opt"),
             Path.of("/usr/local/lib"),
             Path.of("/usr/local/share")
     );

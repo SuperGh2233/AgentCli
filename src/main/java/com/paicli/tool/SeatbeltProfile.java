@@ -1,9 +1,12 @@
 package com.paicli.tool;
 
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * macOS Seatbelt 后端：把 {@link CommandSandbox} 的统一策略（系统目录只读、仅工作区可写、
@@ -25,6 +28,15 @@ final class SeatbeltProfile {
             Path.of("/dev/urandom"),
             Path.of("/dev/zero")
     );
+
+    /**
+     * {@code /usr/bin/python3}、{@code git} 这类 Xcode 命令行工具 shim 启动时要读
+     * {@code /var/select/developer_dir}（没有就回退到默认位置）。{@code /var} 本身是指向
+     * {@code /private/var} 的符号链接，只放行这条链接的元数据和 developer_dir 这一个链接，
+     * 不放行 {@code /private/var} 下的任何子树。
+     */
+    private static final Path VAR_SYMLINK = Path.of("/var");
+    private static final Path XCODE_DEVELOPER_DIR_LINK = Path.of("/private/var/select/developer_dir");
 
     private SeatbeltProfile() {
     }
@@ -59,12 +71,43 @@ final class SeatbeltProfile {
                 appendLiteralFilter(profile, readablePath);
             }
         }
-        profile.append(")\n")
-                .append("(allow file-write*\n");
+        appendLiteralFilter(profile, XCODE_DEVELOPER_DIR_LINK);
+        profile.append(")\n");
+        appendAncestorMetadata(profile, workspace, readableRoots);
+        profile.append("(allow file-write*\n");
         appendPathFilters(profile, workspace);
         profile.append("  (literal ").append(seatbeltString(DEV_NULL)).append(")\n");
         profile.append(")\n");
         return profile.toString();
+    }
+
+    /**
+     * 可读目录的各级父目录只放行元数据（literal，不含子树、不能读内容或列目录）。JDK 等运行时
+     * 启动时会逐级查看自己所在路径；装在 {@code ~/Library/Java} 这类目录下时，缺了父目录的
+     * 元数据，{@code java -version} 直接以 SIGSEGV（exit 139）退出。
+     */
+    private static void appendAncestorMetadata(StringBuilder profile,
+                                               Path workspace,
+                                               Collection<Path> readableRoots) {
+        Set<Path> ancestors = new LinkedHashSet<>();
+        if (Files.exists(VAR_SYMLINK, LinkOption.NOFOLLOW_LINKS)) {
+            ancestors.add(VAR_SYMLINK);
+        }
+        collectAncestors(ancestors, workspace);
+        for (Path readableRoot : readableRoots) {
+            collectAncestors(ancestors, readableRoot);
+        }
+        profile.append("(allow file-read-metadata\n");
+        for (Path ancestor : ancestors) {
+            appendLiteralFilter(profile, ancestor);
+        }
+        profile.append(")\n");
+    }
+
+    private static void collectAncestors(Set<Path> ancestors, Path path) {
+        for (Path parent = path.getParent(); parent != null; parent = parent.getParent()) {
+            ancestors.add(parent);
+        }
     }
 
     private static void appendPathFilters(StringBuilder profile, Path path) {
