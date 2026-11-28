@@ -54,7 +54,7 @@ public class PathGuard {
      */
     public Path resolveSafe(String input) {
         if (input == null || input.isBlank()) {
-            throw new PolicyException("路径不能为空");
+            throw new PolicyException("路径不能为空", PolicyException.Kind.PATH);
         }
 
         Path raw = Paths.get(input);
@@ -66,7 +66,7 @@ public class PathGuard {
 
         if (!realResolved.startsWith(rootPath)) {
             throw new PolicyException(
-                    "路径越界: " + input + " 不在项目根 " + rootPath + " 之内");
+                    "路径越界: " + input + " 不在项目根 " + rootPath + " 之内", PolicyException.Kind.PATH);
         }
         return realResolved;
     }
@@ -101,9 +101,9 @@ public class PathGuard {
                 Path linkTarget = Files.readSymbolicLink(existing);
                 current = linkDir.resolve(linkTarget).resolve(remainder).normalize();
             } catch (IOException e) {
-                throw new PolicyException("无法解析路径: " + target + "（" + e.getMessage() + "）");
+                throw new PolicyException("无法解析路径: " + target + "（" + e.getMessage() + "）", PolicyException.Kind.PATH);
             }
         }
-        throw new PolicyException("符号链接层级过深或存在循环: " + target);
+        throw new PolicyException("符号链接层级过深或存在循环: " + target, PolicyException.Kind.PATH);
     }
 }

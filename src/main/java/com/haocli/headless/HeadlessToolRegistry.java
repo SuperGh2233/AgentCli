@@ -58,7 +58,7 @@ final class HeadlessToolRegistry extends ToolRegistry {
         if (denial != null) {
             getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(
                     name, argumentsJson, denial, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)));
-            return ToolOutput.denied("无界面模式策略拒绝: " + denial);
+            return ToolOutput.denied(ToolOutput.FailureCode.DENY_UNATTENDED, "无界面模式策略拒绝: " + denial);
         }
         return super.executeToolOutput(name, argumentsJson);
     }

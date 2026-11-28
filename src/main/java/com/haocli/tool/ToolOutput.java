@@ -25,7 +25,33 @@ public record ToolOutput(String text,
                          List<String> discoveredUrls,
                          FailureCode failureCode,
                          boolean retryable) {
-    public enum FailureCode { NONE, EDIT_SOURCE_NOT_FOUND, INVALID_ARGUMENT, NOT_FOUND }
+    /**
+     * 不成功的原因。前几个是普通失败；DENY_ 开头的是拒绝（status = DENIED）由哪一层确定性检查做出，
+     * 写进事件和 -p 的 JSON（{@code reason}），方便统计和以后把检查合成一条链时核对行为没变。
+     */
+    public enum FailureCode {
+        NONE, EDIT_SOURCE_NOT_FOUND, INVALID_ARGUMENT, NOT_FOUND,
+        /** PathGuard：路径越界、符号链接逃逸、无法解析。 */
+        DENY_PATH,
+        /** CommandGuard 黑名单，或要求沙箱但沙箱不可用。 */
+        DENY_COMMAND,
+        /** 资源上限，比如单次写入超过 5MB。 */
+        DENY_LIMIT,
+        /** 本轮工具策略（TurnToolPolicy）：网址来源、标题输入、浏览器租约等。 */
+        DENY_TURN_POLICY,
+        /** 无人值守通道（-p、Runtime API、SDK）的白名单。 */
+        DENY_UNATTENDED,
+        /** 权限规则、MCP 注册或信任状态变化。 */
+        DENY_PERMISSION,
+        /** auto 模式的审查模型没有放行。 */
+        DENY_AUTO_REVIEW,
+        /** 用户在确认框里拒绝。 */
+        DENY_HUMAN,
+        /** 网络策略（协议、主机、限流前的检查）。 */
+        DENY_NETWORK,
+        /** 其他确定性策略（浏览器会话检查等）。 */
+        DENY_POLICY
+    }
 
     public ToolOutput {
         status = status == null ? ToolStatus.FAILED : status;
@@ -75,7 +101,12 @@ public record ToolOutput(String text,
 
     /** 被策略、权限、人工确认、自动审查或白名单拒绝。 */
     public static ToolOutput denied(String text) {
-        return of(ToolStatus.DENIED, text);
+        return denied(FailureCode.DENY_POLICY, text);
+    }
+
+    /** 被确定性检查拒绝；code 说明是哪一层（DENY_*）。 */
+    public static ToolOutput denied(FailureCode code, String text) {
+        return new ToolOutput(text, List.of(), ToolStatus.DENIED, List.of(), code, false);
     }
 
     /** 没有执行（用户选了跳过、启动前被拦下等）。 */

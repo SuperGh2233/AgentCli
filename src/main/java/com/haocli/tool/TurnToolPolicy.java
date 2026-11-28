@@ -557,7 +557,7 @@ public final class TurnToolPolicy {
                 List.of(),
                 ToolStatus.DENIED,
                 List.of(),
-                ToolOutput.FailureCode.NONE);
+                ToolOutput.FailureCode.DENY_TURN_POLICY);
     }
 
     private static ToolExecutionResult missingResult(ToolInvocation invocation) {
