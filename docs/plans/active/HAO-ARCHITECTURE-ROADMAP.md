@@ -24,7 +24,8 @@
 2. **会话记忆摘要**（SessionMemoryCompactor）：更正——异步提前准备、增量更新、过期结果保护、按对话隔离和失败回退**早已实现**，之前的判断没读代码；2026-11-28 补了 5 个确定性并发测试（`SessionMemoryConcurrencyTest`）。还缺的是真实模型的开关对照数据，所以仍默认关闭
 3. **正式评测**：当前代码的 ctx-on / ctx-off 对照没跑（30 题 × 3 次约 1 亿输入 Token，需要先确认 WorkBuddy 额度）；只跑了冒烟
 4. **SDK 扩展**：自定义模块已完成（`HaoRuntime.Hook` + 只读 `View`，`148440a`）；还没有多轮会话
-5. **安全统一检查链**、**拆 Main**（3500 行）、**Maven 模块拆分**：沿用原主线计划的顺序；依赖方向测试已完成（`ArchitectureBoundaryTest`，`148440a`）
+5. **安全统一检查链**：已有证据（2026-11-28，`ExecutionEntryPolicyTest`）表明 ReAct、Plan 任务节点、Team 子 Agent、SDK、`-p` 五个入口都经过同一套确定性检查——假模型读项目外密钥和执行黑名单命令在每个入口都被拒绝、调用和结果配对、密钥不进模型请求。还没做的是把分散在 `ToolRegistry`、`HitlToolRegistry`、`HeadlessToolRegistry` 的检查合成一条带决定编号和原因的链，以及交互默认 `auto` 沙箱（ADR-0003）
+6. **拆 Main**（3500 行）、**Maven 模块拆分**：沿用原主线计划的顺序；依赖方向测试已完成（`ArchitectureBoundaryTest`，`148440a`）
 
 ## 3. 下一阶段建议
 
