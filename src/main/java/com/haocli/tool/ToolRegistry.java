@@ -1119,9 +1119,55 @@ public class ToolRegistry {
      */
     public List<com.haocli.llm.LlmClient.Tool> getToolDefinitions() {
         return tools.values().stream()
+                .filter(t -> exposedByGates(t.name()))
                 .sorted(Comparator.comparing(Tool::name))
                 .map(t -> new com.haocli.llm.LlmClient.Tool(t.name(), t.description(), t.parameters()))
                 .toList();
+    }
+
+    /**
+     * 执行前的确定性检查链（把分散的安全检查合成一条链的第一步）。每道检查同时决定：要不要把工具给模型看、
+     * 这次调用放不放行。按注册顺序检查，第一道拒绝的生效；拒绝统一写审计，结果带 {@code DENY_*} 原因。
+     * 通过之后，调度层的参数校验、PathGuard、CommandGuard、审计照常执行。
+     */
+    public interface ToolGate {
+        /** 是否把这个工具的定义给模型看；默认给。 */
+        default boolean exposes(String toolName) {
+            return true;
+        }
+
+        /** 放行返回 null；拒绝返回拒绝结果（用 {@link ToolOutput#denied(ToolOutput.FailureCode, String)}）。 */
+        ToolOutput check(String toolName, String argumentsJson);
+    }
+
+    private final List<ToolGate> gates = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** 在链尾加一道检查。 */
+    public void addGate(ToolGate gate) {
+        gates.add(Objects.requireNonNull(gate, "gate"));
+    }
+
+    private boolean exposedByGates(String toolName) {
+        for (ToolGate gate : gates) {
+            if (!gate.exposes(toolName)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 依次过检查链；第一道拒绝的写审计并返回，全部放行返回 null。 */
+    private ToolOutput checkGates(String name, String argumentsJson) {
+        for (ToolGate gate : gates) {
+            ToolOutput denied = gate.check(name, argumentsJson);
+            if (denied != null) {
+                ToolOutput result = denied.status() == ToolStatus.DENIED ? denied
+                        : ToolOutput.denied(ToolOutput.FailureCode.DENY_POLICY, denied.text());
+                auditLog.record(AuditLog.AuditEntry.denyByPolicy(name, argumentsJson, result.text(), 0));
+                return result;
+            }
+        }
+        return null;
     }
 
     /**
@@ -1269,6 +1315,10 @@ public class ToolRegistry {
     }
 
     public ToolOutput executeToolOutput(String name, String argumentsJson) {
+        ToolOutput gateDenial = checkGates(name, argumentsJson);
+        if (gateDenial != null) {
+            return gateDenial;
+        }
         if (isLegacyExecuteToolOverride()) {
             return classifyTextOutput(executeTool(name, argumentsJson));
         }
