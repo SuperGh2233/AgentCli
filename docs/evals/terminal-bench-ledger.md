@@ -17,6 +17,12 @@
 | 2026-11-27 | `38bdb3b` | dev ctx-on（30 题 × 3） | 上下文预算 128k、上限 150 次 / 1000 万 | **阶段结果 47/90（52.2%）**，混合路线：37 次 DeepSeek 官方 + 53 次 magpie 补跑 | 有效尝试平均输入 2.1M（97% 缓存）/ 输出 43k | — | 22:10 起 53 次尝试死于 DeepSeek 网络中断和 402 余额不足，2026-11-28 在 `eval/38bdb3b-magpie`（`9898e88`）上经 magpie 补跑完；magpie 每次请求慢约 60%，超时明显变多；当时架构和逐题结果见 [基线记录](baselines/2026-11-27-38bdb3b-ctx-on.md)，标签 `tb-baseline-38bdb3b` |
 | 2026-11-28 | `f82e0e5-dirty`（magpie 路由改动未提交时） | smoke（hello-world × 1） | 改走 magpie → WorkBuddy `deepseek-v4.1-flash` | 1/1 | 输入 15.3k（缓存 12.8k）/ 输出 126 | 整轮 59 秒 | 链路验证，`provider=magpie`；dirty，只算探索 |
 
+### 2026-11-28 单题验证（探索，不计入对比）
+
+| 提交 | 题目 | 结果 | 说明 |
+|---|---|---|---|
+| `bffe18a` | regex-chess × 1（magpie） | 0（部分完成，`time_limit_exceeded`） | 验证单次请求不再限制总时长：最大单次输出 90,732 Token 正常完成，没有模型调用超时；66 次请求、输入 2.13M（缓存 2.02M）/ 输出 0.30M、约 31 分钟后撞上无人值守默认 30 分钟上限 |
+
 ## 子集题目清单
 
 `benchmarks/harbor/subsets/tb20-dev30.txt`（30 题，种子 20261127，按难度分层：简单 1、中等 19、困难 10）：build-pmars、build-pov-ray、code-from-image、crack-7z-hash、custom-memory-heap-crash、db-wal-recovery、distribution-search、feal-differential-cryptanalysis、git-leak-recovery、headless-terminal、hf-model-inference、large-scale-text-editing、log-summary-date-ranges、make-doom-for-mips、model-extraction-relu-logits、mteb-leaderboard、openssl-selfsigned-cert、password-recovery、polyglot-c-py、polyglot-rust-c、protein-assembly、prove-plus-comm、qemu-startup、raman-fitting、regex-chess、regex-log、sam-cell-seg、torch-tensor-parallelism、tune-mjcf、write-compressor
