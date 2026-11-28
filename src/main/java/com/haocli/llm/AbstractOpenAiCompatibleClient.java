@@ -22,14 +22,15 @@ public abstract class AbstractOpenAiCompatibleClient implements LlmClient {
     protected static final ObjectMapper mapper = new ObjectMapper();
 
     // SSE 流式接口下，OkHttp 的 readTimeout 是"两次 read 之间的最大间隔"，不是请求总时长。
-    // GLM-5.1 在生成大段 reasoning_content 时服务端可能长时间静默，所以默认值放宽到 300s；
-    // callTimeout 作为整体兜底，覆盖极端情况下的连接半死状态。
-    // 三项均可通过系统属性覆盖，便于不同模型 / 网络环境调优。
+    // GLM-5.1 在生成大段 reasoning_content 时服务端可能长时间静默，所以默认值放宽到 300s；连接半死由它发现。
+    // 请求总时长（callTimeout）默认不限：以前的 600s 会把仍在正常输出的长回复掐断（2026-11-28 Terminal-Bench
+    // regex-chess 经较慢的网关单次输出 6–9 万 Token 时稳定复现），而这种情况 readTimeout 本来就不会误伤。
+    // 需要硬上限时用 -Dhaocli.llm.call.timeout.seconds=N（大于 0 才生效）。各项都可通过系统属性覆盖。
     protected static final OkHttpClient SHARED_HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(readTimeoutSeconds("haocli.llm.connect.timeout.seconds", 60), TimeUnit.SECONDS)
             .readTimeout(readTimeoutSeconds("haocli.llm.read.timeout.seconds", 300), TimeUnit.SECONDS)
             .writeTimeout(readTimeoutSeconds("haocli.llm.write.timeout.seconds", 60), TimeUnit.SECONDS)
-            .callTimeout(readTimeoutSeconds("haocli.llm.call.timeout.seconds", 600), TimeUnit.SECONDS)
+            .callTimeout(callTimeoutSeconds(), TimeUnit.SECONDS)
             // 重试由 LlmRetryPolicy 统一分类和限次，避免 OkHttp 隐式重放突破次数上限。
             .retryOnConnectionFailure(false)
             .build();
@@ -74,6 +75,22 @@ public abstract class AbstractOpenAiCompatibleClient implements LlmClient {
     }
 
     private final AtomicBoolean cancellationRequested = new AtomicBoolean();
+
+    static final String CALL_TIMEOUT_PROPERTY = "haocli.llm.call.timeout.seconds";
+
+    /** 单次请求总时长上限：默认 0（不限，OkHttp 的约定），属性给出正数才设硬上限。 */
+    static long callTimeoutSeconds() {
+        String raw = System.getProperty(CALL_TIMEOUT_PROPERTY);
+        if (raw == null || raw.isBlank()) {
+            return 0;
+        }
+        try {
+            long parsed = Long.parseLong(raw.trim());
+            return Math.max(0, parsed);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
 
     private static long readTimeoutSeconds(String key, long defaultValue) {
         String raw = System.getProperty(key);
