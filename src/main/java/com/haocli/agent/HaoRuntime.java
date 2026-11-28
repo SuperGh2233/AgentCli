@@ -50,6 +50,36 @@ public final class HaoRuntime {
     public enum Status { COMPLETED, PARTIAL, FAILED, CANCELLED }
 
     /**
+     * 嵌入方的扩展模块（稳定的公开接口，内部适配成内核的 {@code TurnHook}）。在内置模块之后按注册顺序调用；
+     * 抛出的异常只记日志，不打断任务。同一个实例会用于每次运行，需要状态时请自己保证线程安全。
+     */
+    public interface Hook {
+        /** 每次模型请求之前。 */
+        default void beforeModelRequest(View view) {
+        }
+
+        /** 一批工具结果已经写回对话之后（每个结果都已和它的调用配对）。 */
+        default void afterToolResults(List<ToolResult> results, View view) {
+        }
+    }
+
+    /** 模块能看到和能做的事：只读的对话、追加一条备注、发一条提示事件。不能改写或删除已有消息。 */
+    public interface View {
+        /** 当前对话（只读）。 */
+        List<LlmClient.Message> messages();
+
+        /** 追加一条 user 消息（比如提醒、外部状态），下一次模型请求会带上。 */
+        void addNote(String text);
+
+        /** 发一条提示事件（{@code AgentEvent.Notice}），不进对话。 */
+        void notice(String text);
+    }
+
+    /** 模块看到的一条工具结果。 */
+    public record ToolResult(String id, String name, com.haocli.tool.ToolStatus status, String text) {
+    }
+
+    /**
      * 一次运行的结构化结果。reason 在失败和部分完成时说明原因（比如 {@code llm_transient}、
      * {@code hard_iteration_limit}），完成和取消时为 null。
      */
@@ -67,6 +97,7 @@ public final class HaoRuntime {
     private final RunLimits limits;
     private final AgentEventListener listener;
     private final HarnessFeatures features;
+    private final List<Hook> hooks;
     private final AtomicReference<CancellationToken> running = new AtomicReference<>();
 
     private HaoRuntime(Builder b) {
@@ -78,6 +109,7 @@ public final class HaoRuntime {
         this.limits = b.limits == null ? RunLimits.UNLIMITED : b.limits;
         this.listener = b.listener == null ? AgentEventListener.NONE : b.listener;
         this.features = b.features == null ? HarnessFeatures.ALL_ON : b.features;
+        this.hooks = List.copyOf(b.hooks);
         // 提前校验权限（比如拒绝 sandbox），不要等到第一次运行才失败
         this.permissions.newToolRegistry(projectRoot, tools);
     }
@@ -104,8 +136,11 @@ public final class HaoRuntime {
             if (event instanceof AgentEvent.TurnFinished f) finished.set(f);
             listener.onEvent(event);
         };
-        AgentLoop loop = new AgentLoop(registry, conversation, features,
-                DefaultTurnHooks.supplier(features, registry));
+        AgentLoop loop = new AgentLoop(registry, conversation, features, () -> {
+            List<TurnHook> all = new ArrayList<>(DefaultTurnHooks.create(features, registry));
+            hooks.forEach(hook -> all.add(adapt(hook)));
+            return all;
+        });
         int trigger = ContextProfile.from(model).compressionTriggerTokens();
         AgentLoop.Turn turn = new AgentLoop.Turn(model, TurnToolPolicy.forExplicitTask(task), null, HOST,
                 () -> trigger, events, limits);
@@ -126,6 +161,43 @@ public final class HaoRuntime {
             running.set(null);
             CancellationContext.clear(token);
         }
+    }
+
+    private static TurnHook adapt(Hook hook) {
+        return new TurnHook() {
+            @Override
+            public void beforeModelRequest(Context context) {
+                hook.beforeModelRequest(view(context));
+            }
+
+            @Override
+            public void afterToolResults(List<com.haocli.tool.ToolRegistry.ToolExecutionResult> results, Context context) {
+                hook.afterToolResults(results.stream()
+                        .map(r -> new ToolResult(r.id(), r.name(), r.status(), r.result()))
+                        .toList(), view(context));
+            }
+        };
+    }
+
+    private static View view(TurnHook.Context context) {
+        return new View() {
+            @Override
+            public List<LlmClient.Message> messages() {
+                return java.util.Collections.unmodifiableList(context.conversation().messages());
+            }
+
+            @Override
+            public void addNote(String text) {
+                if (text != null && !text.isBlank()) {
+                    context.conversation().append(LlmClient.Message.user(text), "sdk_hook_note");
+                }
+            }
+
+            @Override
+            public void notice(String text) {
+                context.notice(text);
+            }
+        };
     }
 
     /** 请求取消正在执行的任务（可以从别的线程调用）；内核在下一个安全点停下，结果状态为 CANCELLED。 */
@@ -184,8 +256,15 @@ public final class HaoRuntime {
         private RunLimits limits;
         private AgentEventListener listener;
         private HarnessFeatures features;
+        private final List<Hook> hooks = new ArrayList<>();
 
         private Builder() {
+        }
+
+        /** 嵌入方模块，在内置模块之后按注册顺序调用。 */
+        public Builder hook(Hook hook) {
+            this.hooks.add(Objects.requireNonNull(hook, "hook"));
+            return this;
         }
 
         /** 必填：任意 {@link LlmClient} 实现（内置服务商、OpenAI 兼容网关或自己的实现）。 */
