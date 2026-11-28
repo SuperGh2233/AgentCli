@@ -28,14 +28,11 @@ class ToolFailureCodeTest {
     @Test void classificationCompletionSkillRewriteAndOffloadPreserveMetadata() throws Exception {
         var code = ToolOutput.FailureCode.EDIT_SOURCE_NOT_FOUND;
         var urls = List.of("https://example.invalid");
-        var output = new ToolOutput("工具执行失败: " + "x".repeat(40000), List.of(), true, urls, code);
-        // Exercise the same classification used for MCP outputs without invoking any server.
-        var classify = ToolRegistry.class.getDeclaredMethod("classifyOutput", ToolOutput.class);
-        classify.setAccessible(true);
-        var classified = (ToolOutput) classify.invoke(null, output);
+        // 2026-11-28 起 MCP 结果不再按文字前缀重新分类（客户端按协议 isError 报告状态），
+        // 这里直接用一个已经是失败的结果，继续检查调度、Skill 改写和落盘时元数据不丢。
+        var classified = new ToolOutput("工具执行失败: " + "x".repeat(40000), List.of(), false, List.of(), code);
         assertFalse(classified.successful());
         assertEquals(code, classified.failureCode());
-        assertEquals(List.of(), classified.discoveredUrls()); // Keep existing URL authority semantics.
         var registry = new ToolRegistry() {
             @Override public ToolOutput executeToolOutput(String name, String args) { return new ToolOutput(classified.text(), classified.imageParts(), false, urls, code); }
         };

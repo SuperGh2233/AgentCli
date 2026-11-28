@@ -1,6 +1,6 @@
 # Hao CLI 后续路线：可嵌入的 Agent 运行时
 
-状态：已和用户逐条确认（2026-11-26）；P0 已完成（品牌 R0 合并为 `56cbd43`，2026-11-27 又按用户要求全量改名为 haocli，取代 R1–R4）；甲-1、甲-2 已通过（2026-11-27），甲-3 第一批（list_dir / glob_files / grep_code）已通过（2026-11-28）；丙-1（Plan 任务节点和 Team 子 Agent 改用 AgentLoop）和甲-7 最小进程内入口 HaoRuntime 已完成（2026-11-28，见 `HAO-ARCHITECTURE-ROADMAP.md`）；下一步甲-3 第二批（search_code 等其余只读工具） · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
+状态：已和用户逐条确认（2026-11-26）；P0 已完成（品牌 R0 合并为 `56cbd43`，2026-11-27 又按用户要求全量改名为 haocli，取代 R1–R4）；甲-1、甲-2 已通过（2026-11-27），甲-3 第一批（list_dir / glob_files / grep_code）已通过（2026-11-28）；丙-1（Plan 任务节点和 Team 子 Agent 改用 AgentLoop）和甲-7 最小进程内入口 HaoRuntime 已完成（2026-11-28，见 `HAO-ARCHITECTURE-ROADMAP.md`）；工具状态迁移完成（2026-11-28：18 个内置工具和 MCP 都自己报告状态，`LegacyTool` 删除，前缀推断只留给重写旧 `executeTool(String)` 的子类） · 取代 `docs/plans/active/PLAN-20261124-harness-upgrade.md` 里第 4 阶段以后的顺序；那份计划保留为第 0–3 阶段的实施历史
 
 依据：用户提供的《Hao CLI 产品与架构演进实施计划》（docx，2026-11-26，未放进仓库）。本计划采纳它的定位、原则、非目标和评测纪律，按仓库实际情况调整了阶段顺序和范围，差异见文末“和原文档的差异”。
 
