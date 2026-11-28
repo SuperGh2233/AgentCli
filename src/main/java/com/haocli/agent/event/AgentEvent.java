@@ -59,15 +59,21 @@ public sealed interface AgentEvent permits AgentEvent.TurnStarted, AgentEvent.Re
      * 工具执行结束。output 是还给模型之前的原始结果文字（未加不可信标记）；status 是细分状态，
      * success 等于 {@code status == SUCCESS}（两者不一致时以 status 为准）。
      */
-    record ToolCallFinished(String id, String name, boolean success, String output, ToolStatus status)
+    record ToolCallFinished(String id, String name, boolean success, String output, ToolStatus status,
+                            com.haocli.tool.ToolOutput.FailureCode failureCode)
             implements AgentEvent {
         public ToolCallFinished {
             status = status == null ? (success ? ToolStatus.SUCCESS : ToolStatus.FAILED) : status;
             success = status.successful();
+            failureCode = failureCode == null ? com.haocli.tool.ToolOutput.FailureCode.NONE : failureCode;
+        }
+
+        public ToolCallFinished(String id, String name, boolean success, String output, ToolStatus status) {
+            this(id, name, success, output, status, null);
         }
 
         public ToolCallFinished(String id, String name, boolean success, String output) {
-            this(id, name, success, output, null);
+            this(id, name, success, output, null, null);
         }
     }
 

@@ -308,7 +308,7 @@ final class AgentLoop {
                             executeToolCalls(turn, response.toolCalls(), iteration, toolExposure);
                     for (ToolExecutionResult executed : executedResults) {
                         emit(turn, new AgentEvent.ToolCallFinished(executed.id(), executed.name(),
-                                executed.successful(), executed.result(), executed.status()));
+                                executed.successful(), executed.result(), executed.status(), executed.failureCode()));
                     }
                     List<ToolExecutionResult> toolResults = executedResults;
                     for (TurnHook hook : hooks) {

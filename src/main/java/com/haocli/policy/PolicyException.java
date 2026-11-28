@@ -7,8 +7,21 @@ package com.haocli.policy;
  * 策略拦截相当于 LLM 的"硬规则失败"，不要让它静默通过，也不要让 LLM 重试同样的违规请求。
  */
 public class PolicyException extends RuntimeException {
+    /** 哪一类检查拦下的（写进工具结果的拒绝原因）。 */
+    public enum Kind { PATH, COMMAND, LIMIT, OTHER }
+
+    private final Kind kind;
 
     public PolicyException(String message) {
+        this(message, Kind.OTHER);
+    }
+
+    public PolicyException(String message, Kind kind) {
         super(message);
+        this.kind = kind == null ? Kind.OTHER : kind;
+    }
+
+    public Kind kind() {
+        return kind;
     }
 }

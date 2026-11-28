@@ -370,7 +370,7 @@ public class ToolRegistry {
                     int contentBytes = content.getBytes(StandardCharsets.UTF_8).length;
                     if (contentBytes > MAX_WRITE_FILE_BYTES) {
                         throw new PolicyException("写入内容 " + contentBytes + " 字节超过 "
-                                + (MAX_WRITE_FILE_BYTES / 1024 / 1024) + "MB 上限");
+                                + (MAX_WRITE_FILE_BYTES / 1024 / 1024) + "MB 上限", PolicyException.Kind.LIMIT);
                     }
                     Path safe = pathGuard.resolveSafe(path);
                     String before = null;
@@ -461,7 +461,7 @@ public class ToolRegistry {
             int contentBytes = after.getBytes(StandardCharsets.UTF_8).length;
             if (contentBytes > MAX_WRITE_FILE_BYTES) {
                 throw new PolicyException("编辑后文件 " + contentBytes + " 字节超过 "
-                        + (MAX_WRITE_FILE_BYTES / 1024 / 1024) + "MB 上限");
+                        + (MAX_WRITE_FILE_BYTES / 1024 / 1024) + "MB 上限", PolicyException.Kind.LIMIT);
             }
             Files.writeString(safe, after, StandardCharsets.UTF_8);
             try {
@@ -1002,7 +1002,7 @@ public class ToolRegistry {
         String denyReason = policy.checkUrl(url);
         if (denyReason != null) {
             // 网络策略拒绝（确定性规则），和其他策略拒绝一样记为 DENIED
-            return ToolOutput.denied("❌ 网络访问被拒绝: " + denyReason);
+            return ToolOutput.denied(ToolOutput.FailureCode.DENY_NETWORK, "❌ 网络访问被拒绝: " + denyReason);
         }
         String rateReason = policy.acquire();
         if (rateReason != null) {
@@ -1303,7 +1303,7 @@ public class ToolRegistry {
 
         McpRegisteredTool mcpTool = mcpTools.get(name);
         if (expectedMcpTool != null && mcpTool != expectedMcpTool) {
-            return ToolOutput.denied("[PERMISSION] MCP 工具注册已变化，未执行；请重新审批");
+            return ToolOutput.denied(ToolOutput.FailureCode.DENY_PERMISSION, "[PERMISSION] MCP 工具注册已变化，未执行；请重新审批");
         }
         if (name != null && name.startsWith("mcp__") && mcpTool == null) {
             return ToolOutput.failure("未知工具: " + name);
@@ -1368,7 +1368,12 @@ public class ToolRegistry {
                 auditLog.record(AuditLog.AuditEntry.denyByPolicy(
                         name, argumentsJson, e.getMessage(), elapsedMillis(start), auditMetadata));
             }
-            return ToolOutput.denied("🛡️ 策略拒绝: " + e.getMessage());
+            return ToolOutput.denied(switch (e.kind()) {
+                case PATH -> ToolOutput.FailureCode.DENY_PATH;
+                case COMMAND -> ToolOutput.FailureCode.DENY_COMMAND;
+                case LIMIT -> ToolOutput.FailureCode.DENY_LIMIT;
+                case OTHER -> ToolOutput.FailureCode.DENY_POLICY;
+            }, "🛡️ 策略拒绝: " + e.getMessage());
         } catch (Exception e) {
             if (shouldAudit) {
                 auditLog.record(AuditLog.AuditEntry.error(
@@ -1688,14 +1693,14 @@ public class ToolRegistry {
                     CommandExecutionObserver.Outcome.POLICY_DENIED, null);
             // 抛 PolicyException 让外层 executeTool 统一写 audit 并格式化拒绝消息，
             // 命令围栏与路径围栏的拒绝路径走同一个出口。
-            throw new PolicyException(denyReason);
+            throw new PolicyException(denyReason, PolicyException.Kind.COMMAND);
         }
         String sandboxFailure = commandSandboxRequiredFailure;
         if (commandSandbox == null && sandboxFailure != null) {
             observeCommand(observation, CommandExecutionObserver.Phase.REJECTED,
                     CommandExecutionObserver.Outcome.POLICY_DENIED, null);
             throw new PolicyException("命令沙箱不可用（" + sandboxFailure + "），"
-                    + CommandSandboxMode.ENV + "=required 时不在宿主直接执行命令");
+                    + CommandSandboxMode.ENV + "=required 时不在宿主直接执行命令", PolicyException.Kind.COMMAND);
         }
 
         ExecutorService outputReaderExecutor = Executors.newSingleThreadExecutor(r -> {
