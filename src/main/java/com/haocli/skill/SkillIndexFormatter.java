@@ -7,7 +7,7 @@ import java.util.List;
  *
  * 预算约束（命中即截断 + stderr 警告）：
  * - 单条 description ≤ 500 codepoint
- * - 启用 skill 数 ≤ 20（按 name 字典序保留前 20）
+ * - 启用 skill 数 ≤ 20（超出时按和当前任务的相关性保留，相关性相同再按 name 字典序）
  * - 总段大小 ≤ 4096 字符
  *
  * 注入位置：每个 Agent / SubAgent 的 system prompt 中静态段之后、运行时日期和 Project Context 之前，
@@ -23,18 +23,30 @@ public final class SkillIndexFormatter {
     }
 
     public static String format(List<Skill> enabled) {
+        return format(enabled, "");
+    }
+
+    /**
+     * taskHint 是当前任务的文字：skill 超过上限时，名字和描述里命中任务关键词多的优先进索引，
+     * 其余仍可通过 /skill 列表发现、用 load_skill 按名字加载。
+     */
+    public static String format(List<Skill> enabled, String taskHint) {
         if (enabled == null || enabled.isEmpty()) {
             return "";
         }
 
         List<Skill> effective = enabled;
         if (enabled.size() > MAX_ENABLED_SKILLS) {
+            java.util.Set<String> keywords = com.haocli.prompt.TaskRelevance.keywords(taskHint);
             effective = enabled.stream()
-                    .sorted((a, b) -> a.name().compareTo(b.name()))
+                    .sorted(java.util.Comparator
+                            .comparingInt((Skill s) -> -com.haocli.prompt.TaskRelevance.score(
+                                    s.name() + " " + s.description(), keywords))
+                            .thenComparing(Skill::name))
                     .limit(MAX_ENABLED_SKILLS)
                     .toList();
             System.err.println("⚠️ 已检测到 " + enabled.size()
-                    + " 个 skill，仅前 " + MAX_ENABLED_SKILLS + " 个进入 system prompt 索引");
+                    + " 个 skill，按和当前任务的相关性保留 " + MAX_ENABLED_SKILLS + " 个进入 system prompt 索引");
         }
 
         StringBuilder sb = new StringBuilder();
