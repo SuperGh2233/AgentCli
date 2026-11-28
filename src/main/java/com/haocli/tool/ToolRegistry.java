@@ -357,7 +357,7 @@ public class ToolRegistry {
         )));
 
         // write_file 工具
-        tools.put("write_file", new LegacyTool(
+        tools.put("write_file", new StatusTool(
                 "write_file",
                 "写入文件内容（仅限项目根目录之内，单文件 5MB 上限）",
                 createParameters(
@@ -393,9 +393,9 @@ public class ToolRegistry {
                             // observer 失败不能影响 write_file 主路径
                         }
                         runPostEditLspHook(path, safe);
-                        return "文件已写入: " + path;
+                        return ToolOutput.text("文件已写入: " + path);
                     } catch (Exception e) {
-                        return "写入文件失败: " + e.getMessage();
+                        return ToolOutput.failure("写入文件失败: " + e.getMessage());
                     }
                 }
         ));
@@ -496,7 +496,7 @@ public class ToolRegistry {
      * 注册代码相关工具
      */
     private void registerCodeTools() {
-        tools.put("create_project", new LegacyTool(
+        tools.put("create_project", new StatusTool(
                 "create_project",
                 "创建新项目结构",
                 createParameters(
@@ -533,9 +533,9 @@ public class ToolRegistry {
                                         String.format("{\"name\": \"%s\", \"version\": \"1.0.0\"}", name));
                             }
                         }
-                        return "项目已创建: " + name + " (类型: " + type + ")";
+                        return ToolOutput.text("项目已创建: " + name + " (类型: " + type + ")");
                     } catch (Exception e) {
-                        return "创建项目失败: " + e.getMessage();
+                        return ToolOutput.failure("创建项目失败: " + e.getMessage());
                     }
                 }
         ));
@@ -545,7 +545,7 @@ public class ToolRegistry {
      * 注册 RAG 检索工具
      */
     private void registerRagTools() {
-        tools.put("search_code", new LegacyTool(
+        tools.put("search_code", new StatusTool(
                 "search_code",
                 "RAG 语义辅助检索代码库，根据自然语言描述查找相关代码块；精确符号/字符串定位请优先用 grep_code/glob_files/read_file；默认 top_k=5，可显式指定（上限 30）",
                 createParameters(
@@ -566,17 +566,17 @@ public class ToolRegistry {
                     try (CodeRetriever retriever = new CodeRetriever(projectPath)) {
                         var stats = retriever.getStats();
                         if (stats.chunkCount() == 0) {
-                            return "代码库尚未索引，请先使用 /index 命令索引当前项目。";
+                            return ToolOutput.failure("代码库尚未索引，请先使用 /index 命令索引当前项目。");
                         }
 
                         List<VectorStore.SearchResult> results = retriever.hybridSearch(query, topK);
                         if (results.isEmpty()) {
-                            return "未找到与查询相关的代码。";
+                            return ToolOutput.text("未找到与查询相关的代码。");
                         }
 
-                        return SearchResultFormatter.formatForTool(query, results);
+                        return ToolOutput.text(SearchResultFormatter.formatForTool(query, results));
                     } catch (Exception e) {
-                        return "代码检索失败: " + e.getMessage();
+                        return ToolOutput.failure("代码检索失败: " + e.getMessage());
                     }
                 }
         ));
@@ -772,7 +772,7 @@ public class ToolRegistry {
     }
 
     private void registerMemoryTools() {
-        tools.put("save_memory", new LegacyTool(
+        tools.put("save_memory", new StatusTool(
                 "save_memory",
                 "当且仅当用户明确说“记一下”“记住”“以后记得”或要求保存长期偏好/稳定事实时调用，把精炼事实写入长期记忆；scope 默认 project，跨项目偏好才用 global；不要保存一次性任务请求、临时文件名或模型猜测。"
                         + "如果结果提示与已有记忆冲突，把两条都告诉用户并等待用户选择；只有用户明确选择后才可传 replace_id 或 keep_both 重新调用。",
@@ -786,10 +786,10 @@ public class ToolRegistry {
                 args -> {
                     String fact = args.get("fact");
                     if (fact == null || fact.isBlank()) {
-                        return "保存长期记忆失败: fact 不能为空";
+                        return ToolOutput.failure(ToolOutput.FailureCode.INVALID_ARGUMENT, "保存长期记忆失败: fact 不能为空");
                     }
                     if (memoryWriter == null) {
-                        return "保存长期记忆失败: 记忆保存器未初始化";
+                        return ToolOutput.failure("保存长期记忆失败: 记忆保存器未初始化");
                     }
                     String normalized = fact.trim();
                     String scope = "global".equalsIgnoreCase(args.get("scope")) ? "global" : "project";
@@ -797,15 +797,16 @@ public class ToolRegistry {
                     boolean keepBoth = parseBoolean(args.get("keep_both"), false);
                     String message = memoryWriter.write(normalized, scope,
                             replaceId == null || replaceId.isBlank() ? null : replaceId.trim(), keepBoth);
-                    return message == null || message.isBlank()
+                    // 和已有记忆冲突时没有写入，但这是正常结果（等用户选择），不算失败
+                    return ToolOutput.text(message == null || message.isBlank()
                             ? "💾 已保存到长期记忆(" + scope + "): " + normalized
-                            : message;
+                            : message);
                 }
         ));
     }
 
     private void registerSnapshotTools() {
-        tools.put("revert_turn", new LegacyTool(
+        tools.put("revert_turn", new StatusTool(
                 "revert_turn",
                 "恢复到 Side-Git 记录的最近第 N 个 pre-turn 快照。会先记录 pre-restore 快照；属于高危写入操作，必须经 HITL 审批。",
                 createParameters(new Param("offset", "integer", "要恢复的 pre-turn 快照序号，1 表示最近一次任务开始前", false)),
@@ -813,9 +814,11 @@ public class ToolRegistry {
                     int offset = parseInt(args.get("offset"), 1);
                     try {
                         RestoreResult result = snapshotService.restorePreTurn(Math.max(1, offset));
-                        return result.formatForCli();
+                        // 用快照服务自己的成败标志，不按文字猜
+                        return result.success() ? ToolOutput.text(result.formatForCli())
+                                : ToolOutput.failure(result.formatForCli());
                     } catch (Exception e) {
-                        return "恢复快照失败: " + e.getMessage();
+                        return ToolOutput.failure("恢复快照失败: " + e.getMessage());
                     }
                 }
         ));
@@ -1893,6 +1896,28 @@ public class ToolRegistry {
     /**
      * 还没迁移成独立类的内置工具和 MCP 工具：执行器只返回文字，状态按前缀推断（甲阶段迁完后删除）。
      */
+    /**
+     * 自己报告状态的内置工具：执行器直接返回 {@link ToolOutput}，调度层不再按文字前缀猜成败
+     * （甲阶段过渡：还没搬成独立类的工具先在这里如实报告）。
+     */
+    record StatusTool(String name, String description, JsonNode parameters, OutputExecutor executor) implements Tool {
+        @Override
+        public boolean readOnly() {
+            return isParallelSafeTool(name);
+        }
+
+        @Override
+        public ToolOutput execute(ToolArguments args, ToolContext context) throws Exception {
+            ToolOutput output = executor.execute(new HashMap<>(args.asMap()));
+            return output == null ? ToolOutput.text("") : output;
+        }
+    }
+
+    @FunctionalInterface
+    interface OutputExecutor {
+        ToolOutput execute(Map<String, String> args) throws Exception;
+    }
+
     record LegacyTool(String name, String description, JsonNode parameters, ToolExecutor executor) implements Tool {
         @Override
         public boolean readOnly() {
