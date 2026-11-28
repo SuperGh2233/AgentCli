@@ -16,6 +16,7 @@
 | 工具契约第二批：write_file、create_project、search_code、save_memory、revert_turn 改为自己报告状态（`ToolRegistry.StatusTool`）。修掉的问题：这些工具的失败文字不在旧前缀名单里，以前全被算成成功；revert_turn 改用快照服务自己的 `success` 标志 | 本次提交 | `SelfReportingToolsTest`（4 个）；quick 1854 / 0；评测包失败名单不变 |
 | 工具契约第三批：edit_file、web_fetch、浏览器 3 个工具、save_skill_reference 改为自己报告状态；web_fetch 被网络策略拒绝记为 DENIED（以前是 FAILED），未初始化的浏览器连接器明确记为失败 | 本次提交 | `SelfReportingToolsTest` 第 5 个用例；quick 1855 / 0；安全 + HITL 199 / 0；评测包失败名单不变 |
 | 工具契约收尾：load_skill（读附属文件时沿用 read_file 的成败判定）、execute_command、web_search、MCP 占位改为 `StatusTool`；删除 `LegacyTool` / `ToolExecutor` 和 MCP 结果的前缀重新分类 | 本次提交 | 工具 / MCP / HITL / 场景 333 / 0；`mvn clean` 后 quick 1855 / 0；安全 310 / 0；TUI 150 / 0；评测包失败名单不变 |
+| 评测发现的缺陷：单次模型请求 600 秒总时长上限会掐断仍在输出的长回复（regex-chess 经 magpie 稳定复现）。改为默认不限总时长，卡死仍由 300 秒读取间隔发现，`-Dhaocli.llm.call.timeout.seconds=N` 可设硬上限 | 本次提交 | `LlmCallTimeoutTest`；LLM 测试 114 / 0；效果待 magpie 重跑 regex-chess 验证 |
 | magpie 冒烟（当前代码） | — | `haocli-0dbc9d9-dirty-smoke-20261128-104814` 1/1，`-dirty` 只因两个未提交的评测文档 |
 
 ## 2. 没完成的（按优先级）
