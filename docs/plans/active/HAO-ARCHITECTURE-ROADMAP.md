@@ -21,10 +21,10 @@
 ## 2. 没完成的（按优先级）
 
 1. ~~工具契约迁移~~（2026-11-28 完成）：18 个内置工具和 MCP 工具全部自己报告状态，`LegacyTool` 和 `ToolExecutor` 已删除，调度层不再特判 execute_command / web_search，也不再对 MCP 结果按文字重新分类（客户端按协议 `isError` 报告）。`looksLikeFailureText` 只留给一条兼容路径：子类重写旧的 `String executeTool(...)` 接口时只有文字可用（部分测试和旧扩展）。剩下的工作是把 `StatusTool` 里的工具逐个搬成独立类，属于整理，不再影响状态的正确性
-2. **会话记忆摘要**（SessionMemoryCompactor）：异步提前准备、增量更新、并发一致性、多 Agent 隔离都没做；实验功能保持默认关闭
+2. **会话记忆摘要**（SessionMemoryCompactor）：更正——异步提前准备、增量更新、过期结果保护、按对话隔离和失败回退**早已实现**，之前的判断没读代码；2026-11-28 补了 5 个确定性并发测试（`SessionMemoryConcurrencyTest`）。还缺的是真实模型的开关对照数据，所以仍默认关闭
 3. **正式评测**：当前代码的 ctx-on / ctx-off 对照没跑（30 题 × 3 次约 1 亿输入 Token，需要先确认 WorkBuddy 额度）；只跑了冒烟
-4. **SDK 扩展**：自定义模块（`TurnHook` 公开前要先把 `Context` 里的内部类型换成稳定接口）、多轮会话
-5. **安全统一检查链**、**拆 Main**（3500 行）、**依赖方向测试**、**Maven 模块拆分**：沿用原主线计划的顺序
+4. **SDK 扩展**：自定义模块已完成（`HaoRuntime.Hook` + 只读 `View`，`148440a`）；还没有多轮会话
+5. **安全统一检查链**、**拆 Main**（3500 行）、**Maven 模块拆分**：沿用原主线计划的顺序；依赖方向测试已完成（`ArchitectureBoundaryTest`，`148440a`）
 
 ## 3. 下一阶段建议
 
