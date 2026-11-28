@@ -33,6 +33,20 @@ final class HeadlessToolRegistry extends ToolRegistry {
     HeadlessToolRegistry(HeadlessOptions.PermissionMode mode, List<String> allowedCommands) {
         this.mode = mode;
         this.allowedCommands = List.copyOf(allowedCommands);
+        // 无人值守白名单是检查链上的一道检查，不再重写执行和工具列表方法
+        addGate(new ToolGate() {
+            @Override
+            public boolean exposes(String toolName) {
+                return isExposed(toolName);
+            }
+
+            @Override
+            public ToolOutput check(String toolName, String argumentsJson) {
+                String denial = denialReason(toolName, argumentsJson);
+                return denial == null ? null
+                        : ToolOutput.denied(ToolOutput.FailureCode.DENY_UNATTENDED, "无界面模式策略拒绝: " + denial);
+            }
+        });
     }
 
     /**
@@ -42,25 +56,6 @@ final class HeadlessToolRegistry extends ToolRegistry {
     void registerEmbedderTool(com.haocli.tool.Tool tool) {
         registerTool(tool);
         embedderTools.put(tool.name(), tool.readOnly());
-    }
-
-    @Override
-    public List<LlmClient.Tool> getToolDefinitions() {
-        return super.getToolDefinitions().stream()
-                .filter(tool -> isExposed(tool.name()))
-                .toList();
-    }
-
-    @Override
-    public ToolOutput executeToolOutput(String name, String argumentsJson) {
-        long start = System.nanoTime();
-        String denial = denialReason(name, argumentsJson);
-        if (denial != null) {
-            getAuditLog().record(AuditLog.AuditEntry.denyByPolicy(
-                    name, argumentsJson, denial, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start)));
-            return ToolOutput.denied(ToolOutput.FailureCode.DENY_UNATTENDED, "无界面模式策略拒绝: " + denial);
-        }
-        return super.executeToolOutput(name, argumentsJson);
     }
 
     private boolean isExposed(String name) {
