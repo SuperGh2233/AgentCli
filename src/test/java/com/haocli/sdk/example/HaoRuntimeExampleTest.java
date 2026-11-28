@@ -116,6 +116,45 @@ class HaoRuntimeExampleTest {
     }
 
     @Test
+    void embedderHooksSeeToolResultsAddNotesAndCannotBreakTheRun(@TempDir Path workspace) {
+        OrderStatusTool tool = new OrderStatusTool();
+        ScriptedLlmClient model = ScriptedLlmClient.of(
+                toolCalls(call("c1", "order_status", "{\"order_id\":\"42\"}")),
+                answer("订单 42 已发货"));
+        List<String> seen = new ArrayList<>();
+        int[] requests = {0};
+        HaoRuntime runtime = HaoRuntime.builder()
+                .model(model)
+                .projectRoot(workspace)
+                .tool(tool)
+                .hook(new HaoRuntime.Hook() {
+                    @Override public void beforeModelRequest(HaoRuntime.View view) {
+                        requests[0]++;
+                        assertThrows(UnsupportedOperationException.class, () -> view.messages().clear(),
+                                "模块只能读对话，不能改");
+                    }
+                    @Override public void afterToolResults(List<HaoRuntime.ToolResult> results, HaoRuntime.View view) {
+                        results.forEach(r -> seen.add(r.name() + ":" + r.status()));
+                        view.addNote("外部系统：订单数据 5 分钟前同步");
+                    }
+                })
+                .hook(new HaoRuntime.Hook() {
+                    @Override public void beforeModelRequest(HaoRuntime.View view) {
+                        throw new IllegalStateException("嵌入方模块出错");
+                    }
+                })
+                .build();
+
+        HaoRuntime.RunResult result = runtime.run("查订单 42");
+
+        assertEquals(HaoRuntime.Status.COMPLETED, result.status(), "第二个模块每次都抛错也不影响任务");
+        assertEquals(2, requests[0]);
+        assertEquals(List.of("order_status:SUCCESS"), seen);
+        assertTrue(model.request(2).stream().anyMatch(m -> "user".equals(m.role())
+                && "外部系统：订单数据 5 分钟前同步".equals(m.content())), "备注在下一次请求里");
+    }
+
+    @Test
     void cancelStopsTheRunAndSandboxIsRejected(@TempDir Path workspace) {
         ScriptedLlmClient model = ScriptedLlmClient.of(toolCalls(call("c1", "list_dir", "{\"path\":\".\"}")),
                 answer("不会到这里"));

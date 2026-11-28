@@ -54,7 +54,8 @@ flowchart TB
 | 扩展通过组合接入 | 已做到：`DefaultTurnHooks` 组装，调用方可在前面加模块（Plan / Team 用它挂评测观察模块） | `DefaultTurnHooks.withLeading` |
 | 扩展失败不拖垮内核 | 已做到：模块抛错只记日志跳过；改写工具结果时改了条数或顺序会被丢弃，配对不破坏 | `UnifiedKernelTest.injectedHooksRunInOrderAndAFailingOrMisbehavingHookCannotBreakPairing` |
 | 所有执行方式一个循环 | 已做到：ReAct、Plan 任务节点、Team 子 Agent、SDK 都用 `AgentLoop`；Plan 和 SubAgent 的私有循环删除（SubAgent 823 → 718 行，PlanExecuteAgent 1416 → 1281 行） | `dc73943` |
-| 扩展机制对外开放 | 部分：`TurnHook` 还是包内接口，SDK 暂不开放自定义模块（它的 `Context` 暴露了内部对话类型，接口稳定前不公开） | — |
+| 扩展机制对外开放 | 已做到（SDK 范围）：嵌入方用公开的 `HaoRuntime.Hook`（请求前 / 工具结果后，只读对话视图、追加备注、发提示），内部适配成 `TurnHook`；内部的 `TurnHook` 本身不公开 | `HaoRuntimeExampleTest.embedderHooksSeeToolResultsAddNotesAndCannotBreakTheRun` |
+| 依赖方向有测试守着 | 已做到：内核不准依赖界面、入口、MCP、评测和具体可选能力；SDK 不准依赖 CLI / TUI / MCP / 评测；产品代码不准依赖评测包 | `ArchitectureBoundaryTest` |
 
 统一后 Plan 和 Team 新得到的保护：截断的工具调用不执行、上下文超长紧急压缩、取消检查、五层压缩全部生效并服从消融开关（以前只有清理 + 摘要两层，消融开关对它们无效）。
 
@@ -75,7 +76,8 @@ HaoRuntime.RunResult r = runtime.run("查一下订单 42");   // status / answer
 
 - 权限复用无人值守白名单（和 `-p`、Runtime API 同一套）：只读工具始终可用；写文件和有副作用的自定义工具只在 `edit` 下可用；命令要逐条列出；不支持 `sandbox`
 - 验收示例 `src/test/java/com/haocli/sdk/example/HaoRuntimeExampleTest.java`：放在内核包之外，只用公开 API，假模型完成两步工具调用、上下文进系统提示词、事件和结构化结果、只读拒绝写文件、取消
-- 还没有：自定义模块（hooks）、多轮会话、流式回调之外的异步 API、独立 Maven 模块
+- 自定义模块：`.hook(HaoRuntime.Hook)`，在内置模块之后按注册顺序调用，出错只记日志
+- 还没有：多轮会话、流式回调之外的异步 API、独立 Maven 模块
 
 ## 5. 评测观察（审计）怎么保持不变
 
