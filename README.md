@@ -19,7 +19,7 @@ Hao CLI 是一个用 Java 写的 Agent 框架和终端编程助手。它把大�
 
 | 定位 | 要证明什么 | 现状 |
 | --- | --- | --- |
-| **可嵌入的 Java Agent Runtime** | Java 应用不经过终端，直接接入模型、工具、上下文、权限和事件 | 统一的 `Tool` 接口、结构化工具状态和事件流已有；进程内 `HaoRuntime` SDK 还在开发 |
+| **可嵌入的 Java Agent Runtime** | Java 应用不经过终端，直接接入模型、工具、上下文、权限和事件 | 最小 `HaoRuntime` SDK 已可用（模型、工具、上下文、权限、上限、事件、取消、结构化结果），见 [运行时架构](docs/architecture/HAO-RUNTIME-ARCHITECTURE.md)；自定义模块和多轮会话还没开放 |
 | **Harness 实验平台** | 上下文压缩等机制在固定模型、固定任务下的真实收益 | 已接入 Harbor + Terminal-Bench，五层压缩都有独立开关；**还没有正式成绩** |
 | **日常 Coding CLI** | 真的能用来读代码、改代码、跑测试 | 可用：ReAct / Plan / Team 三种执行方式、MCP、记忆、代码检索 |
 
@@ -99,13 +99,13 @@ flowchart TB
   LOOP --> HOOK[TurnHook 模块<br/>压缩 / LSP 诊断 / Skill / 提醒]
   LOOP --> EV[AgentEvent 事件流]
   LOOP --> TOOLS[工具调度<br/>校验 · 策略 · 审计 · 落盘]
-  P --> TOOLS
-  T --> TOOLS
+  P --> LOOP
+  T --> LOOP
   TOOLS --> SEC[PathGuard · CommandGuard · HITL · 沙箱]
   LOOP --> LLM[模型适配层]
 ```
 
-内核只负责“调模型 → 执行工具 → 写回对话”和取消、预算、事件；上下文压缩等机制都通过 `TurnHook` 接入，不写进循环。目前 Plan 和 Team 还各自维护执行循环，统一到 `AgentLoop` 是下一阶段的工作，详见 [路线图](docs/plans/active/PLAN-20261126-runtime-roadmap.md)。
+内核只负责“调模型 → 执行工具 → 写回对话”和取消、预算、事件；上下文压缩等机制都通过 `TurnHook` 接入，由组装方决定挂哪些。ReAct、Plan 任务节点、Team 子 Agent 和进程内 SDK 都跑在同一个 `AgentLoop` 上，用同一套五层上下文处理，详见 [运行时架构](docs/architecture/HAO-RUNTIME-ARCHITECTURE.md) 和 [上下文工程](docs/architecture/CONTEXT-ENGINEERING.md)。
 
 ## 评测
 
