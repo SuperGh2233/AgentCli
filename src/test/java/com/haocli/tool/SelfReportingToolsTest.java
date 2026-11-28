@@ -67,6 +67,32 @@ class SelfReportingToolsTest {
     }
 
     @Test
+    void webFetchBrowserAndEditReportTheirOwnStatus(@TempDir Path dir) throws Exception {
+        ToolRegistry registry = registry(dir);
+
+        ToolOutput denied = registry.executeToolOutput("web_fetch", "{\"url\":\"file:///etc/passwd\"}");
+        assertEquals(ToolStatus.DENIED, denied.status(), "网络策略拒绝记为 DENIED: " + denied.text());
+        assertTrue(denied.text().startsWith("❌ 网络访问被拒绝: "));
+
+        ToolOutput blank = registry.executeToolOutput("web_fetch", "{\"url\":\" \"}");
+        assertEquals(ToolOutput.FailureCode.INVALID_ARGUMENT, blank.failureCode());
+
+        ToolOutput browser = registry.executeToolOutput("browser_status", "{}");
+        assertEquals(ToolStatus.FAILED, browser.status());
+        assertEquals("浏览器连接器未初始化，无法查看浏览器状态", browser.text());
+
+        Files.writeString(dir.resolve("e.txt"), "hello world");
+        ToolOutput edited = registry.executeToolOutput("edit_file",
+                "{\"path\":\"e.txt\",\"old_text\":\"world\",\"new_text\":\"haocli\"}");
+        assertEquals(ToolStatus.SUCCESS, edited.status());
+        assertEquals("hello haocli", Files.readString(dir.resolve("e.txt")));
+        ToolOutput missing = registry.executeToolOutput("edit_file",
+                "{\"path\":\"e.txt\",\"old_text\":\"absent\",\"new_text\":\"x\"}");
+        assertEquals(ToolStatus.FAILED, missing.status());
+        assertEquals(ToolOutput.FailureCode.EDIT_SOURCE_NOT_FOUND, missing.failureCode(), "失败码照旧");
+    }
+
+    @Test
     void searchCodeWithoutIndexIsAFailureNotAnEmptySuccess(@TempDir Path dir) {
         String previous = System.getProperty("haocli.rag.dir");
         System.setProperty("haocli.rag.dir", dir.resolve("rag").toString());

@@ -400,7 +400,7 @@ public class ToolRegistry {
                 }
         ));
 
-        tools.put("edit_file", new LegacyTool(
+        tools.put("edit_file", new StatusTool(
                 "edit_file",
                 "精确替换项目内已有文件里的文本，无需输出整个文件。old_text 要和文件内容一致（含缩进），"
                         + "默认必须恰好匹配一处，匹配多处时报错并给出所在行；replace_all=true 时替换全部匹配。"
@@ -411,7 +411,7 @@ public class ToolRegistry {
                         new Param("new_text", "string", "替换后的文本；空字符串表示删除原文片段", true),
                         new Param("replace_all", "boolean", "为 true 时替换 old_text 的所有匹配，默认 false", false)
                 ),
-                this::editFile
+                args -> ToolOutput.text(editFile(args))
         ));
 
         // list_dir 工具
@@ -597,7 +597,7 @@ public class ToolRegistry {
                 args -> webSearch(args.get("query"), parseInt(args.get("top_k"), 5))
         ));
 
-        tools.put("web_fetch", new LegacyTool(
+        tools.put("web_fetch", new StatusTool(
                 "web_fetch",
                 "抓取当前顶层用户原文提供或本执行分支成功 web_search 结果发现的 URL，提取正文转 Markdown；不得使用模型猜测的 URL。" +
                         "适用静态 / SSR 页面（博客、文档、官网）；JS 渲染或防爬站会返回空正文，本期不重试。",
@@ -610,29 +610,29 @@ public class ToolRegistry {
     }
 
     private void registerBrowserTools() {
-        tools.put("browser_connect", new LegacyTool(
+        tools.put("browser_connect", new StatusTool(
                 "browser_connect",
                 "当浏览器页面返回登录页、权限不足或明确需要登录态时，自动连接已允许远程调试的本机 Chrome 并复用其登录态；公开页面不要提前调用。",
                 createParameters(),
                 args -> browserConnector == null
-                        ? "浏览器连接器未初始化，无法自动切换 shared 模式"
-                        : browserConnector.connectDefault()
+                        ? ToolOutput.failure("浏览器连接器未初始化，无法自动切换 shared 模式")
+                        : ToolOutput.text(browserConnector.connectDefault())
         ));
-        tools.put("browser_disconnect", new LegacyTool(
+        tools.put("browser_disconnect", new StatusTool(
                 "browser_disconnect",
                 "完成登录态页面访问后，可切回 isolated 浏览器模式。",
                 createParameters(),
                 args -> browserConnector == null
-                        ? "浏览器连接器未初始化，无法切回 isolated 模式"
-                        : browserConnector.disconnect()
+                        ? ToolOutput.failure("浏览器连接器未初始化，无法切回 isolated 模式")
+                        : ToolOutput.text(browserConnector.disconnect())
         ));
-        tools.put("browser_status", new LegacyTool(
+        tools.put("browser_status", new StatusTool(
                 "browser_status",
                 "查看当前浏览器 MCP 模式、autoConnect 引导和旧式 CDP 端口探活状态。",
                 createParameters(),
                 args -> browserConnector == null
-                        ? "浏览器连接器未初始化，无法查看浏览器状态"
-                        : browserConnector.status()
+                        ? ToolOutput.failure("浏览器连接器未初始化，无法查看浏览器状态")
+                        : ToolOutput.text(browserConnector.status())
         ));
     }
 
@@ -648,7 +648,7 @@ public class ToolRegistry {
                 ),
                 this::loadSkill
         ));
-        tools.put("save_skill_reference", new LegacyTool(
+        tools.put("save_skill_reference", new StatusTool(
                 "save_skill_reference",
                 "把操作中新发现、已验证的经验（如某站点的陷阱与有效模式）写回某个 Skill 的用户级参考资料 ~/.haocli/skills/<name>/references/。"
                         + "只能写 references/ 下的 .md，不会改内置 Skill，也不能写 SKILL.md；同名文件默认追加，overwrite=true 才整体替换用户级补充文件（内置版本不受影响）。"
@@ -669,8 +669,8 @@ public class ToolRegistry {
                         throw new IllegalArgumentException("Skill '" + name + "' 未找到或已禁用");
                     }
                     try {
-                        return SkillReferences.write(skill, skillRegistry.userOverlayDir(skill), args.get("file"),
-                                args.get("content"), parseBoolean(args.get("overwrite"), false));
+                        return ToolOutput.text(SkillReferences.write(skill, skillRegistry.userOverlayDir(skill),
+                                args.get("file"), args.get("content"), parseBoolean(args.get("overwrite"), false)));
                     } catch (IOException e) {
                         throw new IllegalStateException("写回失败: " + e.getMessage(), e);
                     }
@@ -986,18 +986,19 @@ public class ToolRegistry {
         return sb.toString().trim();
     }
 
-    String webFetch(String url, int maxChars) {
+    ToolOutput webFetch(String url, int maxChars) {
         if (url == null || url.isBlank()) {
-            return "URL 不能为空";
+            return ToolOutput.failure(ToolOutput.FailureCode.INVALID_ARGUMENT, "URL 不能为空");
         }
         NetworkPolicy policy = networkPolicy();
         String denyReason = policy.checkUrl(url);
         if (denyReason != null) {
-            return "❌ 网络访问被拒绝: " + denyReason;
+            // 网络策略拒绝（确定性规则），和其他策略拒绝一样记为 DENIED
+            return ToolOutput.denied("❌ 网络访问被拒绝: " + denyReason);
         }
         String rateReason = policy.acquire();
         if (rateReason != null) {
-            return "❌ " + rateReason;
+            return ToolOutput.failure("❌ " + rateReason);
         }
         if (shouldPreferStepSearch() && tools.containsKey(STEP_FETCH_TOOL)) {
             ObjectNode args = mapper.createObjectNode();
@@ -1006,7 +1007,7 @@ public class ToolRegistry {
                     "max_chars", "maxChars", "limit", "max_length", "maxLength");
             ToolOutput output = executeToolOutput(STEP_FETCH_TOOL, args.toString());
             if (isUsableMcpOutput(output)) {
-                return "🌐 [StepSearch] 抓取: " + url.trim() + "\n\n" + output.text().trim();
+                return ToolOutput.text("🌐 [StepSearch] 抓取: " + url.trim() + "\n\n" + output.text().trim());
             }
         }
 
@@ -1021,9 +1022,9 @@ public class ToolRegistry {
                 truncated = true;
             }
             FetchResult result = FetchResult.ok(raw.url(), extracted.title(), markdown, originalLength, truncated);
-            return formatFetchResult(result);
+            return ToolOutput.text(formatFetchResult(result));
         } catch (Exception e) {
-            return "抓取失败: " + e.getMessage();
+            return ToolOutput.failure("抓取失败: " + e.getMessage());
         }
     }
 

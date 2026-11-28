@@ -14,11 +14,12 @@
 | `ContextBlock` 的 trusted / pinned 由代码执行；系统提示词按预算装配；Skill 索引和 HAO.md 目录按任务相关性排序 | `0dbc9d9` | `ContextAssemblyBudgetTest`（4 个） |
 | 上下文质量确定性评估（关键信息保留、配对、节省 Token） | 本次文档提交 | `CompactionQualityTest`（2 个）：32,875 → 16,211 Token |
 | 工具契约第二批：write_file、create_project、search_code、save_memory、revert_turn 改为自己报告状态（`ToolRegistry.StatusTool`）。修掉的问题：这些工具的失败文字不在旧前缀名单里，以前全被算成成功；revert_turn 改用快照服务自己的 `success` 标志 | 本次提交 | `SelfReportingToolsTest`（4 个）；quick 1854 / 0；评测包失败名单不变 |
+| 工具契约第三批：edit_file、web_fetch、浏览器 3 个工具、save_skill_reference 改为自己报告状态；web_fetch 被网络策略拒绝记为 DENIED（以前是 FAILED），未初始化的浏览器连接器明确记为失败 | 本次提交 | `SelfReportingToolsTest` 第 5 个用例；quick 1855 / 0；安全 + HITL 199 / 0；评测包失败名单不变 |
 | magpie 冒烟（当前代码） | — | `haocli-0dbc9d9-dirty-smoke-20261128-104814` 1/1，`-dirty` 只因两个未提交的评测文档 |
 
 ## 2. 没完成的（按优先级）
 
-1. **工具契约迁移**：18 个内置工具里 11 个已自己报告状态——独立类 4 个（read_file、list_dir、glob_files、grep_code），`StatusTool` 5 个（write_file、create_project、search_code、save_memory、revert_turn），调度层直接产出 `ToolOutput` 的 2 个（execute_command、web_search）。还按文字前缀推断的：edit_file、web_fetch、browser_connect / disconnect / status、load_skill、save_skill_reference 共 7 个，以及 MCP 工具；全部迁完后才能删 `looksLikeFailureText`。load_skill 的成功文字被 Skill 注入模块识别，迁移前要先给它一个结构化标记
+1. **工具契约迁移**：18 个内置工具里 17 个已自己报告状态——独立类 4 个（read_file、list_dir、glob_files、grep_code），`StatusTool` 11 个（write_file、edit_file、create_project、search_code、web_fetch、browser_connect / disconnect / status、save_memory、save_skill_reference、revert_turn），调度层直接产出 `ToolOutput` 的 2 个（execute_command、web_search）。还按文字前缀推断的只剩 load_skill（它的成功文字被 Skill 注入模块识别，要先给一个结构化标记）和 MCP 工具（要按协议的 `isError` 映射）；这两类迁完后删除 `looksLikeFailureText` 和 `LegacyTool`
 2. **会话记忆摘要**（SessionMemoryCompactor）：异步提前准备、增量更新、并发一致性、多 Agent 隔离都没做；实验功能保持默认关闭
 3. **正式评测**：当前代码的 ctx-on / ctx-off 对照没跑（30 题 × 3 次约 1 亿输入 Token，需要先确认 WorkBuddy 额度）；只跑了冒烟
 4. **SDK 扩展**：自定义模块（`TurnHook` 公开前要先把 `Context` 里的内部类型换成稳定接口）、多轮会话
