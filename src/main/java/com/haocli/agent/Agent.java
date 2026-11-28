@@ -223,6 +223,8 @@ public class Agent {
         // 检索相关长期记忆，注入到 system prompt
         ContextProfile contextProfile = memoryManager.getContextProfile();
         String memoryContext = memoryManager.buildContextForQuery(userInput, contextProfile.memoryContextTokens());
+        // 当前任务的文字：Skill 索引和 HAO.md 目录按它排序（渐进加载，相关的先给）
+        taskHint = userInput == null ? "" : userInput;
         updateSystemPromptWithMemory(memoryContext);
 
         conversation.append(ImageReferenceParser.userMessage(
@@ -368,6 +370,9 @@ public class Agent {
                         .skillIndex(buildSkillIndex())
                         .toolsEnabled(llmClient == null || llmClient.supportsTools())
                         .build());
+        // 系统提示词最多占模型窗口的四分之一；超出时按优先级省略非固定块（固定的内置规则不动）
+        int window = llmClient == null ? 0 : llmClient.maxContextWindow();
+        blocks = PromptAssembler.fitToBudget(blocks, window > 0 ? window / 4 : 0);
         lastPromptBlocks = blocks;
         return PromptAssembler.render(blocks);
     }
@@ -404,10 +409,13 @@ public class Agent {
         }
     }
 
+    /** 当前这轮用户输入（渐进加载排序用）；还没输入时为空。 */
+    private String taskHint = "";
+
     private String buildSkillIndex() {
         if (skillRegistry == null) return "";
         try {
-            return SkillIndexFormatter.format(skillRegistry.enabledSkills());
+            return SkillIndexFormatter.format(skillRegistry.enabledSkills(), taskHint);
         } catch (Exception e) {
             log.warn("Failed to build skill index", e);
             return "";
@@ -429,7 +437,7 @@ public class Agent {
 
     private String buildProjectMemoryContext() {
         try {
-            return ProjectMemoryLoader.createDefault(Path.of(toolRegistry.getProjectPath())).loadForPrompt();
+            return ProjectMemoryLoader.createDefault(Path.of(toolRegistry.getProjectPath())).loadForPrompt(taskHint);
         } catch (Exception e) {
             log.warn("Failed to load HAO.md project memory", e);
             return "";

@@ -357,7 +357,7 @@ public class ToolRegistry {
         )));
 
         // write_file 工具
-        tools.put("write_file", new LegacyTool(
+        tools.put("write_file", new StatusTool(
                 "write_file",
                 "写入文件内容（仅限项目根目录之内，单文件 5MB 上限）",
                 createParameters(
@@ -393,14 +393,14 @@ public class ToolRegistry {
                             // observer 失败不能影响 write_file 主路径
                         }
                         runPostEditLspHook(path, safe);
-                        return "文件已写入: " + path;
+                        return ToolOutput.text("文件已写入: " + path);
                     } catch (Exception e) {
-                        return "写入文件失败: " + e.getMessage();
+                        return ToolOutput.failure("写入文件失败: " + e.getMessage());
                     }
                 }
         ));
 
-        tools.put("edit_file", new LegacyTool(
+        tools.put("edit_file", new StatusTool(
                 "edit_file",
                 "精确替换项目内已有文件里的文本，无需输出整个文件。old_text 要和文件内容一致（含缩进），"
                         + "默认必须恰好匹配一处，匹配多处时报错并给出所在行；replace_all=true 时替换全部匹配。"
@@ -411,7 +411,7 @@ public class ToolRegistry {
                         new Param("new_text", "string", "替换后的文本；空字符串表示删除原文片段", true),
                         new Param("replace_all", "boolean", "为 true 时替换 old_text 的所有匹配，默认 false", false)
                 ),
-                this::editFile
+                args -> ToolOutput.text(editFile(args))
         ));
 
         // list_dir 工具
@@ -496,7 +496,7 @@ public class ToolRegistry {
      * 注册代码相关工具
      */
     private void registerCodeTools() {
-        tools.put("create_project", new LegacyTool(
+        tools.put("create_project", new StatusTool(
                 "create_project",
                 "创建新项目结构",
                 createParameters(
@@ -533,9 +533,9 @@ public class ToolRegistry {
                                         String.format("{\"name\": \"%s\", \"version\": \"1.0.0\"}", name));
                             }
                         }
-                        return "项目已创建: " + name + " (类型: " + type + ")";
+                        return ToolOutput.text("项目已创建: " + name + " (类型: " + type + ")");
                     } catch (Exception e) {
-                        return "创建项目失败: " + e.getMessage();
+                        return ToolOutput.failure("创建项目失败: " + e.getMessage());
                     }
                 }
         ));
@@ -545,7 +545,7 @@ public class ToolRegistry {
      * 注册 RAG 检索工具
      */
     private void registerRagTools() {
-        tools.put("search_code", new LegacyTool(
+        tools.put("search_code", new StatusTool(
                 "search_code",
                 "RAG 语义辅助检索代码库，根据自然语言描述查找相关代码块；精确符号/字符串定位请优先用 grep_code/glob_files/read_file；默认 top_k=5，可显式指定（上限 30）",
                 createParameters(
@@ -566,17 +566,17 @@ public class ToolRegistry {
                     try (CodeRetriever retriever = new CodeRetriever(projectPath)) {
                         var stats = retriever.getStats();
                         if (stats.chunkCount() == 0) {
-                            return "代码库尚未索引，请先使用 /index 命令索引当前项目。";
+                            return ToolOutput.failure("代码库尚未索引，请先使用 /index 命令索引当前项目。");
                         }
 
                         List<VectorStore.SearchResult> results = retriever.hybridSearch(query, topK);
                         if (results.isEmpty()) {
-                            return "未找到与查询相关的代码。";
+                            return ToolOutput.text("未找到与查询相关的代码。");
                         }
 
-                        return SearchResultFormatter.formatForTool(query, results);
+                        return ToolOutput.text(SearchResultFormatter.formatForTool(query, results));
                     } catch (Exception e) {
-                        return "代码检索失败: " + e.getMessage();
+                        return ToolOutput.failure("代码检索失败: " + e.getMessage());
                     }
                 }
         ));
@@ -597,7 +597,7 @@ public class ToolRegistry {
                 args -> webSearch(args.get("query"), parseInt(args.get("top_k"), 5))
         ));
 
-        tools.put("web_fetch", new LegacyTool(
+        tools.put("web_fetch", new StatusTool(
                 "web_fetch",
                 "抓取当前顶层用户原文提供或本执行分支成功 web_search 结果发现的 URL，提取正文转 Markdown；不得使用模型猜测的 URL。" +
                         "适用静态 / SSR 页面（博客、文档、官网）；JS 渲染或防爬站会返回空正文，本期不重试。",
@@ -610,29 +610,29 @@ public class ToolRegistry {
     }
 
     private void registerBrowserTools() {
-        tools.put("browser_connect", new LegacyTool(
+        tools.put("browser_connect", new StatusTool(
                 "browser_connect",
                 "当浏览器页面返回登录页、权限不足或明确需要登录态时，自动连接已允许远程调试的本机 Chrome 并复用其登录态；公开页面不要提前调用。",
                 createParameters(),
                 args -> browserConnector == null
-                        ? "浏览器连接器未初始化，无法自动切换 shared 模式"
-                        : browserConnector.connectDefault()
+                        ? ToolOutput.failure("浏览器连接器未初始化，无法自动切换 shared 模式")
+                        : ToolOutput.text(browserConnector.connectDefault())
         ));
-        tools.put("browser_disconnect", new LegacyTool(
+        tools.put("browser_disconnect", new StatusTool(
                 "browser_disconnect",
                 "完成登录态页面访问后，可切回 isolated 浏览器模式。",
                 createParameters(),
                 args -> browserConnector == null
-                        ? "浏览器连接器未初始化，无法切回 isolated 模式"
-                        : browserConnector.disconnect()
+                        ? ToolOutput.failure("浏览器连接器未初始化，无法切回 isolated 模式")
+                        : ToolOutput.text(browserConnector.disconnect())
         ));
-        tools.put("browser_status", new LegacyTool(
+        tools.put("browser_status", new StatusTool(
                 "browser_status",
                 "查看当前浏览器 MCP 模式、autoConnect 引导和旧式 CDP 端口探活状态。",
                 createParameters(),
                 args -> browserConnector == null
-                        ? "浏览器连接器未初始化，无法查看浏览器状态"
-                        : browserConnector.status()
+                        ? ToolOutput.failure("浏览器连接器未初始化，无法查看浏览器状态")
+                        : ToolOutput.text(browserConnector.status())
         ));
     }
 
@@ -648,7 +648,7 @@ public class ToolRegistry {
                 ),
                 this::loadSkill
         ));
-        tools.put("save_skill_reference", new LegacyTool(
+        tools.put("save_skill_reference", new StatusTool(
                 "save_skill_reference",
                 "把操作中新发现、已验证的经验（如某站点的陷阱与有效模式）写回某个 Skill 的用户级参考资料 ~/.haocli/skills/<name>/references/。"
                         + "只能写 references/ 下的 .md，不会改内置 Skill，也不能写 SKILL.md；同名文件默认追加，overwrite=true 才整体替换用户级补充文件（内置版本不受影响）。"
@@ -669,8 +669,8 @@ public class ToolRegistry {
                         throw new IllegalArgumentException("Skill '" + name + "' 未找到或已禁用");
                     }
                     try {
-                        return SkillReferences.write(skill, skillRegistry.userOverlayDir(skill), args.get("file"),
-                                args.get("content"), parseBoolean(args.get("overwrite"), false));
+                        return ToolOutput.text(SkillReferences.write(skill, skillRegistry.userOverlayDir(skill),
+                                args.get("file"), args.get("content"), parseBoolean(args.get("overwrite"), false)));
                     } catch (IOException e) {
                         throw new IllegalStateException("写回失败: " + e.getMessage(), e);
                     }
@@ -772,7 +772,7 @@ public class ToolRegistry {
     }
 
     private void registerMemoryTools() {
-        tools.put("save_memory", new LegacyTool(
+        tools.put("save_memory", new StatusTool(
                 "save_memory",
                 "当且仅当用户明确说“记一下”“记住”“以后记得”或要求保存长期偏好/稳定事实时调用，把精炼事实写入长期记忆；scope 默认 project，跨项目偏好才用 global；不要保存一次性任务请求、临时文件名或模型猜测。"
                         + "如果结果提示与已有记忆冲突，把两条都告诉用户并等待用户选择；只有用户明确选择后才可传 replace_id 或 keep_both 重新调用。",
@@ -786,10 +786,10 @@ public class ToolRegistry {
                 args -> {
                     String fact = args.get("fact");
                     if (fact == null || fact.isBlank()) {
-                        return "保存长期记忆失败: fact 不能为空";
+                        return ToolOutput.failure(ToolOutput.FailureCode.INVALID_ARGUMENT, "保存长期记忆失败: fact 不能为空");
                     }
                     if (memoryWriter == null) {
-                        return "保存长期记忆失败: 记忆保存器未初始化";
+                        return ToolOutput.failure("保存长期记忆失败: 记忆保存器未初始化");
                     }
                     String normalized = fact.trim();
                     String scope = "global".equalsIgnoreCase(args.get("scope")) ? "global" : "project";
@@ -797,15 +797,16 @@ public class ToolRegistry {
                     boolean keepBoth = parseBoolean(args.get("keep_both"), false);
                     String message = memoryWriter.write(normalized, scope,
                             replaceId == null || replaceId.isBlank() ? null : replaceId.trim(), keepBoth);
-                    return message == null || message.isBlank()
+                    // 和已有记忆冲突时没有写入，但这是正常结果（等用户选择），不算失败
+                    return ToolOutput.text(message == null || message.isBlank()
                             ? "💾 已保存到长期记忆(" + scope + "): " + normalized
-                            : message;
+                            : message);
                 }
         ));
     }
 
     private void registerSnapshotTools() {
-        tools.put("revert_turn", new LegacyTool(
+        tools.put("revert_turn", new StatusTool(
                 "revert_turn",
                 "恢复到 Side-Git 记录的最近第 N 个 pre-turn 快照。会先记录 pre-restore 快照；属于高危写入操作，必须经 HITL 审批。",
                 createParameters(new Param("offset", "integer", "要恢复的 pre-turn 快照序号，1 表示最近一次任务开始前", false)),
@@ -813,9 +814,11 @@ public class ToolRegistry {
                     int offset = parseInt(args.get("offset"), 1);
                     try {
                         RestoreResult result = snapshotService.restorePreTurn(Math.max(1, offset));
-                        return result.formatForCli();
+                        // 用快照服务自己的成败标志，不按文字猜
+                        return result.success() ? ToolOutput.text(result.formatForCli())
+                                : ToolOutput.failure(result.formatForCli());
                     } catch (Exception e) {
-                        return "恢复快照失败: " + e.getMessage();
+                        return ToolOutput.failure("恢复快照失败: " + e.getMessage());
                     }
                 }
         ));
@@ -983,18 +986,19 @@ public class ToolRegistry {
         return sb.toString().trim();
     }
 
-    String webFetch(String url, int maxChars) {
+    ToolOutput webFetch(String url, int maxChars) {
         if (url == null || url.isBlank()) {
-            return "URL 不能为空";
+            return ToolOutput.failure(ToolOutput.FailureCode.INVALID_ARGUMENT, "URL 不能为空");
         }
         NetworkPolicy policy = networkPolicy();
         String denyReason = policy.checkUrl(url);
         if (denyReason != null) {
-            return "❌ 网络访问被拒绝: " + denyReason;
+            // 网络策略拒绝（确定性规则），和其他策略拒绝一样记为 DENIED
+            return ToolOutput.denied("❌ 网络访问被拒绝: " + denyReason);
         }
         String rateReason = policy.acquire();
         if (rateReason != null) {
-            return "❌ " + rateReason;
+            return ToolOutput.failure("❌ " + rateReason);
         }
         if (shouldPreferStepSearch() && tools.containsKey(STEP_FETCH_TOOL)) {
             ObjectNode args = mapper.createObjectNode();
@@ -1003,7 +1007,7 @@ public class ToolRegistry {
                     "max_chars", "maxChars", "limit", "max_length", "maxLength");
             ToolOutput output = executeToolOutput(STEP_FETCH_TOOL, args.toString());
             if (isUsableMcpOutput(output)) {
-                return "🌐 [StepSearch] 抓取: " + url.trim() + "\n\n" + output.text().trim();
+                return ToolOutput.text("🌐 [StepSearch] 抓取: " + url.trim() + "\n\n" + output.text().trim());
             }
         }
 
@@ -1018,9 +1022,9 @@ public class ToolRegistry {
                 truncated = true;
             }
             FetchResult result = FetchResult.ok(raw.url(), extracted.title(), markdown, originalLength, truncated);
-            return formatFetchResult(result);
+            return ToolOutput.text(formatFetchResult(result));
         } catch (Exception e) {
-            return "抓取失败: " + e.getMessage();
+            return ToolOutput.failure("抓取失败: " + e.getMessage());
         }
     }
 
@@ -1893,6 +1897,28 @@ public class ToolRegistry {
     /**
      * 还没迁移成独立类的内置工具和 MCP 工具：执行器只返回文字，状态按前缀推断（甲阶段迁完后删除）。
      */
+    /**
+     * 自己报告状态的内置工具：执行器直接返回 {@link ToolOutput}，调度层不再按文字前缀猜成败
+     * （甲阶段过渡：还没搬成独立类的工具先在这里如实报告）。
+     */
+    record StatusTool(String name, String description, JsonNode parameters, OutputExecutor executor) implements Tool {
+        @Override
+        public boolean readOnly() {
+            return isParallelSafeTool(name);
+        }
+
+        @Override
+        public ToolOutput execute(ToolArguments args, ToolContext context) throws Exception {
+            ToolOutput output = executor.execute(new HashMap<>(args.asMap()));
+            return output == null ? ToolOutput.text("") : output;
+        }
+    }
+
+    @FunctionalInterface
+    interface OutputExecutor {
+        ToolOutput execute(Map<String, String> args) throws Exception;
+    }
+
     record LegacyTool(String name, String description, JsonNode parameters, ToolExecutor executor) implements Tool {
         @Override
         public boolean readOnly() {

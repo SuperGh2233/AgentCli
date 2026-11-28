@@ -39,13 +39,13 @@ class AgentOrchestratorTest {
         orchestrator.setConversationLedger(ledger);
 
         assertSame(ledger, readField(orchestrator, "conversationLedger"));
-        assertSame(ledger, readField(readField(orchestrator, "planner"), "conversationLedger"));
+        assertSame(ledger, ((SubAgent) readField(orchestrator, "planner")).conversationLedger());
         @SuppressWarnings("unchecked")
         List<SubAgent> workers = (List<SubAgent>) readField(orchestrator, "workers");
         for (SubAgent worker : workers) {
-            assertSame(ledger, readField(worker, "conversationLedger"));
+            assertSame(ledger, worker.conversationLedger());
         }
-        assertSame(ledger, readField(readField(orchestrator, "reviewer"), "conversationLedger"));
+        assertSame(ledger, ((SubAgent) readField(orchestrator, "reviewer")).conversationLedger());
     }
 
     @Test

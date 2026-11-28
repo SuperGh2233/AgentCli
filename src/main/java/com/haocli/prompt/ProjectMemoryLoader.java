@@ -44,6 +44,14 @@ public class ProjectMemoryLoader {
      * 模型需要时用 read_file 按行号去读。
      */
     public String loadForPrompt() {
+        return loadForPrompt("");
+    }
+
+    /**
+     * taskHint 是当前任务的文字：放不下时列出的目录里，标题命中任务关键词的排在前面并标出来，
+     * 模型先读相关的部分。预算内的内容和排序前一样，不受影响。
+     */
+    public String loadForPrompt(String taskHint) {
         List<MemorySource> sources = sources();
         StringBuilder body = new StringBuilder();
         Set<Path> importStack = new HashSet<>();
@@ -82,6 +90,17 @@ public class ProjectMemoryLoader {
             if (!body.isEmpty()) section.append("\n\n");
             section.append("### 未展开的部分\n\n以下内容因上下文预算（")
                     .append(MAX_TOTAL_CHARS).append(" 字符）没有放进来；需要时用 read_file 按路径和行号读取：\n");
+            java.util.Set<String> keywords = TaskRelevance.keywords(taskHint);
+            if (!keywords.isEmpty()) {
+                List<String> relevant = new ArrayList<>();
+                List<String> others = new ArrayList<>();
+                for (String entry : outline) {
+                    if (TaskRelevance.score(entry, keywords) > 0) relevant.add(entry + "（和当前任务相关）");
+                    else others.add(entry);
+                }
+                outline = new ArrayList<>(relevant);
+                outline.addAll(others);
+            }
             int shown = Math.min(outline.size(), MAX_OUTLINE_ENTRIES);
             for (int i = 0; i < shown; i++) {
                 section.append(outline.get(i)).append('\n');

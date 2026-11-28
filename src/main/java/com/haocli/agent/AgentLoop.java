@@ -85,9 +85,13 @@ final class AgentLoop {
      * @param text   交给调用方显示或返回的文字（可能带思考过程和提示，流式显示过时可能为空）
      * @param answer 模型的原始回答 / 部分结果 / 取消或失败说明，不含格式和提示，供无界面模式等使用
      */
-    record Result(Status status, String text, String answer, String reason) {
+    record Result(Status status, String text, String answer, String reason, IOException failure) {
         Result(Status status, String text, String answer) {
-            this(status, text, answer, null);
+            this(status, text, answer, null, null);
+        }
+
+        Result(Status status, String text, String answer, String reason) {
+            this(status, text, answer, reason, null);
         }
     }
 
@@ -100,7 +104,8 @@ final class AgentLoop {
      * （系统属性 {@code haocli.react.*} 仍然生效）。
      */
     record Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
-                Host host, IntSupplier compressionTriggerTokens, AgentEventListener events, RunLimits limits) {
+                Host host, IntSupplier compressionTriggerTokens, AgentEventListener events, RunLimits limits,
+                boolean toolsEnabled) {
         Turn {
             Objects.requireNonNull(llm, "llm");
             Objects.requireNonNull(toolPolicy, "toolPolicy");
@@ -108,6 +113,12 @@ final class AgentLoop {
             Objects.requireNonNull(compressionTriggerTokens, "compressionTriggerTokens");
             events = events == null ? AgentEventListener.NONE : events;
             limits = limits == null ? RunLimits.UNLIMITED : limits;
+        }
+
+        /** toolsEnabled=false：这一轮的请求一律不带工具定义（Team 的 planner / reviewer，评测审计要求）。 */
+        Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
+             Host host, IntSupplier compressionTriggerTokens, AgentEventListener events, RunLimits limits) {
+            this(llm, toolPolicy, steering, host, compressionTriggerTokens, events, limits, true);
         }
 
         Turn(LlmClient llm, TurnToolPolicy toolPolicy, ReActSteeringSafePoint steering,
@@ -124,6 +135,8 @@ final class AgentLoop {
     private final ToolRegistry toolRegistry;
     private final ConversationContext conversation;
     private final HarnessFeatures features;
+    /** 每次运行新建一组模块（组装方决定有哪些、什么顺序）；内核不 new 任何具体模块。 */
+    private final java.util.function.Supplier<List<TurnHook>> hookFactory;
     /** 本轮发出的模型请求数（含超预算收尾请求）。同一个 Agent 不会并发跑两轮。 */
     private int modelRequests;
 
@@ -132,32 +145,26 @@ final class AgentLoop {
     }
 
     AgentLoop(ToolRegistry toolRegistry, ConversationContext conversation, HarnessFeatures features) {
+        this(toolRegistry, conversation, features,
+                DefaultTurnHooks.supplier(features == null ? HarnessFeatures.ALL_ON : features, toolRegistry));
+    }
+
+    AgentLoop(ToolRegistry toolRegistry, ConversationContext conversation, HarnessFeatures features,
+              java.util.function.Supplier<List<TurnHook>> hookFactory) {
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry");
         this.conversation = Objects.requireNonNull(conversation, "conversation");
         this.features = features == null ? HarnessFeatures.ALL_ON : features;
+        this.hookFactory = Objects.requireNonNull(hookFactory, "hookFactory");
     }
 
     HarnessFeatures features() {
         return features;
     }
 
-    /** 本次运行挂在内核上的模块，按调用顺序；关掉的模块不创建。 */
+    /** 本次运行挂在内核上的模块，按调用顺序（由组装方提供）。 */
     List<TurnHook> createHooks() {
-        List<TurnHook> hooks = new ArrayList<>();
-        if (features.lspDiagnostics()) {
-            hooks.add(new LspDiagnosticsHook(toolRegistry));
-        }
-        com.haocli.memory.AutoCompactionManager.Layers layers = features.compactionLayers();
-        if (layers.any()) {
-            hooks.add(new ContextCompactionHook(layers));
-        }
-        // 能力类模块，不参与消融：去掉会改变工具语义（load_skill）或只是观察。
-        hooks.add(new ResourceFailureHook(Path.of(toolRegistry.getProjectPath())));
-        hooks.add(new SkillInjectionHook(toolRegistry));
-        if (features.runawayReminder()) {
-            hooks.add(new RunawayReminderHook());
-        }
-        return hooks;
+        List<TurnHook> hooks = hookFactory.get();
+        return hooks == null ? List.of() : List.copyOf(hooks);
     }
 
     private TurnHook.Context hookContext(Turn turn) {
@@ -223,7 +230,12 @@ final class AgentLoop {
             }
             // 调模型前只评估真正发送的对话；不复制影子短期记忆。
             for (TurnHook hook : hooks) {
-                hook.beforeModelRequest(hookContext);
+                try {
+                    hook.beforeModelRequest(hookContext);
+                } catch (RuntimeException e) {
+                    log.warn("TurnHook {} failed before model request; continuing without it this time",
+                            hook.getClass().getSimpleName(), e);
+                }
             }
             AgentBudget.ExitReason exitReason = budget.check();
             if (exitReason != AgentBudget.ExitReason.WITHIN_BUDGET) {
@@ -233,7 +245,7 @@ final class AgentLoop {
             int iteration = budget.beginIteration();
 
             try {
-                List<LlmClient.Tool> toolDefinitions = llm.supportsTools()
+                List<LlmClient.Tool> toolDefinitions = turn.toolsEnabled() && llm.supportsTools()
                         ? toolRegistry.getToolDefinitions()
                         : null;
                 TurnToolPolicy.ToolExposure toolExposure = turn.toolPolicy().expose(toolDefinitions);
@@ -300,7 +312,7 @@ final class AgentLoop {
                     }
                     List<ToolExecutionResult> toolResults = executedResults;
                     for (TurnHook hook : hooks) {
-                        toolResults = hook.beforeAppendToolResults(toolResults, hookContext);
+                        toolResults = rewriteToolResults(hook, toolResults, hookContext);
                     }
                     for (ToolExecutionResult toolResult : toolResults) {
                         conversation.append(
@@ -309,7 +321,11 @@ final class AgentLoop {
                     }
                     appendImageToolMessages(toolResults);
                     for (TurnHook hook : hooks) {
-                        hook.afterToolResults(toolResults, hookContext);
+                        try {
+                            hook.afterToolResults(toolResults, hookContext);
+                        } catch (RuntimeException e) {
+                            log.warn("TurnHook {} failed after tool results", hook.getClass().getSimpleName(), e);
+                        }
                     }
                     continue;
                 }
@@ -383,7 +399,12 @@ final class AgentLoop {
                     emergencyCompactionTried = true;
                     boolean changed = false;
                     for (TurnHook hook : hooks) {
-                        changed |= hook.onContextOverflow(hookContext);
+                        try {
+                            changed |= hook.onContextOverflow(hookContext);
+                        } catch (RuntimeException hookError) {
+                            log.warn("TurnHook {} failed during emergency compaction",
+                                    hook.getClass().getSimpleName(), hookError);
+                        }
                     }
                     if (changed) {
                         log.warn("Context overflow reported by the model; emergency compaction done, retrying");
@@ -398,7 +419,7 @@ final class AgentLoop {
                 }
                 log.error("LLM call failed in ReAct loop", e);
                 String failure = "❌ 调用 LLM 失败: " + e.getMessage();
-                return new Result(Status.FAILED, failure, failure, llmFailureReason(e));
+                return new Result(Status.FAILED, failure, failure, llmFailureReason(e), e);
             }
         }
     }
@@ -514,6 +535,31 @@ final class AgentLoop {
             log.error("LLM finalization call failed after ReAct budget exhaustion", e);
             String partial = formatPartialResult(description, "收尾调用失败：" + e.getMessage());
             return new Result(Status.PARTIAL, partial, partial, reason);
+        }
+    }
+
+    /**
+     * 模块改写工具结果：出错或者改了条数 / 顺序（会破坏调用和结果的配对）时丢弃这次改写，用原结果。
+     */
+    private static List<ToolExecutionResult> rewriteToolResults(TurnHook hook, List<ToolExecutionResult> results,
+                                                                TurnHook.Context context) {
+        try {
+            List<ToolExecutionResult> rewritten = hook.beforeAppendToolResults(results, context);
+            if (rewritten == null || rewritten.size() != results.size()) {
+                log.warn("TurnHook {} changed the number of tool results; ignoring its rewrite",
+                        hook.getClass().getSimpleName());
+                return results;
+            }
+            for (int i = 0; i < results.size(); i++) {
+                if (!Objects.equals(rewritten.get(i).id(), results.get(i).id())) {
+                    log.warn("TurnHook {} reordered tool results; ignoring its rewrite", hook.getClass().getSimpleName());
+                    return results;
+                }
+            }
+            return rewritten;
+        } catch (RuntimeException e) {
+            log.warn("TurnHook {} failed rewriting tool results; using them unchanged", hook.getClass().getSimpleName(), e);
+            return results;
         }
     }
 

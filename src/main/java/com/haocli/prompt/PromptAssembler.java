@@ -76,11 +76,60 @@ public class PromptAssembler {
         return List.copyOf(blocks);
     }
 
-    /** 把块按顺序拼成提示词（块之间空一行）。 */
+    /** 超出预算时先丢的块（越靠前越先丢）；固定块（pinned）从不丢。 */
+    private static final List<ContextBlock.Source> DROP_ORDER = List.of(
+            ContextBlock.Source.MEMORY, ContextBlock.Source.EXTERNAL, ContextBlock.Source.PROJECT_RULES,
+            ContextBlock.Source.SKILL_INDEX, ContextBlock.Source.RUNTIME);
+
+    /**
+     * 按预算装配：总估算 Token 超过 maxTokens 时，按 {@link #DROP_ORDER} 依次把非固定块换成一行说明
+     * （告诉模型怎么按需取回），直到放得下；固定块永远保留，所以只剩固定块时可能仍超预算。maxTokens ≤ 0 表示不限。
+     * 块的顺序不变（稳定内容在前，前缀缓存不受影响）。
+     */
+    public static List<ContextBlock> fitToBudget(List<ContextBlock> blocks, int maxTokens) {
+        if (maxTokens <= 0 || total(blocks) <= maxTokens) {
+            return blocks;
+        }
+        List<ContextBlock> fitted = new ArrayList<>(blocks);
+        for (ContextBlock.Source source : DROP_ORDER) {
+            for (int i = fitted.size() - 1; i >= 0 && total(fitted) > maxTokens; i--) {
+                ContextBlock block = fitted.get(i);
+                if (!block.pinned() && block.source() == source && !block.id().endsWith("-omitted")) {
+                    fitted.set(i, new ContextBlock(block.id() + "-omitted", block.source(), true, false,
+                            omittedNotice(block.source())));
+                }
+            }
+        }
+        return List.copyOf(fitted);
+    }
+
+    private static int total(List<ContextBlock> blocks) {
+        int sum = 0;
+        for (ContextBlock block : blocks) {
+            sum += block.estimatedTokens();
+        }
+        return sum;
+    }
+
+    private static String omittedNotice(ContextBlock.Source source) {
+        return switch (source) {
+            case MEMORY -> "（相关长期记忆超出提示词预算，本轮省略；需要时用户可用 /memory search 查看）";
+            case EXTERNAL -> "（外部资源索引超出提示词预算，本轮省略；需要时直接用对应工具读取）";
+            case PROJECT_RULES -> "（项目规则 HAO.md 超出提示词预算，本轮省略；需要时用 read_file 读取项目根目录的 HAO.md）";
+            case SKILL_INDEX -> "（Skill 索引超出提示词预算，本轮省略；知道名字时仍可调用 load_skill）";
+            default -> "（" + source.label() + "超出提示词预算，本轮省略）";
+        };
+    }
+
+    /** 把块按顺序拼成提示词（块之间空一行）。不可信块一律带上边界说明（由代码保证，不靠调用方记得加）。 */
     public static String render(List<ContextBlock> blocks) {
         StringBuilder prompt = new StringBuilder();
         for (ContextBlock block : blocks) {
-            append(prompt, block.content());
+            String content = block.content();
+            if (!block.trusted() && !block.isEmpty() && !content.contains(EXTERNAL_NOTICE)) {
+                content = EXTERNAL_NOTICE + "\n\n" + content;
+            }
+            append(prompt, content);
         }
         String assembled = prompt.toString().trim();
         validateLanguageSection(assembled, "assembled prompt");

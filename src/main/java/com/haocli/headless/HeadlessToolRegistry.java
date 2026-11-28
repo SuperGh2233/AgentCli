@@ -27,10 +27,21 @@ final class HeadlessToolRegistry extends ToolRegistry {
 
     private final HeadlessOptions.PermissionMode mode;
     private final List<String> allowedCommands;
+    /** 嵌入方（进程内运行时）显式注册的工具：名字 → 是否只读。 */
+    private final java.util.Map<String, Boolean> embedderTools = new java.util.concurrent.ConcurrentHashMap<>();
 
     HeadlessToolRegistry(HeadlessOptions.PermissionMode mode, List<String> allowedCommands) {
         this.mode = mode;
         this.allowedCommands = List.copyOf(allowedCommands);
+    }
+
+    /**
+     * 嵌入方自己写的工具：只读的始终可用；有副作用的只在 edit 模式可用（和内置写文件工具同一条规则）。
+     * PathGuard、审计、参数校验照常在调度层执行。
+     */
+    void registerEmbedderTool(com.haocli.tool.Tool tool) {
+        registerTool(tool);
+        embedderTools.put(tool.name(), tool.readOnly());
     }
 
     @Override
@@ -56,6 +67,10 @@ final class HeadlessToolRegistry extends ToolRegistry {
         if (READ_ONLY_TOOLS.contains(name)) {
             return true;
         }
+        Boolean embedderReadOnly = embedderTools.get(name);
+        if (embedderReadOnly != null) {
+            return embedderReadOnly || mode != HeadlessOptions.PermissionMode.READ_ONLY;
+        }
         if (EDIT_TOOLS.contains(name)) {
             return mode != HeadlessOptions.PermissionMode.READ_ONLY;
         }
@@ -68,6 +83,12 @@ final class HeadlessToolRegistry extends ToolRegistry {
         String tool = name == null ? "" : name.trim();
         if (READ_ONLY_TOOLS.contains(tool)) {
             return null;
+        }
+        Boolean embedderReadOnly = embedderTools.get(tool);
+        if (embedderReadOnly != null) {
+            return embedderReadOnly || mode != HeadlessOptions.PermissionMode.READ_ONLY
+                    ? null
+                    : "当前是 read-only 模式，不允许有副作用的工具 " + tool;
         }
         if (EDIT_TOOLS.contains(tool)) {
             return mode != HeadlessOptions.PermissionMode.READ_ONLY

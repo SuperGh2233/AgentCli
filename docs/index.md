@@ -2,6 +2,9 @@
 
 | 文件 | 状态 | 用途 |
 |---|---|---|
+| [运行时架构](architecture/HAO-RUNTIME-ARCHITECTURE.md) | active | 最小内核 AgentLoop、模块组装、Plan / Team / SDK 统一执行、职责边界 |
+| [上下文工程](architecture/CONTEXT-ENGINEERING.md) | active | 统一上下文生命周期、五层压缩、渐进式提示词加载、ContextBlock 元数据 |
+| [架构收敛路线](plans/active/HAO-ARCHITECTURE-ROADMAP.md) | active | 2026-11-28 冲刺完成项、未完成项和下一步 |
 | [完整说明（原 README）](guide.md) | active | 配置、全部命令和工具、各期功能与演进历程；首页 README 只放概览 |
 | [后续路线：可嵌入的 Agent 运行时](plans/active/PLAN-20261126-runtime-roadmap.md) | active | 当前主线：P0 → 契约 → 统一执行 → 目标循环 → 安全 → 拆 Main → 上下文 → 拆模块 → 收尾 |
 | [ADR-0001 架构边界](adr/ADR-0001-architecture-boundaries.md) | accepted | 4 个模块、只做显式注册、包名不改 |

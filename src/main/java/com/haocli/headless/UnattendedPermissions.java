@@ -53,6 +53,23 @@ public record UnattendedPermissions(HeadlessOptions.PermissionMode mode, List<St
         return new UnattendedPermissions(HeadlessOptions.parseMode(value.trim()), List.of());
     }
 
+    /**
+     * 进程内运行时用：同一套白名单的工具注册表，项目根目录由 PathGuard 守住；嵌入方显式传入的工具按它自己声明的
+     * {@code readOnly()} 判断。不支持 sandbox（那只给一次性隔离容器用）。
+     */
+    public com.haocli.tool.ToolRegistry newToolRegistry(java.nio.file.Path projectRoot,
+                                                        List<com.haocli.tool.Tool> embedderTools) {
+        if (mode == HeadlessOptions.PermissionMode.SANDBOX) {
+            throw new IllegalArgumentException("进程内运行时不支持 sandbox 权限");
+        }
+        HeadlessToolRegistry registry = new HeadlessToolRegistry(mode, allowedCommands);
+        registry.setProjectPath(projectRoot.toAbsolutePath().normalize().toString());
+        if (embedderTools != null) {
+            embedderTools.forEach(registry::registerEmbedderTool);
+        }
+        return registry;
+    }
+
     /** 启动时给用户看的一行说明。 */
     public String describe() {
         String modeText = switch (mode) {
