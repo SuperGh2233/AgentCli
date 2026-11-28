@@ -374,7 +374,9 @@ class TeamExecutionObservationTest {
         assertTrue(script.exposedTools.get(2).isEmpty(), "native full-summary call does not expose tools");
         assertEquals("[已压缩的历史对话摘要]\n" + summary, script.requests.get(3).get(1).content());
         assertNotEquals(input.userText(), TextFingerprint.of(script.requests.get(3).get(1).content()));
-        assertEquals(3, script.requests.get(3).stream().filter(message -> message.contentParts() != null
+        // 2026-11-28 起 Team 子 Agent 和 ReAct 走同一套五层上下文处理：第 2 层历史裁剪只保留最近 1 条带图片的消息
+        // （HistoryTrimmer.KEEP_RECENT_IMAGE_MESSAGES）。以前 Team 只有清理和摘要两层，这里是 3。
+        assertEquals(1, script.requests.get(3).stream().filter(message -> message.contentParts() != null
                 && message.contentParts().stream().anyMatch(LlmClient.ContentPart::isImage)).count());
         assertEquals(List.of(1, 1, 1), only(events, ToolBatchReturned.class).results().stream().map(ToolResult::imagePartCount).toList());
         assertEquals(RunExitReason.COMPLETED, only(events, RunExited.class).reason());
